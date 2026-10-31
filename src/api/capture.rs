@@ -95,8 +95,8 @@ impl CaptureController {
         } else {
             if !descriptor {
                 file.set_len(0)?;
+                file.seek(SeekFrom::Start(0))?;
             }
-            file.seek(SeekFrom::Start(0))?;
             Capture::new(file, limit)?
         };
         if self.current.is_some() {
@@ -114,7 +114,7 @@ impl CaptureController {
             return Ok(None);
         }
         let (file, capture) = self.current.take().expect("capture exists");
-        capture.finish()?.sync_all()?;
+        finish(capture)?;
         Ok(Some(Event::PacketCaptureStopped {
             reason: CaptureStopReason::MaxSizeReached { file },
         }))
@@ -122,7 +122,7 @@ impl CaptureController {
     pub fn stop(&mut self, disconnected: bool) -> Result<Event> {
         let reason = match self.current.take() {
             Some((file, capture)) => {
-                capture.finish()?.sync_all()?;
+                finish(capture)?;
                 if disconnected {
                     CaptureStopReason::Disconnected { file }
                 } else {
@@ -136,4 +136,14 @@ impl CaptureController {
     pub fn active(&self) -> bool {
         self.current.is_some()
     }
+}
+
+fn finish(capture: Capture<File>) -> std::io::Result<()> {
+    let file = capture.finish()?;
+    // Pipes and sockets support flushing their writer, but cannot be fsynced.
+    // Preserve durable completion for regular capture files.
+    if file.metadata()?.is_file() {
+        file.sync_all()?;
+    }
+    Ok(())
 }
