@@ -23,16 +23,6 @@ pub struct AgentSettings {
     pub random_nat: Option<bool>,
     pub circumvention_routing: Option<bool>,
 }
-impl AgentSettings {
-    pub fn validate(&self) -> Result<()> {
-        if self.port_forwarding == Some(true) && self.random_nat == Some(false) {
-            return Err(Error::Invalid(
-                "port forwarding conflicts with moderate NAT",
-            ));
-        }
-        Ok(())
-    }
-}
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Endpoint {
     pub peer_id: String,

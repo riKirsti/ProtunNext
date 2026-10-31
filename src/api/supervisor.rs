@@ -238,9 +238,11 @@ struct Supervisor {
 }
 impl Supervisor {
     fn initialize(&mut self) -> Result<()> {
-        if let ConnectionMode::LocalAgent { settings, .. } = &self.config.connection_mode {
-            crate::control::AgentSettings::from(settings).validate()?;
-            #[cfg(not(feature = "local-agent"))]
+        #[cfg(not(feature = "local-agent"))]
+        if matches!(
+            self.config.connection_mode,
+            ConnectionMode::LocalAgent { .. }
+        ) {
             return Err(crate::Error::Invalid("build requires local-agent feature"));
         }
         self.key = Zeroizing::new(match &self.config.connection_mode {
@@ -468,9 +470,6 @@ impl Supervisor {
     fn command(&mut self, command: Command) -> Result<()> {
         match command {
             Command::Update(update) => {
-                if let Some(settings) = &update.settings {
-                    crate::control::AgentSettings::from(settings).validate()?;
-                }
                 // Validate and take replacement descriptor before applying any
                 // portion of an atomic update.
                 let replacement = update
@@ -479,6 +478,10 @@ impl Supervisor {
                         TunStreamInfo::NoTun => Ok(None),
                         TunStreamInfo::TunFd(fd) => take_descriptor(fd).map(Some),
                     })
+                    .transpose()?;
+                let worker_tun = replacement
+                    .as_ref()
+                    .map(|tun| tun.as_ref().map(File::try_clone).transpose())
                     .transpose()?;
                 if let Some(peers) = update.peers {
                     self.config.peers = peers;
@@ -513,7 +516,7 @@ impl Supervisor {
                 }
                 if let Some(tun) = replacement {
                     if let Some(worker) = &self.worker {
-                        worker.replace_tun(tun.as_ref().map(AsFd::as_fd))?;
+                        worker.replace_owned_tun(worker_tun.expect("prepared update"));
                     }
                     self.tun = tun;
                 }

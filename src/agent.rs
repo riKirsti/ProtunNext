@@ -20,7 +20,7 @@ pub struct Applied {
     pub matches_request: bool,
 }
 pub fn settings(request: &AgentSettings) -> Result<Vec<Setting>> {
-    request.validate()?;
+    // The server owns policy compatibility and entitlement decisions.
     let mut result = Vec::with_capacity(6);
     if let Some(v) = request.split_tcp {
         result.push(Setting::SettingsSplitTcp(v));
@@ -106,6 +106,17 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Agent<S> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn port_forwarding_and_nat_policy_are_left_to_the_server() {
+        let request = AgentSettings {
+            port_forwarding: Some(true),
+            random_nat: Some(false),
+            ..Default::default()
+        };
+        let result = settings(&request).expect("typed requests must reach server policy");
+        assert!(result.contains(&Setting::SettingsPortForwarding(true)));
+        assert!(result.contains(&Setting::SettingsRandomNat(false)));
+    }
     #[test]
     fn typed_requests_match_published_selector_values() {
         let request = AgentSettings {

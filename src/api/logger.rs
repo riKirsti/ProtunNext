@@ -74,3 +74,43 @@ pub fn init_logger(level: LogLevel, logger: Box<dyn ClientLogger>) {
         log::set_max_level(level);
     }
 }
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use log::Log;
+    use std::sync::{Arc, Mutex};
+    struct Collect(Arc<Mutex<Vec<String>>>);
+    impl ClientLogger for Collect {
+        fn log(&self, _: LogLevel, message: String) {
+            self.0.lock().unwrap().push(message);
+        }
+    }
+    #[test]
+    fn sdk_auth_and_http_traces_cannot_forward_selectors_to_client_logger() {
+        let messages = Arc::new(Mutex::new(Vec::new()));
+        let logger = CallbackLogger {
+            callback: Box::new(Collect(messages.clone())),
+            level: log::LevelFilter::Trace,
+        };
+        for target in ["muon::auth::from_fork", "hyper::client", "h2::client"] {
+            logger.log(
+                &log::Record::builder()
+                    .level(log::Level::Info)
+                    .target(target)
+                    .args(format_args!("selector=PUBLIC-TEST-ONLY"))
+                    .build(),
+            );
+        }
+        logger.log(
+            &log::Record::builder()
+                .level(log::Level::Info)
+                .target("protun_next::api")
+                .args(format_args!("diagnostic"))
+                .build(),
+        );
+        assert_eq!(
+            *messages.lock().unwrap(),
+            vec!["protun_next::api: diagnostic"]
+        );
+    }
+}

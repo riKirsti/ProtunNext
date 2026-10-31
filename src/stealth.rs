@@ -56,7 +56,7 @@ impl SniStrategy {
     }
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(unix)]
 mod policy {
     use super::*;
     use rustls::{
@@ -129,7 +129,7 @@ mod policy {
         .map_err(|e| Error::Protocol(e.to_string()))
     }
 }
-#[cfg(target_os = "linux")]
+#[cfg(unix)]
 pub(crate) use policy::client;
 
 include!("stealth_top_sni.rs");

@@ -180,6 +180,30 @@ fn actual_udp_tcp_tls_engine_tun_roundtrips() {
         };
         let mut connection =
             Connection::start(tun.as_fd(), config, "lo".into(), transport).unwrap();
+        if mode == 0 {
+            connection.replace_tun(None).unwrap();
+            let deadline = std::time::Instant::now() + Duration::from_secs(2);
+            while connection.snapshot().tun_present {
+                assert!(std::time::Instant::now() < deadline, "TUN detach deadline");
+                let snapshot = connection.snapshot();
+                connection.wait_after(snapshot.sequence, Duration::from_millis(50));
+            }
+            connection.replace_tun(Some(tun.as_fd())).unwrap();
+            while !connection.snapshot().tun_present {
+                assert!(
+                    std::time::Instant::now() < deadline,
+                    "TUN replacement deadline"
+                );
+                let snapshot = connection.snapshot();
+                connection.wait_after(snapshot.sequence, Duration::from_millis(50));
+            }
+            let invalid = File::open("/dev/null").unwrap();
+            assert!(connection.replace_tun(Some(invalid.as_fd())).is_err());
+            assert!(
+                connection.snapshot().tun_present,
+                "invalid replacement must retain working TUN"
+            );
+        }
         let app = UdpSocket::bind("10.2.0.2:0").unwrap();
         app.set_read_timeout(Some(if (4..=6).contains(&mode) {
             Duration::from_millis(500)
