@@ -7,6 +7,10 @@ license = "GPL-3.0-or-later"
 description = "Independent Protun successor; explicit parity and performance verification gates"
 repository = "https://github.com/riKirsti/ProtunNext"
 
+[features]
+default = []
+local-agent = ["dep:proton-vpn-local-agent", "dep:futures"]
+
 [dependencies]
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -18,6 +22,8 @@ proton-boringtun = { version = "=4.9.0", registry = "proton", default-features =
 rand_chacha = "0.10"
 rustls = { version = "=0.23.46", default-features = false, features = ["std", "ring", "tls12"] }
 webpki-roots = "1"
+proton-vpn-local-agent = { version = "=0.13.0", registry = "proton", optional = true }
+futures = { version = "0.3", optional = true }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 libc = "0.2"

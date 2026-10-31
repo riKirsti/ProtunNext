@@ -1,4 +1,4 @@
-use protun_next::{config::WireguardConfig, control};
+use protun_next::{config, control};
 fn main() {
     if let Err(error) = run() {
         eprintln!("{error}");
@@ -14,10 +14,7 @@ fn run() -> protun_next::Result<()> {
         }
         Some("verify-parity") => control::release_gate(),
         Some("check-config") if args.len() == 3 => {
-            let bytes = std::fs::read(&args[2])?;
-            let text = std::str::from_utf8(&bytes)
-                .map_err(|_| protun_next::Error::Invalid("UTF-8 configuration"))?;
-            let config = WireguardConfig::parse(text)?;
+            let config = config::load(std::path::Path::new(&args[2]))?;
             println!(
                 "configuration valid; endpoint={}, mtu={}; no network changes applied",
                 config.endpoint, config.mtu
@@ -27,7 +24,7 @@ fn run() -> protun_next::Result<()> {
         Some("run-udp") if args.len() == 5 => {
             #[cfg(target_os = "linux")]
             {
-                let config = WireguardConfig::parse(&std::fs::read_to_string(&args[2])?)?;
+                let config = config::load(std::path::Path::new(&args[2]))?;
                 let fd: i32 = args[3]
                     .parse()
                     .map_err(|_| protun_next::Error::Invalid("TUN descriptor"))?;

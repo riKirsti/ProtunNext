@@ -35,7 +35,9 @@ fn echo_ipv4(packet: &mut [u8]) {
     packet[header + 6..header + 8].fill(0);
     packet[10..12].fill(0);
     let mut sum: u32 = packet[..header]
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .map(|p| u16::from_be_bytes([p[0], p[1]]) as u32)
         .sum();
     while sum > 0xffff {
@@ -60,10 +62,8 @@ fn actual_udp_engine_tun_roundtrip() {
     request[..3].copy_from_slice(b"pn0");
     request[16..18].copy_from_slice(&((libc::IFF_TUN | libc::IFF_NO_PI) as i16).to_ne_bytes());
     // SAFETY: valid TUN descriptor and 40-byte ifreq storage, private test namespace.
-    assert_eq!(
-        unsafe { libc::ioctl(tun.as_raw_fd(), libc::TUNSETIFF, request.as_mut_ptr()) },
-        0
-    );
+    let configured = unsafe { libc::ioctl(tun.as_raw_fd(), libc::TUNSETIFF, request.as_mut_ptr()) };
+    assert_eq!(configured, 0);
     ip(&["link", "set", "lo", "up"]);
     ip(&["addr", "add", "10.2.0.2/32", "dev", "pn0"]);
     ip(&["link", "set", "pn0", "mtu", "1280", "up"]);

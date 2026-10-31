@@ -23,7 +23,7 @@ or a green unit test does not mean a complete VPN client or paid-feature support
   rather than being silently ignored. No routing or DNS settings are applied.
 * PCAP writer, NAT-PMP wire codec and candidate-selection/settings validation.
 
-These components are not the missing Local Agent, account or platform runtime.
+The optional `local-agent` feature provides a typed adapter to Proton's published mTLS control client, including settings/readback and subscriptions. It requires caller-supplied certificates and a protected stream. These components are not a complete Local Agent/account or platform runtime.
 See [the complete parity ledger](docs/parity.json),
 [architecture and dependency decisions](docs/architecture.md), and
 [verification evidence](docs/verification.md).

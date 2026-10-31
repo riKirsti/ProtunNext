@@ -18,8 +18,8 @@ jobs:
         with:
           components: rustfmt, clippy
       - run: cargo fmt --all --check
-      - run: cargo test --locked --all-targets
-      - run: cargo clippy --locked --all-targets -- -D warnings
+      - run: cargo test --locked --all-targets --all-features
+      - run: cargo clippy --locked --all-targets --all-features -- -D warnings
       - name: Assert incomplete parity cannot be reported as release-ready
         shell: bash
         run: |
@@ -27,7 +27,7 @@ jobs:
             echo "Unexpected parity approval; review this gate before releasing"
             exit 1
           fi
-      - run: cargo build --locked --release
+      - run: cargo build --locked --release --all-features
   linux-tun:
     runs-on: ubuntu-latest
     steps:
