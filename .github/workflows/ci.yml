@@ -2,7 +2,9 @@ name: verification
 on:
   push:
     branches: [main]
+    paths-ignore: ['**/*.md']
   pull_request:
+    paths-ignore: ['**/*.md']
   workflow_dispatch:
 permissions:
   contents: read
@@ -28,7 +30,8 @@ jobs:
             echo "Unexpected parity approval; review this gate before releasing"
             exit 1
           fi
-      - run: cargo build --locked --release --all-features
+      - name: Build optimized runtime library and CLI
+        run: cargo build --locked --release --lib --bin protun-next-cli
       - name: Call the native compatibility API through generated bindings
         if: runner.os == 'Linux'
         shell: bash

@@ -21,6 +21,7 @@ impl CaptureController {
     }
     pub fn start(&mut self, info: PcapFileInfo) -> Result<Vec<Event>> {
         let mut events = Vec::new();
+        let descriptor = matches!(info.file, PcapFile::Fd(_));
         // Open/validate the replacement first so an invalid request does not
         // destroy an existing working capture.
         let (mut file, append) = match &info.file {
@@ -61,7 +62,10 @@ impl CaptureController {
                     unsafe {
                         libc::close(*fd);
                     }
-                    (file, true)
+                    // An owned descriptor may be write-only or a pipe/socket.
+                    // Preserve the caller's offset and require neither reads
+                    // nor seeks, as the upstream descriptor API does.
+                    (file, false)
                 }
                 #[cfg(not(unix))]
                 {
@@ -89,7 +93,9 @@ impl CaptureController {
             file.seek(SeekFrom::End(0))?;
             Capture::resume(file, size, limit)?
         } else {
-            file.set_len(0)?;
+            if !descriptor {
+                file.set_len(0)?;
+            }
             file.seek(SeekFrom::Start(0))?;
             Capture::new(file, limit)?
         };

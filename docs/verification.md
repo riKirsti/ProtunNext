@@ -2,6 +2,34 @@
 
 Development evidence, not a release acceptance record.
 
+## Current compatibility work
+
+[Run 41248700583](https://github.com/riKirsti/ProtunNext/actions/runs/41248700583)
+at `2a5d1809e2184a94140c7e5bf94183161c444dd6` passed all five jobs:
+Windows/Linux/macOS tests, formatting, Clippy and release builds; isolated Linux
+TUN tests; and AArch64 Android API25 native library/Kotlin generation.
+Linux also exercises generated Python constructor/cache/state/shutdown callbacks;
+macOS typechecks generated Swift and tests utun prefix I/O with real datagrams.
+
+Later changes add the shared worker, encrypted connectivity probes, monotonic
+statistics timestamps, reentrant shutdown checks and a private account fixture.
+The fixture executes published Muon/RCRL code over actual in-memory IP/TCP
+stacks with public test tokens. It verifies certificate JSON/settings/duration,
+rejected-auth cache clearing, a replacement fork GET, cookies and suppression of
+a consumed selector. It does not simulate a successful paid Proton connection.
+The latest CI link and source hash must be checked before treating a newer
+checkpoint as verified.
+
+`verify-code-parity` reports missing/partial implementation independently from
+the release gate. The matched router benchmark is evidence-only for this code
+gate; live service and target acceptance remain deferred in `verify-parity`.
+Both gates currently fail intentionally: full code coverage is still unfinished.
+
+The CLI is named `protun-next-cli`; the separate name avoids an MSVC debug-symbol
+filename collision with the `protun_next` library. `cargo run` selects it by default.
+
+## Earlier implementation evidence
+
 ## Executed locally on Windows x86-64
 
 * Rust 1.99.1/MSVC, `cargo test --all-targets --all-features`.

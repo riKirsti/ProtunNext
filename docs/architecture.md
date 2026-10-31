@@ -7,8 +7,8 @@ for existing cryptographic/TLS implementations. It is not intrinsically faster
 than well-written C/C++; a target benchmark must evaluate this implementation.
 
 The packet path uses an owned allocation transferred directly between I/O,
-crypto and output queues. It has no `pvpnclient`, PFFF, per-packet action channel,
-userspace NAT graph or app/control callback. `PacketPool` reserves memory once;
+crypto and output queues. It has no `pvpnclient`, PFFF, per-packet action channel
+or app/control callback dispatch. `PacketPool` reserves memory once;
 queues reject excess ownership. Established sessions retain the original crypto
 scratch copy required by the reused cipher interface. This is not zero-copy I/O.
 
@@ -47,8 +47,18 @@ UDP worker relabeled as kernel WireGuard.
   outer policy (no CA/name identity check, valid handshake signature required),
   and always routes payload through inner peer-key-authenticated WireGuard.
   It is never selected as fallback for ordinary TLS or Local Agent.
-* **proton-vpn-local-agent 0.13.0 (optional):** official mTLS/RESP3 control protocol only. This is needed for server selector/settings compatibility and stays outside the packet worker. The adapter checks requested settings against readback; it does not provide account authorization, certificate issuance, renewal or complete Local Agent runtime integration yet.
-* **Mio/libc:** Linux readiness and thin OS calls. No packet representation is
+* **Muon 3.0.0 / RCRL 2.0.0 / LocalAgent 0.13.0:** published session/fork,
+  certificate refresher and mTLS/RESP3 implementations. Their account runtime
+  executes on a separate thread. The embedding host supplies secure persistence;
+  server subscriptions supply applied settings and refusals. Source review and
+  offline account fixtures do not prove live service interoperability.
+* **proton-vpn-netstack 0.8.1:** private API/DNS/LocalAgent sockets and the local
+  HTTP endpoint. Ordinary customer ports bypass it. The small reserved port
+  range uses a bounded flow map to prevent control/customer reply collisions.
+  Complete upstream fragment/ICMP and dynamic-subnet policy remains unfinished.
+* **Ed25519 dalek / PKCS#8:** identity creation, PEM compatibility and the
+  published Ed25519-to-X25519 conversion; cryptography is not handwritten.
+* **Mio/libc/socket2:** Unix readiness and thin OS calls. No packet representation is
   copied into an additional framework action queue.
 * **serde/JSON/base64:** configuration/status/control boundaries, not required
   within the healthy established packet loop.
@@ -59,9 +69,12 @@ changes need source review, compatibility tests and measured target evidence.
 
 ## Worker lifetime and resource limits
 
-The Linux managed connection owns a duplicated, validated TUN fd and one packet
-thread. Start generates a WireGuard initiation immediately. Only an inner session
-can set TunnelEstablished. Disconnect joins the worker; repeated joins return its
+The Unix managed connection owns a duplicated, validated TUN fd and one packet
+thread. Start generates a WireGuard initiation immediately. Compatibility mode
+also requires authenticated decrypted data before TunnelEstablished. Its ICMP
+probe and 500-unanswered-packet recovery trigger use the upstream retry policy;
+probe replies are not delivered to customer applications. The low-level worker
+keeps its explicitly documented handshake-only state contract. Disconnect joins the worker; repeated joins return its
 final counters. Latest-state snapshots coalesce with a sequence number, avoiding
 an unbounded callback backlog. Statistics requests have generation numbers so
 an earlier state update cannot satisfy a later sampling request. After session
@@ -98,6 +111,17 @@ peers, not the framing or authenticated VPN identity. No domain is contacted to
 select SNI. The outer peer identity and traffic metadata are not authenticated
 by this policy; inner WireGuard provides VPN data authentication/confidentiality.
 Live Proton server acceptance and censorship behavior remain unverified.
+
+Apple utun adds/removes its four-byte network-order address-family header with
+vectored I/O, without shifting the payload. Linux/Android use TUN_NO_PI. Apple
+uses CLOCK_MONOTONIC_RAW, which advances during sleep, and platform-specific
+uplink binding. Windows native adapter and management code remains missing;
+a Windows host build verifies portable components, not a working Windows VPN.
+
+UniFFI 0.31.0 exports the Unix compatibility object, records and callbacks.
+CI calls it through generated Python bindings, typechecks generated Swift, and
+builds an Android API25 library plus Kotlin bindings. A complete high-level
+Android VpnService integration and the Windows object API are still required.
 
 ## Official reference material checked
 
