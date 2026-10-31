@@ -2,6 +2,7 @@
 //! See docs/parity.json for verified support, rather than inferring it from types.
 #[cfg(feature = "local-agent")]
 pub mod agent;
+pub mod api;
 pub mod capture;
 pub mod config;
 #[cfg(target_os = "linux")]

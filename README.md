@@ -29,7 +29,15 @@ or a green unit test does not mean a complete VPN client or paid-feature support
   rather than being silently ignored. No routing or DNS settings are applied.
 * PCAP writer, NAT-PMP wire codec and candidate-selection/settings validation.
 
-The optional `local-agent` feature provides a typed adapter to Proton's published mTLS control client, including settings/readback and subscriptions. It requires caller-supplied certificates and a protected stream. These components are not a complete Local Agent/account or platform runtime.
+The Linux compatibility API now has a separate supervisor for peer updates,
+network recovery, replaceable/optional TUN, socket-protection callbacks, statistics
+and persistent capture controls. The optional `local-agent` feature adds an
+account thread using Proton's published Muon, certificate refresher and managed
+mTLS Local Agent. API/DNS/control sockets use a private in-tunnel TCP/IP stack;
+ordinary customer packets bypass it. This implementation is still under parity
+review; native platform bindings and complete virtual-network policy are missing.
+Account issuance, renewal and paid-server integration have not been tested with
+real credentials. Public API declarations alone do not count as implementation.
 See [the complete parity ledger](docs/parity.json),
 [architecture and dependency decisions](docs/architecture.md), and
 [verification evidence](docs/verification.md).

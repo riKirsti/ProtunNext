@@ -42,6 +42,15 @@ pub fn load(path: &std::path::Path) -> Result<WireguardConfig> {
 #[derive(Zeroize, ZeroizeOnDrop)]
 pub struct PrivateKey([u8; 32]);
 impl PrivateKey {
+    pub fn from_bytes(mut bytes: [u8; 32]) -> Result<Self> {
+        if bytes == [0; 32] {
+            bytes.zeroize();
+            return Err(Error::Invalid("zero key"));
+        }
+        let key = Self(bytes);
+        bytes.zeroize();
+        Ok(key)
+    }
     pub fn generate() -> Result<Self> {
         let mut key = zeroize::Zeroizing::new([0u8; 32]);
         getrandom::fill(key.as_mut()).map_err(|e| Error::Protocol(e.to_string()))?;

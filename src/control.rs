@@ -107,6 +107,7 @@ impl Candidates {
 pub enum Support {
     ImplementedLocal,
     NotImplemented,
+    PartiallyImplemented,
     NeedsLiveVerification,
 }
 #[derive(Debug, Deserialize)]
