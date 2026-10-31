@@ -1,0 +1,519 @@
+{
+  "version": "3.0.5",
+  "commit": "a498c38ae6ffb0e68e7190b2831ef985d73fa6da",
+  "files": [
+    {
+      "file": "src/api/connection.rs",
+      "sha256": "2bfc5b74d1d28b06660aabf36ed3973ebfe1813906a93e03463937c72fcd7bc9",
+      "symbols": [
+        {
+          "kind": "const",
+          "name": "CLIENT_PRIV_KEY_SIZE_BYTES",
+          "line": 30
+        },
+        {
+          "kind": "const",
+          "name": "PEER_PUB_KEY_SIZE_BYTES",
+          "line": 31
+        },
+        {
+          "kind": "struct",
+          "name": "WgClientPrivateKey",
+          "line": 36
+        },
+        {
+          "kind": "struct",
+          "name": "IpAddress",
+          "line": 40
+        },
+        {
+          "kind": "struct",
+          "name": "WgPeerPublicKey",
+          "line": 44
+        },
+        {
+          "kind": "struct",
+          "name": "Connection",
+          "line": 56
+        },
+        {
+          "kind": "fn",
+          "name": "connect_internal",
+          "line": 64
+        },
+        {
+          "kind": "fn",
+          "name": "update_peers",
+          "line": 80
+        },
+        {
+          "kind": "fn",
+          "name": "update",
+          "line": 92
+        },
+        {
+          "kind": "fn",
+          "name": "on_connectivity_change",
+          "line": 100
+        },
+        {
+          "kind": "fn",
+          "name": "disconnect",
+          "line": 106
+        },
+        {
+          "kind": "fn",
+          "name": "disconnect_and_wait",
+          "line": 112
+        },
+        {
+          "kind": "fn",
+          "name": "start_packet_capture",
+          "line": 123
+        },
+        {
+          "kind": "fn",
+          "name": "stop_packet_capture",
+          "line": 128
+        },
+        {
+          "kind": "fn",
+          "name": "request_stats",
+          "line": 134
+        },
+        {
+          "kind": "fn",
+          "name": "debug_log",
+          "line": 139
+        },
+        {
+          "kind": "fn",
+          "name": "update_local_agent_settings",
+          "line": 149
+        },
+        {
+          "kind": "fn",
+          "name": "request_local_agent_stats",
+          "line": 160
+        },
+        {
+          "kind": "fn",
+          "name": "provide_api_fork_selector",
+          "line": 165
+        },
+        {
+          "kind": "fn",
+          "name": "invalidate_certificate",
+          "line": 170
+        },
+        {
+          "kind": "struct",
+          "name": "ForkSelectorInfo",
+          "line": 178
+        },
+        {
+          "kind": "struct",
+          "name": "Cookies",
+          "line": 188
+        },
+        {
+          "kind": "struct",
+          "name": "Cookie",
+          "line": 195
+        },
+        {
+          "kind": "struct",
+          "name": "InitialConnectionConfig",
+          "line": 202
+        },
+        {
+          "kind": "enum",
+          "name": "SniStrategy",
+          "line": 212
+        },
+        {
+          "kind": "enum",
+          "name": "ConnectionMode",
+          "line": 219
+        },
+        {
+          "kind": "enum",
+          "name": "CertificateDuration",
+          "line": 248
+        },
+        {
+          "kind": "enum",
+          "name": "MuonEnv",
+          "line": 258
+        },
+        {
+          "kind": "enum",
+          "name": "ConnectivityEvent",
+          "line": 277
+        },
+        {
+          "kind": "trait",
+          "name": "StateChangedCallback",
+          "line": 289
+        },
+        {
+          "kind": "trait",
+          "name": "PersistentCache",
+          "line": 307
+        },
+        {
+          "kind": "enum",
+          "name": "CacheKey",
+          "line": 316
+        },
+        {
+          "kind": "trait",
+          "name": "EventCallback",
+          "line": 325
+        },
+        {
+          "kind": "struct",
+          "name": "PeerInfo",
+          "line": 342
+        },
+        {
+          "kind": "struct",
+          "name": "PcapFileInfo",
+          "line": 363
+        },
+        {
+          "kind": "enum",
+          "name": "PcapFile",
+          "line": 372
+        },
+        {
+          "kind": "enum",
+          "name": "FileWriteMode",
+          "line": 380
+        },
+        {
+          "kind": "enum",
+          "name": "TunStreamInfo",
+          "line": 387
+        },
+        {
+          "kind": "struct",
+          "name": "ConfigUpdate",
+          "line": 393
+        },
+        {
+          "kind": "fn",
+          "name": "is_empty",
+          "line": 401
+        }
+      ],
+      "source": "https://github.com/ProtonVPN/protun/blob/a498c38ae6ffb0e68e7190b2831ef985d73fa6da/src/api/connection.rs"
+    },
+    {
+      "file": "src/api/connection_unix.rs",
+      "sha256": "c80c840dcda73c8f2fc55178452caf98dec73512037922019d3cfc1df31de04a",
+      "symbols": [
+        {
+          "kind": "fn",
+          "name": "unix_connect",
+          "line": 37
+        },
+        {
+          "kind": "fn",
+          "name": "update_unix_tun",
+          "line": 64
+        },
+        {
+          "kind": "trait",
+          "name": "SocketProtector",
+          "line": 79
+        }
+      ],
+      "source": "https://github.com/ProtonVPN/protun/blob/a498c38ae6ffb0e68e7190b2831ef985d73fa6da/src/api/connection_unix.rs"
+    },
+    {
+      "file": "src/api/events.rs",
+      "sha256": "7166e23a2fff7de7d5b37a0b423c5eceb811e4f93ff291a3d1962bda0b7bbc97",
+      "symbols": [
+        {
+          "kind": "enum",
+          "name": "Event",
+          "line": 24
+        },
+        {
+          "kind": "enum",
+          "name": "ErrorEvent",
+          "line": 56
+        },
+        {
+          "kind": "enum",
+          "name": "ApiEndpoint",
+          "line": 82
+        },
+        {
+          "kind": "enum",
+          "name": "LocalAgentSettingType",
+          "line": 90
+        },
+        {
+          "kind": "enum",
+          "name": "CaptureStopReason",
+          "line": 101
+        }
+      ],
+      "source": "https://github.com/ProtonVPN/protun/blob/a498c38ae6ffb0e68e7190b2831ef985d73fa6da/src/api/events.rs"
+    },
+    {
+      "file": "src/api/local_agent.rs",
+      "sha256": "0d82a54243cd0dcfb29528d6cfb75b95aa9da17566a82c9d48b9ac7b7e2ad60f",
+      "symbols": [
+        {
+          "kind": "struct",
+          "name": "LocalAgentSettings",
+          "line": 24
+        },
+        {
+          "kind": "enum",
+          "name": "NetshieldLevel",
+          "line": 36
+        },
+        {
+          "kind": "struct",
+          "name": "AgentConnectionInfo",
+          "line": 51
+        },
+        {
+          "kind": "struct",
+          "name": "Coordinates",
+          "line": 68
+        },
+        {
+          "kind": "struct",
+          "name": "WaitJail",
+          "line": 75
+        },
+        {
+          "kind": "enum",
+          "name": "WaitJailReason",
+          "line": 86
+        },
+        {
+          "kind": "enum",
+          "name": "Restriction",
+          "line": 104
+        }
+      ],
+      "source": "https://github.com/ProtonVPN/protun/blob/a498c38ae6ffb0e68e7190b2831ef985d73fa6da/src/api/local_agent.rs"
+    },
+    {
+      "file": "src/api/logger.rs",
+      "sha256": "306d9bc5380082e0f0a75c94889f03b7b0ed0e11504ebdfc88fd119d0c5bc9be",
+      "symbols": [
+        {
+          "kind": "fn",
+          "name": "init_logger",
+          "line": 33
+        },
+        {
+          "kind": "trait",
+          "name": "ClientLogger",
+          "line": 65
+        },
+        {
+          "kind": "enum",
+          "name": "LogLevel",
+          "line": 89
+        }
+      ],
+      "source": "https://github.com/ProtonVPN/protun/blob/a498c38ae6ffb0e68e7190b2831ef985d73fa6da/src/api/logger.rs"
+    },
+    {
+      "file": "src/api/mod.rs",
+      "sha256": "68cdb3aa403ec5217497e0a1a1dbb0803635c8ba3ae08f9bea3f757c692d3021",
+      "symbols": [],
+      "source": "https://github.com/ProtonVPN/protun/blob/a498c38ae6ffb0e68e7190b2831ef985d73fa6da/src/api/mod.rs"
+    },
+    {
+      "file": "src/api/state.rs",
+      "sha256": "e3d01a8b9f65e5755fe6c125b4803659383e90a98506d68fcfcfa68a79451fa0",
+      "symbols": [
+        {
+          "kind": "struct",
+          "name": "VpnState",
+          "line": 25
+        },
+        {
+          "kind": "enum",
+          "name": "InterfaceState",
+          "line": 33
+        },
+        {
+          "kind": "enum",
+          "name": "InterfaceError",
+          "line": 40
+        },
+        {
+          "kind": "enum",
+          "name": "ConnectionState",
+          "line": 50
+        },
+        {
+          "kind": "struct",
+          "name": "PeerConnectionInfo",
+          "line": 84
+        },
+        {
+          "kind": "enum",
+          "name": "PeerConnectionWaitReason",
+          "line": 93
+        },
+        {
+          "kind": "enum",
+          "name": "AgentConnectionWaitReason",
+          "line": 102
+        },
+        {
+          "kind": "enum",
+          "name": "DisconnectReason",
+          "line": 109
+        },
+        {
+          "kind": "enum",
+          "name": "Protocol",
+          "line": 117
+        }
+      ],
+      "source": "https://github.com/ProtonVPN/protun/blob/a498c38ae6ffb0e68e7190b2831ef985d73fa6da/src/api/state.rs"
+    },
+    {
+      "file": "src/api/type_conversions.rs",
+      "sha256": "33e0168aa76e0a8f2273a570a6106f8c9638ae31d815581b60dc44a5c6c81668",
+      "symbols": [
+        {
+          "kind": "struct",
+          "name": "KeyConversionError",
+          "line": 47
+        },
+        {
+          "kind": "fn",
+          "name": "from_tunnel_stats",
+          "line": 117
+        },
+        {
+          "kind": "fn",
+          "name": "to_pvpn_client_mode",
+          "line": 195
+        }
+      ],
+      "source": "https://github.com/ProtonVPN/protun/blob/a498c38ae6ffb0e68e7190b2831ef985d73fa6da/src/api/type_conversions.rs"
+    },
+    {
+      "file": "src/api/windows/connection_windows.rs",
+      "sha256": "cfa12551ed72611e6c0e4d118ee412c2429370f9caf7b48ab296e457b3752d9d",
+      "symbols": [
+        {
+          "kind": "struct",
+          "name": "ProTun",
+          "line": 43
+        },
+        {
+          "kind": "struct",
+          "name": "ProTunAdapterDetails",
+          "line": 50
+        },
+        {
+          "kind": "fn",
+          "name": "initialize",
+          "line": 63
+        },
+        {
+          "kind": "fn",
+          "name": "delete_routes",
+          "line": 76
+        },
+        {
+          "kind": "struct",
+          "name": "NetworkConfig",
+          "line": 88
+        },
+        {
+          "kind": "struct",
+          "name": "AdapterConfig",
+          "line": 94
+        },
+        {
+          "kind": "struct",
+          "name": "SocketConfig",
+          "line": 102
+        },
+        {
+          "kind": "struct",
+          "name": "WindowsConnection",
+          "line": 108
+        },
+        {
+          "kind": "fn",
+          "name": "connect",
+          "line": 117
+        },
+        {
+          "kind": "fn",
+          "name": "get_connection",
+          "line": 151
+        },
+        {
+          "kind": "fn",
+          "name": "get_adapter_details",
+          "line": 156
+        },
+        {
+          "kind": "fn",
+          "name": "set_ipv6",
+          "line": 168
+        },
+        {
+          "kind": "fn",
+          "name": "set_dns",
+          "line": 177
+        }
+      ],
+      "source": "https://github.com/ProtonVPN/protun/blob/a498c38ae6ffb0e68e7190b2831ef985d73fa6da/src/api/windows/connection_windows.rs"
+    },
+    {
+      "file": "src/api/windows/mod.rs",
+      "sha256": "ec6dd790bdcac98a18cf55855fb5c4c1340a79c98cdec52c443703ffcef49205",
+      "symbols": [],
+      "source": "https://github.com/ProtonVPN/protun/blob/a498c38ae6ffb0e68e7190b2831ef985d73fa6da/src/api/windows/mod.rs"
+    },
+    {
+      "file": "src/api/windows/protun_error.rs",
+      "sha256": "72497ab1e3769fe8f93e482ac2af5033953af6463e123494ee1a2e21cb8b11d5",
+      "symbols": [
+        {
+          "kind": "enum",
+          "name": "ProTunFatalError",
+          "line": 22
+        }
+      ],
+      "source": "https://github.com/ProtonVPN/protun/blob/a498c38ae6ffb0e68e7190b2831ef985d73fa6da/src/api/windows/protun_error.rs"
+    },
+    {
+      "file": "src/api/windows/state_changed_callback.rs",
+      "sha256": "03b4c93a3135a9a3233e5670d1ebbf878a73b9875f5f72d024b1c457797d8692",
+      "symbols": [
+        {
+          "kind": "struct",
+          "name": "WindowsStateChangedCallback",
+          "line": 24
+        },
+        {
+          "kind": "fn",
+          "name": "new",
+          "line": 29
+        }
+      ],
+      "source": "https://github.com/ProtonVPN/protun/blob/a498c38ae6ffb0e68e7190b2831ef985d73fa6da/src/api/windows/state_changed_callback.rs"
+    }
+  ],
+  "note": "Public-symbol inventory; requirements below include semantic behavior not implied by a symbol match."
+}
