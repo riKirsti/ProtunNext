@@ -1,0 +1,47 @@
+name: verification
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  host:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - run: cargo fmt --all --check
+      - run: cargo test --locked --all-targets
+      - run: cargo clippy --locked --all-targets -- -D warnings
+      - name: Assert incomplete parity cannot be reported as release-ready
+        shell: bash
+        run: |
+          if cargo run --locked -- verify-parity; then
+            echo "Unexpected parity approval; review this gate before releasing"
+            exit 1
+          fi
+      - run: cargo build --locked --release
+  linux-tun:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build opt-in network integration test
+        shell: bash
+        run: |
+          cargo test --locked --test linux_tun --no-run --message-format=json > test-artifacts.json
+          python3 -c 'import json; a=[json.loads(x) for x in open("test-artifacts.json")]; print(next(x["executable"] for x in a if x.get("executable") and x.get("target",{}).get("name")=="linux_tun"))' > test-binary.txt
+      - name: Test real TUN inside disposable namespace
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo ip netns add protun-next-ci
+          trap 'sudo ip netns del protun-next-ci' EXIT
+          sudo ip netns exec protun-next-ci env PROTUN_NEXT_NETNS_TEST=1 "$(cat test-binary.txt)" --ignored --nocapture

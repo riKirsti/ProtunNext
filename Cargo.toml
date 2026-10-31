@@ -1,0 +1,39 @@
+[package]
+name = "protun-next"
+version = "0.1.0-dev.1"
+edition = "2024"
+rust-version = "1.88"
+license = "GPL-3.0-or-later"
+description = "Independent Protun successor; explicit parity and performance verification gates"
+repository = "https://github.com/riKirsti/ProtunNext"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+zeroize = { version = "1", features = ["derive"] }
+getrandom = "0.4"
+base64 = "0.22"
+proton-boringtun = { version = "=4.9.0", registry = "proton", default-features = false }
+rand_chacha = "0.10"
+rustls = { version = "=0.23.46", default-features = false, features = ["std", "ring", "tls12"] }
+webpki-roots = "1"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+libc = "0.2"
+mio = { version = "1", features = ["net", "os-poll", "os-ext"] }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+panic = "abort"
+
+[[bench]]
+name = "packet_path"
+harness = false
+
+[lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+
+[lints.clippy]
+undocumented_unsafe_blocks = "deny"

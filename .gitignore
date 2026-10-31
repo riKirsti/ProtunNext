@@ -1,0 +1,8 @@
+/target/
+/local-private/
+*.key
+*.pcap
+*.pcapng
+*.pem
+*.env
+benchmark-results.local.json
