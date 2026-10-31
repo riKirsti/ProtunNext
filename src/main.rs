@@ -21,19 +21,27 @@ fn run() -> protun_next::Result<()> {
             );
             Ok(())
         }
-        Some("run-udp") if args.len() == 5 => {
+        Some(command @ ("run-udp" | "run-tcp" | "run-tls"))
+            if args.len() == if command == "run-tls" { 6 } else { 5 } =>
+        {
             #[cfg(target_os = "linux")]
             {
                 let config = config::load(std::path::Path::new(&args[2]))?;
                 let fd: i32 = args[3]
                     .parse()
                     .map_err(|_| protun_next::Error::Invalid("TUN descriptor"))?;
-                let counters = protun_next::linux::run_udp(
-                    fd,
-                    &config,
-                    &args[4],
-                    &std::sync::atomic::AtomicBool::new(false),
-                )?;
+                let stop = std::sync::atomic::AtomicBool::new(false);
+                let counters = match command {
+                    "run-udp" => protun_next::linux::run_udp(fd, &config, &args[4], &stop),
+                    "run-tcp" => protun_next::linux::run_tcp(fd, &config, &args[4], &stop),
+                    _ => protun_next::linux::run_tls(
+                        fd,
+                        &config,
+                        &args[4],
+                        protun_next::tls::client(&args[5])?,
+                        &stop,
+                    ),
+                }?;
                 println!(
                     "{}",
                     serde_json::to_string(&counters)
@@ -43,12 +51,13 @@ fn run() -> protun_next::Result<()> {
             }
             #[cfg(not(target_os = "linux"))]
             {
-                Err(protun_next::Error::Unsupported("Linux UDP adapter"))
+                let _ = command;
+                Err(protun_next::Error::Unsupported("Linux TUN adapter"))
             }
         }
         _ => {
             eprintln!(
-                "usage: protun-next status | verify-parity | check-config FILE | run-udp FILE TUN_FD UPLINK_DEVICE"
+                "usage: protun-next status | verify-parity | check-config FILE | run-udp FILE TUN_FD UPLINK_DEVICE | run-tcp FILE TUN_FD UPLINK_DEVICE | run-tls FILE TUN_FD UPLINK_DEVICE SERVER_NAME"
             );
             Err(protun_next::Error::Invalid("command"))
         }

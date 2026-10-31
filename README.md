@@ -17,8 +17,9 @@ or a green unit test does not mean a complete VPN client or paid-feature support
   receive storage, fragmented input and reset/error handling.
 * Framed stream I/O with vectored output, bounded backpressure and real TCP
   loopback/WireGuard handshake tests.
-* Linux UDP worker attaching only to an existing caller-owned TUN descriptor and
-  binding the outer socket to an explicitly supplied uplink interface.
+* Shared Linux UDP/framed TCP/TLS worker attaching only to an existing caller-owned TUN descriptor and
+  binding the outer socket to an explicitly supplied uplink interface before connect.
+  TLS uses bounded rustls buffering and keeps flushing pending ciphertext.
 * Strict single-peer WireGuard configuration reader; unknown directives fail
   rather than being silently ignored. No routing or DNS settings are applied.
 * PCAP writer, NAT-PMP wire codec and candidate-selection/settings validation.
@@ -47,7 +48,13 @@ The experimental Linux worker is invoked as:
 
 ```sh
 protun-next run-udp private-config.conf EXISTING_TUN_FD UPLINK_INTERFACE
+protun-next run-tcp private-config.conf EXISTING_TUN_FD UPLINK_INTERFACE
+protun-next run-tls private-config.conf EXISTING_TUN_FD UPLINK_INTERFACE SERVER_NAME
 ```
+
+The TLS command uses standard certificate verification; Proton Stealth certificate-policy
+and SNI compatibility still require implementation and live verification. TCP/TLS
+MTU is limited to 16,351 bytes by normal TunSafe framing.
 
 The host must create/configure the TUN, addresses, routes and DNS. This command
 duplicates its fd and makes the shared file description nonblocking. It does not

@@ -1,31 +1,64 @@
 //! Real loopback sockets and actual Noise/WireGuard handshakes. No Proton account.
+mod common;
 use protun_next::{
     packet::{Packet, PacketPool},
     session::{Output, Session},
     stream::{FramedIo, Receive},
+    tls::{self, TlsIo},
 };
 use std::{
+    io::{self, Read, Write},
     net::{TcpListener, TcpStream},
     thread,
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
-fn push(stream: &mut FramedIo<TcpStream>, pool: &mut PacketPool, packet: Packet) {
-    assert!(stream.queue(packet).is_ok());
-    while stream.pending() > 0 {
-        stream.flush(pool).unwrap();
+trait Duplex: Read + Write + Send {
+    fn buffered_write(&self) -> bool {
+        false
     }
 }
-fn receive(stream: &mut FramedIo<TcpStream>, packet: &mut Packet) {
+impl Duplex for TcpStream {}
+impl Duplex for rustls::StreamOwned<rustls::ServerConnection, TcpStream> {}
+impl Duplex for TlsIo<TcpStream> {
+    fn buffered_write(&self) -> bool {
+        self.wants_write()
+    }
+}
+fn push(stream: &mut FramedIo<Box<dyn Duplex>>, pool: &mut PacketPool, packet: Packet) {
+    assert!(stream.queue(packet).is_ok());
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while stream.pending() > 0 || stream.io().buffered_write() {
+        assert!(Instant::now() < deadline, "write stalled");
+        stream.flush(pool).unwrap();
+        match stream.io_mut().flush() {
+            Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
+                thread::sleep(Duration::from_millis(1))
+            }
+            result => result.unwrap(),
+        }
+    }
+}
+fn receive(stream: &mut FramedIo<Box<dyn Duplex>>, packet: &mut Packet) {
+    let deadline = Instant::now() + Duration::from_secs(5);
     loop {
+        assert!(Instant::now() < deadline, "read stalled");
         match stream.receive(packet).unwrap() {
             Receive::Packet => return,
             Receive::Yield => continue,
+            Receive::WouldBlock => thread::sleep(Duration::from_millis(1)),
             other => panic!("unexpected {other:?}"),
         }
     }
 }
 #[test]
 fn authenticated_wireguard_over_real_loopback_tcp() {
+    exchange(false);
+}
+#[test]
+fn authenticated_wireguard_over_nonblocking_loopback_tls() {
+    exchange(true);
+}
+fn exchange(use_tls: bool) {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let address = listener.local_addr().unwrap();
     let wall = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
@@ -34,7 +67,15 @@ fn authenticated_wireguard_over_real_loopback_tcp() {
         tcp.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
         tcp.set_write_timeout(Some(Duration::from_secs(5))).unwrap();
         tcp.set_nodelay(true).unwrap();
-        let mut stream = FramedIo::new(tcp, 8).unwrap();
+        let io: Box<dyn Duplex> = if use_tls {
+            Box::new(rustls::StreamOwned::new(
+                rustls::ServerConnection::new(common::server()).unwrap(),
+                tcp,
+            ))
+        } else {
+            Box::new(tcp)
+        };
+        let mut stream = FramedIo::new(io, 8).unwrap();
         let mut pool = PacketPool::new(8, 2048).unwrap();
         let mut session = Session::new(
             [9; 32],
@@ -78,7 +119,16 @@ fn authenticated_wireguard_over_real_loopback_tcp() {
     tcp.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
     tcp.set_write_timeout(Some(Duration::from_secs(5))).unwrap();
     tcp.set_nodelay(true).unwrap();
-    let mut stream = FramedIo::new(tcp, 8).unwrap();
+    let io: Box<dyn Duplex> = if use_tls {
+        tcp.set_nonblocking(true).unwrap();
+        Box::new(TlsIo::new(
+            tcp,
+            tls::client_with_roots("localhost", common::roots()).unwrap(),
+        ))
+    } else {
+        Box::new(tcp)
+    };
+    let mut stream = FramedIo::new(io, 8).unwrap();
     let mut pool = PacketPool::new(8, 2048).unwrap();
     let mut session = Session::new(
         [7; 32],

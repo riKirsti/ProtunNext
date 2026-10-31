@@ -1,0 +1,1 @@
+These freshly generated localhost certificates and the private key are PUBLIC TEST FIXTURES. They protect no real service and must never be used in deployment. The CA is loaded only by test code, never by the default client. Generated with OpenSSL Ed25519 on 2026-10-31, ten-year validity, SAN localhost, serverAuth EKU. No Proton/user credentials or certificates are present.

@@ -135,6 +135,12 @@ impl<S: Read + Write> FramedIo<S> {
     pub fn pending(&self) -> usize {
         self.pending.len()
     }
+    pub fn io(&self) -> &S {
+        &self.io
+    }
+    pub fn io_mut(&mut self) -> &mut S {
+        &mut self.io
+    }
     pub fn close(mut self, pool: &mut PacketPool) -> Result<S> {
         while let Some(p) = self.pending.pop() {
             pool.recycle(p)?;

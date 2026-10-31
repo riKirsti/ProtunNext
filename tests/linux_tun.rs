@@ -1,14 +1,19 @@
 #![cfg(target_os = "linux")]
 //! Opt-in CAP_NET_ADMIN test, run only inside a fresh CI network namespace.
+mod common;
 use base64::{Engine, engine::general_purpose::STANDARD};
 use protun_next::{
     config::WireguardConfig,
     linux,
+    packet::{Packet, PacketPool},
     session::{Output, Session},
+    stream::{FramedIo, Receive},
+    tls,
 };
 use std::{
     fs::File,
-    net::UdpSocket,
+    io::{Read, Write},
+    net::{TcpListener, TcpStream, UdpSocket},
     os::fd::{AsRawFd, FromRawFd},
     process::Command,
     sync::{
@@ -47,7 +52,7 @@ fn echo_ipv4(packet: &mut [u8]) {
 }
 #[test]
 #[ignore = "requires a disposable network namespace and CAP_NET_ADMIN; never run on a router"]
-fn actual_udp_engine_tun_roundtrip() {
+fn actual_udp_tcp_tls_engine_tun_roundtrips() {
     assert_eq!(
         std::env::var("PROTUN_NEXT_NETNS_TEST").as_deref(),
         Ok("1"),
@@ -68,66 +73,157 @@ fn actual_udp_engine_tun_roundtrip() {
     ip(&["addr", "add", "10.2.0.2/32", "dev", "pn0"]);
     ip(&["link", "set", "pn0", "mtu", "1280", "up"]);
     ip(&["route", "add", "10.2.0.3/32", "dev", "pn0"]);
-    let peer = UdpSocket::bind("127.0.0.1:0").unwrap();
-    peer.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
-    let endpoint = peer.local_addr().unwrap();
-    let wall = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
-    let now = linux::boottime().unwrap();
-    let reference = thread::spawn(move || {
-        let mut session =
-            Session::new([9; 32], Session::public_key([7; 32]), None, now, wall).unwrap();
-        let mut wire = [0; 65535];
-        let mut out = [0; 65535];
-        let mut reply = [0; 65535];
-        loop {
-            let (n, address) = peer.recv_from(&mut wire).unwrap();
-            let result = session.decrypt(&wire[..n], &mut out).unwrap();
-            match result {
-                Output::Network(n) => {
-                    peer.send_to(&out[..n], address).unwrap();
+    for mode in 0..3 {
+        let peer = UdpSocket::bind("127.0.0.1:0").unwrap();
+        peer.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let endpoint = if mode == 0 {
+            peer.local_addr().unwrap()
+        } else {
+            listener.local_addr().unwrap()
+        };
+        let wall = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
+        let now = linux::boottime().unwrap();
+        let (release, wait_release) = std::sync::mpsc::channel();
+        let reference = thread::spawn(move || {
+            let mut transport = if mode == 0 {
+                Reference::Udp(peer)
+            } else {
+                let deadline = std::time::Instant::now() + Duration::from_secs(5);
+                let tcp = loop {
+                    assert!(std::time::Instant::now() < deadline, "accept timeout");
+                    match listener.accept() {
+                        Ok((tcp, _)) => break tcp,
+                        Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                            thread::sleep(Duration::from_millis(1))
+                        }
+                        Err(e) => panic!("accept: {e}"),
+                    }
+                };
+                tcp.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+                tcp.set_write_timeout(Some(Duration::from_secs(5))).unwrap();
+                tcp.set_nodelay(true).unwrap();
+                let io: Box<dyn Duplex> = if mode == 2 {
+                    Box::new(rustls::StreamOwned::new(
+                        rustls::ServerConnection::new(common::server()).unwrap(),
+                        tcp,
+                    ))
+                } else {
+                    Box::new(tcp)
+                };
+                Reference::Stream(FramedIo::new(io, 8).unwrap())
+            };
+            let mut session =
+                Session::new([9; 32], Session::public_key([7; 32]), None, now, wall).unwrap();
+            let mut pool = PacketPool::new(8, 65535).unwrap();
+            let mut wire = pool.take().unwrap();
+            let mut out = [0; 65535];
+            let mut reply = [0; 65535];
+            loop {
+                transport.receive(&mut wire);
+                let result = session.decrypt(wire.data(), &mut out).unwrap();
+                match result {
+                    Output::Network(n) => transport.send(&out[..n], &mut pool),
+                    Output::Tunnel(n) => {
+                        echo_ipv4(&mut out[..n]);
+                        let Output::Network(n) = session.encrypt(&out[..n], &mut reply).unwrap()
+                        else {
+                            panic!("echo encrypt")
+                        };
+                        transport.send(&reply[..n], &mut pool);
+                        wait_release.recv_timeout(Duration::from_secs(10)).unwrap();
+                        return;
+                    }
+                    _ => {}
                 }
-                Output::Tunnel(n) => {
-                    echo_ipv4(&mut out[..n]);
-                    let Output::Network(n) = session.encrypt(&out[..n], &mut reply).unwrap() else {
-                        panic!("echo encrypt")
-                    };
-                    peer.send_to(&reply[..n], address).unwrap();
-                    return;
+            }
+        });
+        let text = format!(
+            "[Interface]\nPrivateKey={}\nAddress=10.2.0.2/32\nMTU=1280\n[Peer]\nPublicKey={}\nEndpoint={endpoint}\nAllowedIPs=10.2.0.3/32\n",
+            STANDARD.encode([7; 32]),
+            STANDARD.encode(Session::public_key([9; 32]))
+        );
+        let config = WireguardConfig::parse(&text).unwrap();
+        let stop = Arc::new(AtomicBool::new(false));
+        let worker_stop = stop.clone();
+        // SAFETY: duplicates a valid fd; the worker exclusively owns the duplicate File.
+        let fd = unsafe { libc::fcntl(tun.as_raw_fd(), libc::F_DUPFD_CLOEXEC, 3) };
+        assert!(fd >= 0);
+        // SAFETY: newly duplicated descriptor is owned exactly once.
+        let owned = unsafe { File::from_raw_fd(fd) };
+        let worker = thread::spawn(move || {
+            let result = match mode {
+                0 => linux::run_udp(owned.as_raw_fd(), &config, "lo", &worker_stop),
+                1 => linux::run_tcp(owned.as_raw_fd(), &config, "lo", &worker_stop),
+                _ => linux::run_tls(
+                    owned.as_raw_fd(),
+                    &config,
+                    "lo",
+                    tls::client_with_roots("localhost", common::roots()).unwrap(),
+                    &worker_stop,
+                ),
+            };
+            drop(owned);
+            result
+        });
+        let app = UdpSocket::bind("10.2.0.2:0").unwrap();
+        app.set_read_timeout(Some(Duration::from_secs(8))).unwrap();
+        app.send_to(b"real kernel TUN and UDP", "10.2.0.3:9000")
+            .unwrap();
+        let mut response = [0; 128];
+        let received = app.recv_from(&mut response);
+        stop.store(true, Ordering::Relaxed);
+        let counters = worker.join().unwrap().unwrap();
+        release.send(()).unwrap();
+        reference.join().unwrap();
+        let (n, source) = received.unwrap();
+        assert_eq!(&response[..n], b"real kernel TUN and UDP");
+        assert_eq!(source, "10.2.0.3:9000".parse().unwrap());
+        assert!(counters.decrypted_packets >= 1);
+        assert!(counters.tun_reads >= 1);
+    }
+}
+
+trait Duplex: Read + Write + Send {}
+impl Duplex for TcpStream {}
+impl Duplex for rustls::StreamOwned<rustls::ServerConnection, TcpStream> {}
+enum Reference {
+    Udp(UdpSocket),
+    Stream(FramedIo<Box<dyn Duplex>>),
+}
+impl Reference {
+    fn receive(&mut self, packet: &mut Packet) {
+        match self {
+            Self::Udp(socket) => {
+                let (n, source) = socket.recv_from(packet.writable()).unwrap();
+                socket.connect(source).unwrap();
+                packet.set_len(n).unwrap();
+            }
+            Self::Stream(stream) => loop {
+                match stream.receive(packet).unwrap() {
+                    Receive::Packet => break,
+                    Receive::Yield => continue,
+                    result => panic!("reference stream: {result:?}"),
                 }
-                _ => {}
+            },
+        }
+    }
+    fn send(&mut self, bytes: &[u8], pool: &mut PacketPool) {
+        match self {
+            Self::Udp(socket) => {
+                assert_eq!(socket.send(bytes).unwrap(), bytes.len());
+            }
+            Self::Stream(stream) => {
+                let mut packet = pool.take().unwrap();
+                packet.writable()[..bytes.len()].copy_from_slice(bytes);
+                packet.set_len(bytes.len()).unwrap();
+                assert!(stream.queue(packet).is_ok());
+                while stream.pending() > 0 {
+                    stream.flush(pool).unwrap();
+                }
+                stream.io_mut().flush().unwrap();
             }
         }
-    });
-    let text = format!(
-        "[Interface]\nPrivateKey={}\nAddress=10.2.0.2/32\nMTU=1280\n[Peer]\nPublicKey={}\nEndpoint={endpoint}\nAllowedIPs=10.2.0.3/32\n",
-        STANDARD.encode([7; 32]),
-        STANDARD.encode(Session::public_key([9; 32]))
-    );
-    let config = WireguardConfig::parse(&text).unwrap();
-    let stop = Arc::new(AtomicBool::new(false));
-    let worker_stop = stop.clone();
-    // SAFETY: duplicates a valid fd; the worker exclusively owns the duplicate File.
-    let fd = unsafe { libc::fcntl(tun.as_raw_fd(), libc::F_DUPFD_CLOEXEC, 3) };
-    assert!(fd >= 0);
-    // SAFETY: newly duplicated descriptor is owned exactly once.
-    let owned = unsafe { File::from_raw_fd(fd) };
-    let worker = thread::spawn(move || {
-        let result = linux::run_udp(owned.as_raw_fd(), &config, "lo", &worker_stop);
-        drop(owned);
-        result
-    });
-    let app = UdpSocket::bind("10.2.0.2:0").unwrap();
-    app.set_read_timeout(Some(Duration::from_secs(8))).unwrap();
-    app.send_to(b"real kernel TUN and UDP", "10.2.0.3:9000")
-        .unwrap();
-    let mut response = [0; 128];
-    let received = app.recv_from(&mut response);
-    stop.store(true, Ordering::Relaxed);
-    let counters = worker.join().unwrap().unwrap();
-    reference.join().unwrap();
-    let (n, source) = received.unwrap();
-    assert_eq!(&response[..n], b"real kernel TUN and UDP");
-    assert_eq!(source, "10.2.0.3:9000".parse().unwrap());
-    assert!(counters.decrypted_packets >= 1);
-    assert!(counters.tun_reads >= 1);
+    }
 }
