@@ -21,7 +21,7 @@ use std::{
 const TUN: Token = Token(1);
 const NET: Token = Token(2);
 const BUDGET: usize = 64;
-#[derive(Debug, Default, serde::Serialize)]
+#[derive(Debug, Default, Clone, serde::Serialize)]
 pub struct Counters {
     pub tun_reads: u64,
     pub network_reads: u64,
@@ -48,7 +48,7 @@ pub fn boottime() -> Result<Duration> {
         ts.tv_nsec as u32,
     ))
 }
-fn duplicate_nonblocking(fd: i32) -> Result<File> {
+pub(crate) fn duplicate_nonblocking(fd: i32) -> Result<File> {
     // SAFETY: fcntl duplicates the supplied descriptor without taking its ownership.
     let duplicate = unsafe { libc::fcntl(fd, libc::F_DUPFD_CLOEXEC, 3) };
     if duplicate < 0 {
@@ -89,38 +89,29 @@ fn enqueue(
     }
     Ok(())
 }
+pub enum Transport {
+    Udp,
+    Tcp,
+    Tls(Box<rustls::ClientConnection>),
+    Stealth(crate::stealth::SniStrategy),
+}
 pub fn run_udp(
     tun_fd: i32,
     config: &WireguardConfig,
     bind_device: &str,
     stop: &AtomicBool,
 ) -> Result<Counters> {
-    let addr = if config.endpoint.is_ipv4() {
-        "0.0.0.0:0"
-    } else {
-        "[::]:0"
-    };
-    let socket = std::net::UdpSocket::bind(addr)?;
-    socket.set_nonblocking(true)?;
-    linux_network::bind_device(socket.as_raw_fd(), bind_device)?;
-    socket.connect(config.endpoint)?;
-    run(tun_fd, config, Datagram(socket), stop)
+    run_transport(tun_fd, config, bind_device, Transport::Udp, stop, None)
 }
-/// Experimental TunSafe-framed WireGuard TCP using the same packet worker as UDP.
 pub fn run_tcp(
     tun_fd: i32,
     config: &WireguardConfig,
     bind_device: &str,
     stop: &AtomicBool,
 ) -> Result<Counters> {
-    if config.mtu > 16_351 {
-        return Err(Error::Invalid("MTU exceeds normal TCP frame capacity"));
-    }
-    let socket = linux_network::connect_tcp(config.endpoint, bind_device, stop)?;
-    run(tun_fd, config, Stream(FramedIo::new(socket, 64)?), stop)
+    run_transport(tun_fd, config, bind_device, Transport::Tcp, stop, None)
 }
-/// Explicit TLS policy supplied by the caller. This is not yet a claim of live
-/// Proton Stealth interoperability; standard validation is available in tls.rs.
+/// Explicit TLS policy supplied by the caller, separate from Proton Stealth.
 pub fn run_tls(
     tun_fd: i32,
     config: &WireguardConfig,
@@ -128,19 +119,17 @@ pub fn run_tls(
     connection: rustls::ClientConnection,
     stop: &AtomicBool,
 ) -> Result<Counters> {
-    if config.mtu > 16_351 {
-        return Err(Error::Invalid("MTU exceeds normal TCP frame capacity"));
-    }
-    let socket = linux_network::connect_tcp(config.endpoint, bind_device, stop)?;
-    run(
+    run_transport(
         tun_fd,
         config,
-        Stream(FramedIo::new(TlsIo::new(socket, connection), 64)?),
+        bind_device,
+        Transport::Tls(Box::new(connection)),
         stop,
+        None,
     )
 }
-/// Proton-compatible outer TLS policy, coupled to the configured authenticated
-/// WireGuard peer. No outer TLS plaintext is forwarded directly to TUN.
+/// Outer certificate identity is not checked; the configured inner WG peer key
+/// authenticates all IP packets. Never forwards bare TLS plaintext to TUN.
 pub fn run_stealth(
     tun_fd: i32,
     config: &WireguardConfig,
@@ -148,20 +137,77 @@ pub fn run_stealth(
     sni: &crate::stealth::SniStrategy,
     stop: &AtomicBool,
 ) -> Result<Counters> {
-    let name = sni.for_peer(config.endpoint.ip())?;
-    run_tls(
+    run_transport(
         tun_fd,
         config,
         bind_device,
-        crate::stealth::client(name)?,
+        Transport::Stealth(sni.clone()),
         stop,
+        None,
     )
+}
+pub(crate) fn run_transport(
+    tun_fd: i32,
+    config: &WireguardConfig,
+    bind_device: &str,
+    transport: Transport,
+    stop: &AtomicBool,
+    observer: Option<&crate::connection::Observer>,
+) -> Result<Counters> {
+    match transport {
+        Transport::Udp => {
+            let addr = if config.endpoint.is_ipv4() {
+                "0.0.0.0:0"
+            } else {
+                "[::]:0"
+            };
+            let socket = std::net::UdpSocket::bind(addr)?;
+            socket.set_nonblocking(true)?;
+            linux_network::bind_device(socket.as_raw_fd(), bind_device)?;
+            socket.connect(config.endpoint)?;
+            run(tun_fd, config, Datagram(socket), stop, observer)
+        }
+        other => {
+            if config.mtu > 16_351 {
+                return Err(Error::Invalid("MTU exceeds normal TCP frame capacity"));
+            }
+            let socket = linux_network::connect_tcp(config.endpoint, bind_device, stop)?;
+            match other {
+                Transport::Tcp => run(
+                    tun_fd,
+                    config,
+                    Stream(FramedIo::new(socket, 64)?),
+                    stop,
+                    observer,
+                ),
+                Transport::Tls(connection) => run(
+                    tun_fd,
+                    config,
+                    Stream(FramedIo::new(TlsIo::new(socket, *connection), 64)?),
+                    stop,
+                    observer,
+                ),
+                Transport::Stealth(sni) => {
+                    let connection = crate::stealth::client(sni.for_peer(config.endpoint.ip())?)?;
+                    run(
+                        tun_fd,
+                        config,
+                        Stream(FramedIo::new(TlsIo::new(socket, connection), 64)?),
+                        stop,
+                        observer,
+                    )
+                }
+                Transport::Udp => unreachable!("handled above"),
+            }
+        }
+    }
 }
 fn run<N: Network>(
     tun_fd: i32,
     config: &WireguardConfig,
     mut network: N,
     stop: &AtomicBool,
+    observer: Option<&crate::connection::Observer>,
 ) -> Result<Counters> {
     let mut tun = duplicate_nonblocking(tun_fd)?;
     let network_fd = network.fd();
@@ -187,6 +233,14 @@ fn run<N: Network>(
     let mut to_net = PacketQueue::new(64)?;
     let mut to_tun = PacketQueue::new(64)?;
     let mut counters = Counters::default();
+    let mut initiation = pool.take().ok_or(Error::Full)?;
+    match session.initiate(initiation.writable())? {
+        Output::Network(n) => {
+            initiation.set_len(n)?;
+            enqueue(&mut pool, &mut to_net, initiation)?;
+        }
+        _ => pool.recycle(initiation)?,
+    }
     let mut tun_ready = true;
     let mut net_ready = true;
     let mut drain = false;
@@ -333,6 +387,9 @@ fn run<N: Network>(
                 Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
                 Err(e) => return Err(e.into()),
             }
+        }
+        if let Some(observer) = observer {
+            observer.observe(&session, &counters, boottime()?);
         }
         let wants_net = !to_net.is_empty() || network.pending() > 0 || network.wants_write();
         let wants_tun = !to_tun.is_empty();

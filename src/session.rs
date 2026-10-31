@@ -20,6 +20,14 @@ pub enum Output {
     Network(usize),
     Tunnel(usize),
 }
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct Statistics {
+    pub handshake_age: Option<Duration>,
+    pub sent_bytes: u64,
+    pub received_bytes: u64,
+    pub estimated_loss: f32,
+    pub handshake_rtt: Option<Duration>,
+}
 pub struct Session {
     tunnel: Tunn<ChaCha20Rng, Loose>,
     now: Duration,
@@ -99,6 +107,12 @@ impl Session {
         }
         Self::output(self.tunnel.encapsulate(packet, output))
     }
+    pub fn initiate(&mut self, output: &mut [u8]) -> Result<Output> {
+        if output.len() < 148 {
+            return Err(Error::Invalid("handshake output capacity"));
+        }
+        Self::output(self.tunnel.format_handshake_initiation(output, false))
+    }
     pub fn decrypt(&mut self, packet: &[u8], output: &mut [u8]) -> Result<Output> {
         if output.len() < packet.len().max(148) {
             return Err(Error::Invalid("WireGuard output capacity"));
@@ -114,6 +128,16 @@ impl Session {
     }
     pub fn stats(&self) -> (Option<Duration>, usize, usize, f32, Option<u32>) {
         self.tunnel.stats()
+    }
+    pub fn statistics(&self) -> Statistics {
+        let (handshake_age, sent, received, loss, rtt_ms) = self.tunnel.stats();
+        Statistics {
+            handshake_age,
+            sent_bytes: sent as u64,
+            received_bytes: received as u64,
+            estimated_loss: loss,
+            handshake_rtt: rtt_ms.map(|ms| Duration::from_millis(ms as u64)),
+        }
     }
 }
 

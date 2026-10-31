@@ -4,6 +4,8 @@
 pub mod agent;
 pub mod capture;
 pub mod config;
+#[cfg(target_os = "linux")]
+pub mod connection;
 pub mod control;
 pub mod framing;
 #[cfg(target_os = "linux")]

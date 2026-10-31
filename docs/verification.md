@@ -24,9 +24,19 @@ Linux and macOS: all-feature tests, formatting, Clippy, release build and the
 expected rejection of incomplete parity. Its isolated Linux network-namespace
 job passed the real kernel TUN -> WireGuard UDP -> reference peer -> TUN echo.
 
-The subsequent shared TCP/TLS TUN worker has a new three-transport integration
-test. Its success must be recorded from its own workflow run, not inferred from
-the earlier UDP result.
+[Run 41221611485](https://github.com/riKirsti/ProtunNext/actions/runs/41221611485),
+commit `61cf2a758633c01770f34cc385b579e5a3e7b937`, passed on all three
+host platforms, plus real TUN round trips through UDP, framed TCP and standard
+certificate-verifying nonblocking TLS in the isolated Linux job.
+
+[Run 41221982426](https://github.com/riKirsti/ProtunNext/actions/runs/41221982426),
+commit `71bfa70afd88ff7f1babb0072a156fb7b5a97e6a`, also passed all four jobs.
+Its Linux test adds the explicit Stealth outer policy (untrusted test CA and
+mismatched outer SNI, but valid inner WG peer) and checks that a wrong inner WG
+peer delivers no data. This is real local protocol I/O, not a live Proton server
+or paid subscription verification.
+
+The subsequent managed worker/statistics integration needs its own CI result.
 
 ## Cross compilation
 
