@@ -21,8 +21,9 @@ fn run() -> protun_next::Result<()> {
             );
             Ok(())
         }
-        Some(command @ ("run-udp" | "run-tcp" | "run-tls"))
-            if args.len() == if command == "run-tls" { 6 } else { 5 } =>
+        Some(command @ ("run-udp" | "run-tcp" | "run-tls" | "run-stealth"))
+            if (command == "run-stealth" && (args.len() == 5 || args.len() == 6))
+                || args.len() == if command == "run-tls" { 6 } else { 5 } =>
         {
             #[cfg(target_os = "linux")]
             {
@@ -34,6 +35,16 @@ fn run() -> protun_next::Result<()> {
                 let counters = match command {
                     "run-udp" => protun_next::linux::run_udp(fd, &config, &args[4], &stop),
                     "run-tcp" => protun_next::linux::run_tcp(fd, &config, &args[4], &stop),
+                    "run-stealth" => {
+                        let sni = match args.get(5).map(String::as_str) {
+                            None | Some("random") => protun_next::stealth::SniStrategy::Random,
+                            Some("top") => protun_next::stealth::SniStrategy::Top,
+                            Some(name) => {
+                                protun_next::stealth::SniStrategy::Explicit(name.to_owned())
+                            }
+                        };
+                        protun_next::linux::run_stealth(fd, &config, &args[4], &sni, &stop)
+                    }
                     _ => protun_next::linux::run_tls(
                         fd,
                         &config,
@@ -57,7 +68,7 @@ fn run() -> protun_next::Result<()> {
         }
         _ => {
             eprintln!(
-                "usage: protun-next status | verify-parity | check-config FILE | run-udp FILE TUN_FD UPLINK_DEVICE | run-tcp FILE TUN_FD UPLINK_DEVICE | run-tls FILE TUN_FD UPLINK_DEVICE SERVER_NAME"
+                "usage: protun-next status | verify-parity | check-config FILE | run-udp FILE TUN_FD UPLINK_DEVICE | run-tcp FILE TUN_FD UPLINK_DEVICE | run-tls FILE TUN_FD UPLINK_DEVICE SERVER_NAME | run-stealth FILE TUN_FD UPLINK_DEVICE [random|top|DNS_SNI]"
             );
             Err(protun_next::Error::Invalid("command"))
         }

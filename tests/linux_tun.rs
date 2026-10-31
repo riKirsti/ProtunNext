@@ -73,7 +73,7 @@ fn actual_udp_tcp_tls_engine_tun_roundtrips() {
     ip(&["addr", "add", "10.2.0.2/32", "dev", "pn0"]);
     ip(&["link", "set", "pn0", "mtu", "1280", "up"]);
     ip(&["route", "add", "10.2.0.3/32", "dev", "pn0"]);
-    for mode in 0..3 {
+    for mode in 0..5 {
         let peer = UdpSocket::bind("127.0.0.1:0").unwrap();
         peer.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -104,7 +104,7 @@ fn actual_udp_tcp_tls_engine_tun_roundtrips() {
                 tcp.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
                 tcp.set_write_timeout(Some(Duration::from_secs(5))).unwrap();
                 tcp.set_nodelay(true).unwrap();
-                let io: Box<dyn Duplex> = if mode == 2 {
+                let io: Box<dyn Duplex> = if mode >= 2 {
                     Box::new(rustls::StreamOwned::new(
                         rustls::ServerConnection::new(common::server()).unwrap(),
                         tcp,
@@ -122,7 +122,16 @@ fn actual_udp_tcp_tls_engine_tun_roundtrips() {
             let mut reply = [0; 65535];
             loop {
                 transport.receive(&mut wire);
-                let result = session.decrypt(wire.data(), &mut out).unwrap();
+                let result = match session.decrypt(wire.data(), &mut out) {
+                    Ok(result) => result,
+                    Err(_) if mode == 4 => {
+                        // The TLS peer has no trusted certificate/name, but the
+                        // wrong configured WG key must prevent authentication.
+                        wait_release.recv_timeout(Duration::from_secs(10)).unwrap();
+                        return;
+                    }
+                    Err(error) => panic!("reference decrypt: {error}"),
+                };
                 match result {
                     Output::Network(n) => transport.send(&out[..n], &mut pool),
                     Output::Tunnel(n) => {
@@ -142,7 +151,11 @@ fn actual_udp_tcp_tls_engine_tun_roundtrips() {
         let text = format!(
             "[Interface]\nPrivateKey={}\nAddress=10.2.0.2/32\nMTU=1280\n[Peer]\nPublicKey={}\nEndpoint={endpoint}\nAllowedIPs=10.2.0.3/32\n",
             STANDARD.encode([7; 32]),
-            STANDARD.encode(Session::public_key([9; 32]))
+            STANDARD.encode(Session::public_key(if mode == 4 {
+                [11; 32]
+            } else {
+                [9; 32]
+            }))
         );
         let config = WireguardConfig::parse(&text).unwrap();
         let stop = Arc::new(AtomicBool::new(false));
@@ -156,11 +169,18 @@ fn actual_udp_tcp_tls_engine_tun_roundtrips() {
             let result = match mode {
                 0 => linux::run_udp(owned.as_raw_fd(), &config, "lo", &worker_stop),
                 1 => linux::run_tcp(owned.as_raw_fd(), &config, "lo", &worker_stop),
-                _ => linux::run_tls(
+                2 => linux::run_tls(
                     owned.as_raw_fd(),
                     &config,
                     "lo",
                     tls::client_with_roots("localhost", common::roots()).unwrap(),
+                    &worker_stop,
+                ),
+                _ => linux::run_stealth(
+                    owned.as_raw_fd(),
+                    &config,
+                    "lo",
+                    &protun_next::stealth::SniStrategy::Explicit("unrelated.test".into()),
                     &worker_stop,
                 ),
             };
@@ -168,7 +188,12 @@ fn actual_udp_tcp_tls_engine_tun_roundtrips() {
             result
         });
         let app = UdpSocket::bind("10.2.0.2:0").unwrap();
-        app.set_read_timeout(Some(Duration::from_secs(8))).unwrap();
+        app.set_read_timeout(Some(if mode == 4 {
+            Duration::from_millis(500)
+        } else {
+            Duration::from_secs(8)
+        }))
+        .unwrap();
         app.send_to(b"real kernel TUN and UDP", "10.2.0.3:9000")
             .unwrap();
         let mut response = [0; 128];
@@ -177,6 +202,18 @@ fn actual_udp_tcp_tls_engine_tun_roundtrips() {
         let counters = worker.join().unwrap().unwrap();
         release.send(()).unwrap();
         reference.join().unwrap();
+        if mode == 4 {
+            let error = received.unwrap_err();
+            assert!(matches!(
+                error.kind(),
+                std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+            ));
+            assert_eq!(
+                counters.decrypted_packets, 0,
+                "untrusted TLS cannot authenticate a WG peer"
+            );
+            continue;
+        }
         let (n, source) = received.unwrap();
         assert_eq!(&response[..n], b"real kernel TUN and UDP");
         assert_eq!(source, "10.2.0.3:9000".parse().unwrap());

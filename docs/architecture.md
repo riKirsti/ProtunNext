@@ -34,9 +34,11 @@ UDP worker relabeled as kernel WireGuard.
   uses OS entropy, synchronized wall time and explicit monotonic time. Linux
   obtains CLOCK_BOOTTIME to account for suspend.
 * **rustls 0.23.46 + ring:** TLS cryptography/protocol only. No replacement AEAD
-  or certificate verifier is fabricated. The helper currently verifies standard
-  certificates. Proton Stealth's special certificate policy is not silently
-  equated with HTTPS validation or enabled as an insecure fallback.
+  or certificate verifier is fabricated. The ordinary helper verifies standard
+  certificates. The separate Stealth entry point follows Proton's published
+  outer policy (no CA/name identity check, valid handshake signature required),
+  and always routes payload through inner peer-key-authenticated WireGuard.
+  It is never selected as fallback for ordinary TLS or Local Agent.
 * **proton-vpn-local-agent 0.13.0 (optional):** official mTLS/RESP3 control protocol only. This is needed for server selector/settings compatibility and stays outside the packet worker. The adapter checks requested settings against readback; it does not provide account authorization, certificate issuance, renewal or complete Local Agent runtime integration yet.
 * **Mio/libc:** Linux readiness and thin OS calls. No packet representation is
   copied into an additional framework action queue.
@@ -46,6 +48,27 @@ UDP worker relabeled as kernel WireGuard.
 
 Dependency usefulness does not prove absence of bugs. Versions are locked and
 changes need source review, compatibility tests and measured target evidence.
+
+## Stealth policy and SNI
+
+Proton's checksum-verified `pvpnclient 4.4.1/src/pvpnclient/wireguard/tls.rs`
+sets `TlsClientConfig { insecure: true, .. }`. The corresponding
+`proton-pfff-module 0.8.10/src/tls/config.rs` accepts the certificate identity but
+uses rustls provider verification for TLS 1.2/1.3 handshake signatures. The new
+`stealth` module implements this policy separately from standard TLS. Its TLS
+constructor is crate-private; public execution always includes inner WireGuard.
+There is no direct TLS-plaintext-to-TUN path. Without the configured WG private
+peer identity an outer endpoint cannot authenticate an IP packet to TUN.
+
+The Random SNI strategy uses the published alphabet, label-length range and TLD
+family with OS entropy. Top uses v3.0.5's domain data, retained with Proton's
+copyright/license attribution in `stealth_top_sni.rs`. The mapping is a stable
+non-security hash of the address, not an exact reproduction of Rust's unspecified
+upstream `DefaultHasher` mapping. This changes the selected cover name for some
+peers, not the framing or authenticated VPN identity. No domain is contacted to
+select SNI. The outer peer identity and traffic metadata are not authenticated
+by this policy; inner WireGuard provides VPN data authentication/confidentiality.
+Live Proton server acceptance and censorship behavior remain unverified.
 
 ## Official reference material checked
 

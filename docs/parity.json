@@ -58,9 +58,10 @@
     "id": "stealth-end-to-end",
     "requirement": "Proton Stealth TLS-over-TCP with correct inner peer authentication and TLS policy",
     "source": "https://github.com/ProtonVPN/protun/blob/a498c38ae6ffb0e68e7190b2831ef985d73fa6da/src/connection/mio/tcp.rs",
-    "status": "not-implemented",
+    "status": "needs-live-verification",
     "evidence": [
-      "tests/tcp_wireguard.rs: actual WireGuard over standard certificate-verifying nonblocking TLS; Proton-specific policy and live interoperability pending"
+      "src/stealth.rs: verified against published pvpnclient 4.4.1 and proton-pfff-module 0.8.10",
+      "tests/linux_tun.rs: mismatched outer SNI accepted with valid inner WG; wrong inner WG peer must deliver no data; CI execution pending"
     ]
   },
   {
@@ -214,8 +215,11 @@
     "id": "sni-strategy",
     "requirement": "Random and top-domain strategy compatibility",
     "source": "https://github.com/ProtonVPN/protun/blob/a498c38ae6ffb0e68e7190b2831ef985d73fa6da/src/api/connection.rs",
-    "status": "not-implemented",
-    "evidence": []
+    "status": "implemented-local",
+    "evidence": [
+      "stealth::tests::sni_strategies_produce_dns_names_and_stable_top_selection",
+      "official v3.0.5 Top domain data with attribution; stable mapping intentionally differs, documented in architecture.md"
+    ]
   },
   {
     "id": "logging",
