@@ -57,6 +57,27 @@ UDP worker relabeled as kernel WireGuard.
 Dependency usefulness does not prove absence of bugs. Versions are locked and
 changes need source review, compatibility tests and measured target evidence.
 
+## Worker lifetime and resource limits
+
+The Linux managed connection owns a duplicated, validated TUN fd and one packet
+thread. Start generates a WireGuard initiation immediately. Only an inner session
+can set TunnelEstablished. Disconnect joins the worker; repeated joins return its
+final counters. Latest-state snapshots coalesce with a sequence number, avoiding
+an unbounded callback backlog. Statistics requests have generation numbers so
+an earlier state update cannot satisfy a later sampling request. After session
+establishment, observation takes no per-packet lock or action-channel message;
+periodic sampling is at most once/second unless explicitly requested.
+
+The general-IP worker currently reserves 132 packet buffers of 65,535 bytes plus
+headroom (about 8.3 MiB before TLS/framing/control state). Each output direction
+is bounded to 64 packets, including stream-owned packet backlog. This is an
+explicit memory tradeoff for accepting full-sized inbound IP, not a claim of
+optimal router memory/cache behavior. MTU-sized pools, batched syscalls and
+kernel offload require target measurements before changing these bounds.
+TLS write-direction buffers are bounded to 65,536 bytes; vectored framing output
+is forwarded to rustls's vectored writer, and ciphertext remains scheduled for
+write even when all application packets have been accepted.
+
 ## Stealth policy and SNI
 
 Proton's checksum-verified `pvpnclient 4.4.1/src/pvpnclient/wireguard/tls.rs`

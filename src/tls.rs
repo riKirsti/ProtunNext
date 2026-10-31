@@ -2,7 +2,7 @@
 //! Proton Stealth's authenticated-inner-WireGuard certificate policy needs a
 //! separate, explicit integration review before a live Stealth release.
 use crate::{Error, Result};
-use std::io::{self, Read, Write};
+use std::io::{self, IoSlice, Read, Write};
 use std::sync::Arc;
 
 /// Nonblocking rustls adapter. The reactor must include `wants_write()` in its
@@ -77,7 +77,10 @@ impl<S: Read + Write> Read for TlsIo<S> {
 }
 impl<S: Read + Write> Write for TlsIo<S> {
     fn write(&mut self, input: &[u8]) -> io::Result<usize> {
-        if input.is_empty() {
+        self.write_vectored(&[IoSlice::new(input)])
+    }
+    fn write_vectored(&mut self, input: &[IoSlice<'_>]) -> io::Result<usize> {
+        if input.iter().all(|slice| slice.is_empty()) {
             return Ok(0);
         }
         match self.flush_tls() {
@@ -87,7 +90,9 @@ impl<S: Read + Write> Write for TlsIo<S> {
         }
         // Do not flush after accepting bytes: a later socket error must not
         // report these accepted bytes as unconsumed to the framing queue.
-        match self.connection.writer().write(input) {
+        // Preserve FramedIo's batch at the rustls boundary instead of falling
+        // back to Write's default, which accepts only its first nonempty slice.
+        match self.connection.writer().write_vectored(input) {
             Ok(0) => Err(io::ErrorKind::WouldBlock.into()),
             result => result,
         }

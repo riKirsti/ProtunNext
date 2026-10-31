@@ -9,6 +9,9 @@ Development evidence, not a release acceptance record.
 * Replay and tampered-tag rejection; clock regression and output bounds.
 * Real TCP and nonblocking TLS loopback carrying the WireGuard handshake and encrypted IP exchange.
 * Standard TLS certificate verification and wrong-server-name rejection.
+* An 80,000-byte real TLS exchange with vectored plaintext, a full bounded
+  pre-handshake buffer, forced 257-byte socket writes and repeated WouldBlock;
+  the accepted bytes arrive intact.
 * Framing fragmentation, prediction context and reset/error rules.
 * Partial writes/backpressure with exact output preservation.
 * Packet ownership/bounded queues, config parsing/redaction, PCAP limits,
@@ -42,12 +45,23 @@ passing integration result. The following change enforces the configured
 AllowedIPs before outbound encryption and after authenticated inbound decryption.
 Its expanded test checks wrong inner identity, spoofed source, disallowed
 destination, requested statistics, repeated shutdown/join and a final TCP reply
-followed immediately by EOF. These changes need their own successful CI result.
+followed immediately by EOF. [Run 41222836845](https://github.com/riKirsti/ProtunNext/actions/runs/41222836845),
+commit `55fcaaa7dc05a8029d90f2124c94ab3cdff00cc6`, passed all four jobs.
+The isolated Linux test executes eight scenarios: UDP, TCP, standard TLS,
+Stealth, wrong WG identity, authenticated wrong IP source, disallowed outbound
+destination, and a valid final TCP reply immediately followed by EOF. It also
+checks fresh requested statistics, authenticated tunnel state, and repeated join.
+
+The following TLS batching refinement passes locally (22 all-feature tests);
+its own workflow must confirm the cross-platform result. It forwards all
+IoSlices to rustls's published vectored writer rather than inheriting the default
+single-slice fallback. This is an I/O behavior fix; no throughput speedup has
+been measured.
 
 ## Cross compilation
 
-The development laptop successfully built the release executable for
-`aarch64-unknown-linux-musl`. This proves compilation/linking, not execution on
+The development laptop successfully built the all-feature release executable for
+`aarch64-unknown-linux-musl`, including the optional official Local Agent adapter. This proves compilation/linking, not execution on
 Travel or any target throughput result.
 
 ## Not yet verified
