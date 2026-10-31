@@ -111,7 +111,8 @@ impl Connection {
     }
     pub fn disconnect_and_wait(&self) {
         self.disconnect();
-        if let Some(join) = self.join.lock().unwrap_or_else(|e| e.into_inner()).take()
+        let join = self.join.lock().unwrap_or_else(|e| e.into_inner()).take();
+        if let Some(join) = join
             && join.thread().id() != thread::current().id()
         {
             let _ = join.join();
@@ -390,6 +391,24 @@ impl Supervisor {
             for event in self.capture.take_events() {
                 self.event_callback.on_event(event);
             }
+            if let Some(snapshot) = &snapshot
+                && self
+                    .requested_stats
+                    .is_some_and(|request| snapshot.stats_generation >= request)
+            {
+                self.requested_stats = None;
+                if let Some(stats) = &snapshot.statistics {
+                    self.event_callback.on_event(Event::ConnectionStats {
+                        mono_timestamp_ms: snapshot.mono_timestamp.as_millis().min(i64::MAX as u128)
+                            as i64,
+                        received_bytes: stats.received_bytes,
+                        sent_bytes: stats.sent_bytes,
+                        time_since_last_handshake: stats.handshake_age.unwrap_or_default(),
+                        estimated_loss: stats.estimated_loss,
+                        estimated_round_trip_time: stats.handshake_rtt.unwrap_or_default(),
+                    });
+                }
+            }
             match snapshot {
                 Some(snapshot) if snapshot.state == WorkerState::TunnelEstablished => {
                     self.attempts = 0;
@@ -416,26 +435,6 @@ impl Supervisor {
                             {
                                 self.publish(self.agent_state.state(peer));
                             }
-                        }
-                    }
-                    if self
-                        .requested_stats
-                        .is_some_and(|request| snapshot.stats_generation >= request)
-                    {
-                        self.requested_stats = None;
-                        if let Some(stats) = snapshot.statistics {
-                            self.event_callback.on_event(Event::ConnectionStats {
-                                mono_timestamp_ms: snapshot
-                                    .elapsed
-                                    .as_millis()
-                                    .min(i64::MAX as u128)
-                                    as i64,
-                                received_bytes: stats.received_bytes,
-                                sent_bytes: stats.sent_bytes,
-                                time_since_last_handshake: stats.handshake_age.unwrap_or_default(),
-                                estimated_loss: stats.estimated_loss,
-                                estimated_round_trip_time: stats.handshake_rtt.unwrap_or_default(),
-                            });
                         }
                     }
                 }

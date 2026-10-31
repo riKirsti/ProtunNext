@@ -7,6 +7,30 @@ use std::{
     os::fd::{AsRawFd, RawFd},
 };
 pub(crate) struct TunDevice(pub File);
+impl TunDevice {
+    pub(crate) fn new(file: File) -> Self {
+        Self(file)
+    }
+    pub(crate) fn register(
+        &self,
+        registry: &mio::Registry,
+        token: mio::Token,
+        interest: mio::Interest,
+    ) -> io::Result<()> {
+        registry.register(&mut mio::unix::SourceFd(&self.as_raw_fd()), token, interest)
+    }
+    pub(crate) fn reregister(
+        &self,
+        registry: &mio::Registry,
+        token: mio::Token,
+        interest: mio::Interest,
+    ) -> io::Result<()> {
+        registry.reregister(&mut mio::unix::SourceFd(&self.as_raw_fd()), token, interest)
+    }
+    pub(crate) fn deregister(&self, registry: &mio::Registry) -> io::Result<()> {
+        registry.deregister(&mut mio::unix::SourceFd(&self.as_raw_fd()))
+    }
+}
 impl AsRawFd for TunDevice {
     fn as_raw_fd(&self) -> RawFd {
         self.0.as_raw_fd()

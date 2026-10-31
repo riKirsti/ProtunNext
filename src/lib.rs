@@ -10,20 +10,29 @@ pub mod config;
 #[cfg(unix)]
 pub mod connection;
 pub mod control;
+#[cfg(unix)]
+mod engine;
 pub mod framing;
 #[cfg(unix)]
 pub mod linux;
 #[cfg(unix)]
 mod linux_network;
 #[cfg(unix)]
+mod network;
+#[cfg(unix)]
+mod path_probe;
+#[cfg(unix)]
 pub use linux as unix;
 pub mod natpmp;
 pub mod packet;
+#[cfg(unix)]
+mod platform;
 pub mod routing;
 pub mod session;
 pub mod stealth;
 pub mod stream;
 pub mod tls;
+pub mod transport;
 #[cfg(unix)]
 mod tun_device;
 pub mod virtual_policy;

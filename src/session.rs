@@ -113,6 +113,13 @@ impl Session {
         }
         Self::output(self.tunnel.format_handshake_initiation(output, false))
     }
+    #[cfg(unix)]
+    pub(crate) fn initiate_forced(&mut self, output: &mut [u8]) -> Result<Output> {
+        if output.len() < 148 {
+            return Err(Error::Invalid("handshake output capacity"));
+        }
+        Self::output(self.tunnel.format_handshake_initiation(output, true))
+    }
     pub fn decrypt(&mut self, packet: &[u8], output: &mut [u8]) -> Result<Output> {
         if output.len() < packet.len().max(148) {
             return Err(Error::Invalid("WireGuard output capacity"));
