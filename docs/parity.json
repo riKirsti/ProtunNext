@@ -182,17 +182,19 @@
     "source": "https://github.com/ProtonVPN/protun/blob/a498c38ae6ffb0e68e7190b2831ef985d73fa6da/src/api/connection.rs",
     "status": "partially-implemented",
     "evidence": [
-      "src/api/account.rs: session restore, selector/cookies exchange, duplicate-selector suppression and invalidation; detailed API error compatibility pending"
+      "src/api/account.rs: in-memory and host cache invalidation, refresh suspension, generation-checked fork results and zeroizing selector ownership",
+      "tests/account_api.rs: certificate request followed by replacement fork GET, cookie header, error-code semantics and consumed-selector suppression"
     ],
     "code_status": "partial"
   },
   {
     "id": "certificate-renewal",
-    "requirement": "API certificate issuance/renewal, fatal expiry, configured duration",
+    "requirement": "API certificate issuance/renewal, expiration handling, invalidation, rekey and configured duration",
     "source": "https://github.com/ProtonVPN/protun/blob/a498c38ae6ffb0e68e7190b2831ef985d73fa6da/src/api/connection.rs",
     "status": "partially-implemented",
     "evidence": [
-      "src/api/account.rs: RCRL issuance/renewal, duration, invalidation, expiry disconnection and key rejection; offline service fixtures pending"
+      "src/api/account.rs: RCRL issuance/renewal, duration, invalidation, expiry disconnection and key rejection; offline service fixtures pending",
+      "tests/account_api.rs: real Muon/RCRL request JSON, public test credentials, rejected-session events; no Proton service contacted"
     ],
     "code_status": "partial"
   },

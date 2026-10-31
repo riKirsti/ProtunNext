@@ -4,7 +4,8 @@ Independent Rust successor project targeting all functionality exposed by Protun
 
 **Development snapshot — not a complete replacement, not ready for deployment.**
 `cargo run -- verify-parity` deliberately fails until the entire compatibility
-matrix has implementation and verification evidence. A working protocol codec
+matrix has implementation and verification evidence. `verify-code-parity`
+separately checks code coverage without requiring the deferred live tests. A working protocol codec
 or a green unit test does not mean a complete VPN client or paid-feature support.
 
 ## Working implementation in this snapshot
@@ -60,10 +61,10 @@ Default tests never change host routes, interfaces, DNS, sysctls or packages.
 The experimental Linux worker is invoked as:
 
 ```sh
-protun-next run-udp private-config.conf EXISTING_TUN_FD UPLINK_INTERFACE
-protun-next run-tcp private-config.conf EXISTING_TUN_FD UPLINK_INTERFACE
-protun-next run-tls private-config.conf EXISTING_TUN_FD UPLINK_INTERFACE SERVER_NAME
-protun-next run-stealth private-config.conf EXISTING_TUN_FD UPLINK_INTERFACE [random|top|DNS_SNI]
+protun-next-cli run-udp private-config.conf EXISTING_TUN_FD UPLINK_INTERFACE
+protun-next-cli run-tcp private-config.conf EXISTING_TUN_FD UPLINK_INTERFACE
+protun-next-cli run-tls private-config.conf EXISTING_TUN_FD UPLINK_INTERFACE SERVER_NAME
+protun-next-cli run-stealth private-config.conf EXISTING_TUN_FD UPLINK_INTERFACE [random|top|DNS_SNI]
 ```
 
 The TLS command uses standard certificate verification. The separate Stealth

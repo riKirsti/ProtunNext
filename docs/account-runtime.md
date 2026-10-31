@@ -21,6 +21,12 @@ restrictions, jails and policy refusals are separate from requested settings.
 Key rejection causes persisted identity replacement and a new WG session.
 Expired or invalidated certificates disconnect LocalAgent until replaced.
 Fork selectors are not retried automatically or written to logs.
+Replacing a fork clears Muon's in-memory authentication as well as the host
+cache, suspends the old refresh request and invalidates the previous account's
+certificate. A generation check rejects stale fork results. The offline API
+fixture checks the actual certificate-request JSON, rejected-token cache
+clearing, replacement fork GET, cookie delivery and duplicate suppression over
+the private network using public test tokens.
 
 Identity cache data uses RFC 8410 Ed25519 PKCS#8 v1 PEM: the legacy reader
 assumes that envelope. The WG scalar derives from the same Ed25519 seed.
