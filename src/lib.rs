@@ -13,6 +13,7 @@ mod linux_network;
 pub mod natpmp;
 pub mod packet;
 pub mod session;
+pub mod stealth;
 pub mod stream;
 pub mod tls;
 

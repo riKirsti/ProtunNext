@@ -50,10 +50,13 @@ The experimental Linux worker is invoked as:
 protun-next run-udp private-config.conf EXISTING_TUN_FD UPLINK_INTERFACE
 protun-next run-tcp private-config.conf EXISTING_TUN_FD UPLINK_INTERFACE
 protun-next run-tls private-config.conf EXISTING_TUN_FD UPLINK_INTERFACE SERVER_NAME
+protun-next run-stealth private-config.conf EXISTING_TUN_FD UPLINK_INTERFACE [random|top|DNS_SNI]
 ```
 
-The TLS command uses standard certificate verification; Proton Stealth certificate-policy
-and SNI compatibility still require implementation and live verification. TCP/TLS
+The TLS command uses standard certificate verification. The separate Stealth
+command uses Proton's published outer policy and Random/Top/explicit SNI;
+inner WireGuard authenticates packets before TUN delivery. Its live Proton
+interoperability remains unverified. TCP/TLS
 MTU is limited to 16,351 bytes by normal TunSafe framing.
 
 The host must create/configure the TUN, addresses, routes and DNS. This command

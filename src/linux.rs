@@ -139,6 +139,24 @@ pub fn run_tls(
         stop,
     )
 }
+/// Proton-compatible outer TLS policy, coupled to the configured authenticated
+/// WireGuard peer. No outer TLS plaintext is forwarded directly to TUN.
+pub fn run_stealth(
+    tun_fd: i32,
+    config: &WireguardConfig,
+    bind_device: &str,
+    sni: &crate::stealth::SniStrategy,
+    stop: &AtomicBool,
+) -> Result<Counters> {
+    let name = sni.for_peer(config.endpoint.ip())?;
+    run_tls(
+        tun_fd,
+        config,
+        bind_device,
+        crate::stealth::client(name)?,
+        stop,
+    )
+}
 fn run<N: Network>(
     tun_fd: i32,
     config: &WireguardConfig,
