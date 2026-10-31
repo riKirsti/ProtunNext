@@ -470,13 +470,16 @@ impl Connection {
         let file = tun
             .map(|fd| linux::duplicate_nonblocking(fd.as_raw_fd()))
             .transpose()?;
+        self.replace_owned_tun(file);
+        Ok(())
+    }
+    pub(crate) fn replace_owned_tun(&self, file: Option<File>) {
         *self
             .shared
             .tun_update
             .lock()
             .unwrap_or_else(|e| e.into_inner()) = Some(file);
         self.wake();
-        Ok(())
     }
     fn wake(&self) {
         if let Some(waker) = self
