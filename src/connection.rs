@@ -8,12 +8,14 @@ use crate::api::{
 use crate::{
     Error, Result,
     config::WireguardConfig,
-    linux::{self, Counters, Transport},
+    platform::{self, TunHandle},
     session::{Session, Statistics},
+    transport::{Counters, Transport},
 };
-use std::{collections::VecDeque, fs::File};
+use std::collections::VecDeque;
+#[cfg(unix)]
+use std::os::fd::{AsRawFd, BorrowedFd};
 use std::{
-    os::fd::{AsRawFd, BorrowedFd},
     sync::{
         Arc, Condvar, Mutex,
         atomic::{AtomicBool, AtomicU64, Ordering},
@@ -42,6 +44,7 @@ pub struct Snapshot {
     pub sequence: u64,
     pub state: State,
     pub elapsed: Duration,
+    pub mono_timestamp: Duration,
     pub stats_generation: u64,
     pub statistics: Option<Statistics>,
     pub counters: Counters,
@@ -55,11 +58,12 @@ struct Shared {
     stats_requested: AtomicU64,
     stats_observed: AtomicU64,
     established: AtomicBool,
+    path_verified: AtomicBool,
     next_sample_ms: AtomicU64,
     capture: Arc<CaptureState>,
     owns_capture: bool,
     compatibility_policy: bool,
-    tun_update: Mutex<Option<Option<File>>>,
+    tun_update: Mutex<Option<Option<TunHandle>>>,
     protector: Option<Arc<dyn SocketProtector>>,
     waker: Mutex<Option<Arc<mio::Waker>>>,
     #[cfg(feature = "local-agent")]
@@ -122,6 +126,9 @@ pub(crate) struct Observer {
     start: Duration,
 }
 impl Observer {
+    pub(crate) fn confirm_path(&self) {
+        self.shared.path_verified.store(true, Ordering::Relaxed);
+    }
     pub(crate) fn compatibility_policy(&self) -> bool {
         self.shared.compatibility_policy
     }
@@ -214,7 +221,7 @@ impl Observer {
     pub(crate) fn protector(&self) -> Option<&dyn SocketProtector> {
         self.shared.protector.as_deref()
     }
-    pub(crate) fn take_tun_update(&self) -> Option<Option<File>> {
+    pub(crate) fn take_tun_update(&self) -> Option<Option<TunHandle>> {
         self.shared
             .tun_update
             .lock()
@@ -311,7 +318,9 @@ impl Observer {
             return;
         }
         let statistics = session.statistics();
-        let connected = statistics.handshake_age.is_some();
+        let connected = statistics.handshake_age.is_some()
+            && (!self.shared.compatibility_policy
+                || self.shared.path_verified.load(Ordering::Relaxed));
         let previous = self.shared.established.swap(connected, Ordering::Relaxed);
         let state_changed = connected != previous;
         if !requested && !due && !state_changed {
@@ -333,6 +342,7 @@ impl Observer {
             };
         }
         snapshot.elapsed = now.saturating_sub(self.start);
+        snapshot.mono_timestamp = now;
         snapshot.statistics = Some(statistics);
         snapshot.stats_generation = request;
         self.shared.stats_observed.store(request, Ordering::Relaxed);
@@ -356,8 +366,9 @@ impl Observer {
         if let Ok(counters) = result {
             snapshot.counters = counters.clone();
         }
-        if let Ok(now) = linux::boottime() {
+        if let Ok(now) = platform::boottime() {
             snapshot.elapsed = now.saturating_sub(self.start);
+            snapshot.mono_timestamp = now;
         }
         snapshot.sequence = snapshot.sequence.saturating_add(1);
         self.shared.changed.notify_all();
@@ -396,14 +407,25 @@ impl Connection {
         capture: Option<Arc<CaptureState>>,
     ) -> Result<Self> {
         let owned_tun = tun
-            .map(|fd| linux::duplicate_nonblocking(fd.as_raw_fd()))
+            .map(|fd| crate::unix::duplicate_nonblocking(fd.as_raw_fd()))
             .transpose()?;
-        let start = linux::boottime()?;
+        Self::start_owned(owned_tun, config, uplink, transport, protector, capture)
+    }
+    pub(crate) fn start_owned(
+        owned_tun: Option<TunHandle>,
+        config: WireguardConfig,
+        uplink: String,
+        transport: Transport,
+        protector: Option<Arc<dyn SocketProtector>>,
+        capture: Option<Arc<CaptureState>>,
+    ) -> Result<Self> {
+        let start = platform::boottime()?;
         let shared = Arc::new(Shared {
             snapshot: Mutex::new(Snapshot {
                 sequence: 1,
                 state: State::Starting,
                 elapsed: Duration::ZERO,
+                mono_timestamp: start,
                 stats_generation: 0,
                 statistics: None,
                 counters: Counters::default(),
@@ -415,6 +437,7 @@ impl Connection {
             stats_requested: AtomicU64::new(0),
             stats_observed: AtomicU64::new(0),
             established: AtomicBool::new(false),
+            path_verified: AtomicBool::new(false),
             next_sample_ms: AtomicU64::new(0),
             owns_capture: capture.is_none(),
             compatibility_policy: capture.is_some(),
@@ -434,8 +457,8 @@ impl Connection {
         let worker = thread::Builder::new()
             .name("protun-next-packets".into())
             .spawn(move || {
-                let result = linux::run_transport(
-                    owned_tun.as_ref().map(AsRawFd::as_raw_fd),
+                let result = platform::run_owned(
+                    owned_tun,
                     &config,
                     &uplink,
                     transport,
@@ -468,12 +491,12 @@ impl Connection {
     }
     pub fn replace_tun(&self, tun: Option<BorrowedFd<'_>>) -> Result<()> {
         let file = tun
-            .map(|fd| linux::duplicate_nonblocking(fd.as_raw_fd()))
+            .map(|fd| crate::unix::duplicate_nonblocking(fd.as_raw_fd()))
             .transpose()?;
         self.replace_owned_tun(file);
         Ok(())
     }
-    pub(crate) fn replace_owned_tun(&self, file: Option<File>) {
+    pub(crate) fn replace_owned_tun(&self, file: Option<TunHandle>) {
         *self
             .shared
             .tun_update
@@ -509,7 +532,7 @@ impl Connection {
             }
         }
         let (connector, network) = crate::api::internal::InternalNetwork::new(
-            linux::boottime()?,
+            platform::boottime()?,
             WakeControl(Arc::downgrade(&self.shared)),
         )?;
         *self

@@ -6,7 +6,8 @@
     "status": "implemented-local",
     "evidence": [
       "session::tests::actual_handshake_packet_roundtrip_replay_and_tamper"
-    ]
+    ],
+    "code_status": "complete"
   },
   {
     "id": "tcp-framing",
@@ -15,7 +16,8 @@
     "status": "implemented-local",
     "evidence": [
       "framing::tests"
-    ]
+    ],
+    "code_status": "complete"
   },
   {
     "id": "capture-codec",
@@ -24,7 +26,8 @@
     "status": "implemented-local",
     "evidence": [
       "capture::tests"
-    ]
+    ],
+    "code_status": "complete"
   },
   {
     "id": "candidate-selection",
@@ -33,7 +36,8 @@
     "status": "implemented-local",
     "evidence": [
       "control::tests"
-    ]
+    ],
+    "code_status": "complete"
   },
   {
     "id": "udp-end-to-end",
@@ -42,7 +46,8 @@
     "status": "needs-live-verification",
     "evidence": [
       "tests/linux_tun.rs: actual UDP TUN roundtrip passed in CI 41220824642; live Proton server pending"
-    ]
+    ],
+    "code_status": "complete"
   },
   {
     "id": "tcp-end-to-end",
@@ -52,7 +57,8 @@
     "evidence": [
       "tests/tcp_wireguard.rs: real TCP and Noise exchange",
       "CI 41221611485: real Linux TUN TCP roundtrip passed; live Proton server pending"
-    ]
+    ],
+    "code_status": "complete"
   },
   {
     "id": "stealth-end-to-end",
@@ -62,7 +68,8 @@
     "evidence": [
       "src/stealth.rs: verified against published pvpnclient 4.4.1 and proton-pfff-module 0.8.10",
       "CI 41221982426: mismatched outer SNI accepted with valid inner WG; wrong inner WG peer delivered no data; live Proton pending"
-    ]
+    ],
+    "code_status": "complete"
   },
   {
     "id": "connection-lifecycle",
@@ -72,7 +79,8 @@
     "evidence": [
       "src/api/supervisor.rs: executable Linux constructor/update/disconnect/join and callbacks; native platform paths pending",
       "tests/api_connection.rs"
-    ]
+    ],
+    "code_status": "partial"
   },
   {
     "id": "peer-failover",
@@ -82,7 +90,8 @@
     "evidence": [
       "src/api/supervisor.rs: candidate timeout, retry and metadata-preserving updates",
       "tests/api_connection.rs: unchanged endpoint retains session"
-    ]
+    ],
+    "code_status": "partial"
   },
   {
     "id": "network-recovery",
@@ -92,7 +101,8 @@
     "evidence": [
       "src/api/supervisor.rs: up/down/network-switch recreate outer worker",
       "tests/api_connection.rs"
-    ]
+    ],
+    "code_status": "partial"
   },
   {
     "id": "tun-replacement",
@@ -101,14 +111,19 @@
     "status": "partially-implemented",
     "evidence": [
       "src/connection.rs and src/linux.rs: wakeable replacement, optional TUN, detach on interface I/O errors; platform coverage pending"
-    ]
+    ],
+    "code_status": "partial"
   },
   {
     "id": "socket-protection",
     "requirement": "Protect every socket against routing through the tunnel",
     "source": "https://github.com/ProtonVPN/protun/blob/a498c38ae6ffb0e68e7190b2831ef985d73fa6da/src/api/connection_unix.rs",
     "status": "needs-live-verification",
-    "evidence": []
+    "evidence": [
+      "src/linux_network.rs and src/linux.rs: bind uplink/protect callback before UDP connect or TCP SYN",
+      "tests/api_connection.rs: actual callback execution and socket recreation; native Windows protection tracked separately"
+    ],
+    "code_status": "complete"
   },
   {
     "id": "stats-events",
@@ -117,7 +132,8 @@
     "status": "partially-implemented",
     "evidence": [
       "src/api/supervisor.rs: generation-tagged worker statistics converted to compatibility callback events"
-    ]
+    ],
+    "code_status": "partial"
   },
   {
     "id": "packet-capture-controls",
@@ -127,7 +143,8 @@
     "evidence": [
       "src/api/capture.rs, src/connection.rs: file modes, bounds, events and failover-persistent sink",
       "tests/capture_controls.rs; tests/api_connection.rs; non-Linux fd support pending"
-    ]
+    ],
+    "code_status": "partial"
   },
   {
     "id": "persistent-cache",
@@ -136,7 +153,8 @@
     "status": "partially-implemented",
     "evidence": [
       "src/api/cache.rs, src/api/account_material.rs: opaque callback persistence; legacy key/certificate/session formats"
-    ]
+    ],
+    "code_status": "partial"
   },
   {
     "id": "key-generation",
@@ -145,7 +163,8 @@
     "status": "implemented-local",
     "evidence": [
       "src/api/keys.rs: persisted OS-seeded Ed25519 identity, RFC8410 v1 PKCS8, verified X25519 conversion"
-    ]
+    ],
+    "code_status": "complete"
   },
   {
     "id": "local-agent",
@@ -154,7 +173,8 @@
     "status": "partially-implemented",
     "evidence": [
       "src/api/account.rs: managed mTLS plus registered private control sockets, subscriptions and rekey; complete offline issuer fixture pending"
-    ]
+    ],
+    "code_status": "partial"
   },
   {
     "id": "api-fork",
@@ -163,7 +183,8 @@
     "status": "partially-implemented",
     "evidence": [
       "src/api/account.rs: session restore, selector/cookies exchange, duplicate-selector suppression and invalidation; detailed API error compatibility pending"
-    ]
+    ],
+    "code_status": "partial"
   },
   {
     "id": "certificate-renewal",
@@ -172,7 +193,8 @@
     "status": "partially-implemented",
     "evidence": [
       "src/api/account.rs: RCRL issuance/renewal, duration, invalidation, expiry disconnection and key rejection; offline service fixtures pending"
-    ]
+    ],
+    "code_status": "partial"
   },
   {
     "id": "api-environments",
@@ -181,7 +203,8 @@
     "status": "implemented-local",
     "evidence": [
       "src/api/account_material.rs: Proton VPN production host and official pins, Atlas and validated custom servers/pins; unit tests"
-    ]
+    ],
+    "code_status": "complete"
   },
   {
     "id": "netshield",
@@ -190,7 +213,8 @@
     "status": "partially-implemented",
     "evidence": [
       "src/api/account.rs and src/api/agent_state.rs: real managed LocalAgent settings/subscriptions, server-observed feedback and policy handling; offline protocol fixtures and native bindings pending"
-    ]
+    ],
+    "code_status": "partial"
   },
   {
     "id": "port-forwarding",
@@ -199,7 +223,8 @@
     "status": "partially-implemented",
     "evidence": [
       "src/api/account.rs and src/api/agent_state.rs: real managed LocalAgent settings/subscriptions, server-observed feedback and policy handling; offline protocol fixtures and native bindings pending"
-    ]
+    ],
+    "code_status": "partial"
   },
   {
     "id": "split-tcp",
@@ -208,7 +233,8 @@
     "status": "partially-implemented",
     "evidence": [
       "src/api/account.rs and src/api/agent_state.rs: real managed LocalAgent settings/subscriptions, server-observed feedback and policy handling; offline protocol fixtures and native bindings pending"
-    ]
+    ],
+    "code_status": "partial"
   },
   {
     "id": "random-nat",
@@ -217,7 +243,8 @@
     "status": "partially-implemented",
     "evidence": [
       "src/api/account.rs and src/api/agent_state.rs: real managed LocalAgent settings/subscriptions, server-observed feedback and policy handling; offline protocol fixtures and native bindings pending"
-    ]
+    ],
+    "code_status": "partial"
   },
   {
     "id": "circumvention-routing",
@@ -226,7 +253,8 @@
     "status": "partially-implemented",
     "evidence": [
       "src/api/account.rs and src/api/agent_state.rs: real managed LocalAgent settings/subscriptions, server-observed feedback and policy handling; offline protocol fixtures and native bindings pending"
-    ]
+    ],
+    "code_status": "partial"
   },
   {
     "id": "jails-restrictions",
@@ -235,7 +263,8 @@
     "status": "partially-implemented",
     "evidence": [
       "src/api/account.rs and src/api/agent_state.rs: real managed LocalAgent settings/subscriptions, server-observed feedback and policy handling; offline protocol fixtures and native bindings pending"
-    ]
+    ],
+    "code_status": "partial"
   },
   {
     "id": "exit-labels",
@@ -244,7 +273,8 @@
     "status": "partially-implemented",
     "evidence": [
       "src/api/account.rs and src/api/agent_state.rs: real managed LocalAgent settings/subscriptions, server-observed feedback and policy handling; offline protocol fixtures and native bindings pending"
-    ]
+    ],
+    "code_status": "partial"
   },
   {
     "id": "agent-statistics",
@@ -253,7 +283,8 @@
     "status": "partially-implemented",
     "evidence": [
       "src/api/account.rs and src/api/agent_state.rs: real managed LocalAgent settings/subscriptions, server-observed feedback and policy handling; offline protocol fixtures and native bindings pending"
-    ]
+    ],
+    "code_status": "partial"
   },
   {
     "id": "sni-strategy",
@@ -263,16 +294,19 @@
     "evidence": [
       "stealth::tests::sni_strategies_produce_dns_names_and_stable_top_selection",
       "official v3.0.5 Top domain data with attribution; stable mapping intentionally differs, documented in architecture.md"
-    ]
+    ],
+    "code_status": "complete"
   },
   {
     "id": "logging",
     "requirement": "Initialization, diagnostics and secret redaction",
     "source": "https://github.com/ProtonVPN/protun/blob/a498c38ae6ffb0e68e7190b2831ef985d73fa6da/src/api/logger.rs",
-    "status": "partially-implemented",
+    "status": "implemented-local",
     "evidence": [
-      "src/api/logger.rs: callback levels, recursion guard and suppression of SDK logs containing raw fork selectors; FFI export pending"
-    ]
+      "src/api/logger.rs: executable exported initialization/levels/callback; recursion guard",
+      "api::logger::tests::sdk_auth_and_http_traces_cannot_forward_selectors_to_client_logger"
+    ],
+    "code_status": "complete"
   },
   {
     "id": "unix-bindings",
@@ -281,51 +315,79 @@
     "status": "partially-implemented",
     "evidence": [
       "src/api/supervisor.rs: Linux native Rust compatibility API; UniFFI and other Unix platforms pending"
-    ]
+    ],
+    "code_status": "partial"
   },
   {
     "id": "apple-adapter",
     "requirement": "Apple utun header, packet I/O and platform behavior",
     "source": "https://github.com/ProtonVPN/protun/blob/a498c38ae6ffb0e68e7190b2831ef985d73fa6da/src/connection/mio/tun_apple.rs",
-    "status": "not-implemented",
-    "evidence": []
+    "status": "partially-implemented",
+    "evidence": [
+      "src/tun_device.rs: vectored utun AF-prefix handling without payload shifting",
+      "CI 41248700583: macOS header/device test, supervisor, Swift typechecking passed; native utun execution deferred; complete virtual-network policy still pending"
+    ],
+    "code_status": "partial"
   },
   {
     "id": "windows-adapter",
     "requirement": "Wintun, socket/interface protection, routes/DNS and network events",
     "source": "https://github.com/ProtonVPN/protun/blob/a498c38ae6ffb0e68e7190b2831ef985d73fa6da/src/api/windows/connection_windows.rs",
     "status": "not-implemented",
-    "evidence": []
+    "evidence": [],
+    "code_status": "missing"
   },
   {
     "id": "android-adapter",
     "requirement": "Android bindings, VpnService/TUN lifecycle and socket protection",
     "source": "https://github.com/ProtonVPN/protun/blob/a498c38ae6ffb0e68e7190b2831ef985d73fa6da/vpn-core-android/vpn-core",
-    "status": "not-implemented",
-    "evidence": []
+    "status": "partially-implemented",
+    "evidence": [
+      "CI 41248700583: AArch64 Android API25 native library and Kotlin bindings built",
+      "Native Linux/Android TUN_NO_PI plus VpnService socket callback are wired; high-level Android service library remains missing"
+    ],
+    "code_status": "partial"
   },
   {
     "id": "ffi-contract",
     "requirement": "UniFFI/Kotlin/platform-facing API and callback contracts",
     "source": "https://github.com/ProtonVPN/protun/blob/a498c38ae6ffb0e68e7190b2831ef985d73fa6da/src/api",
-    "status": "not-implemented",
-    "evidence": []
+    "status": "partially-implemented",
+    "evidence": [
+      "src/api: UniFFI 0.31.0 exports Unix constructors, control methods, callbacks, custom keys, enums and records",
+      "CI 41248700583: Python calls actual native API/cache/state/shutdown; generated Swift typechecks; Android Kotlin generated; Windows object API remains missing"
+    ],
+    "code_status": "partial"
   },
   {
     "id": "performance-evidence",
     "requirement": "Matched target benchmarks versus v3.0.5 with allocation/syscall counters",
     "source": "https://github.com/ProtonVPN/protun/blob/a498c38ae6ffb0e68e7190b2831ef985d73fa6da/src/connection",
     "status": "needs-live-verification",
-    "evidence": []
+    "evidence": [],
+    "code_status": "not-applicable"
   },
   {
     "id": "virtual-network-policy",
     "requirement": "Upstream virtual-router, address translation and firewall behavior for all supported interface/address and traffic modes",
     "source": "https://rust-registry.proton.me/index/pv/pn/pvpnclient",
-    "status": "not-implemented",
+    "status": "partially-implemented",
     "evidence": [
-      "src/routing.rs enforces standard single-peer AllowedIPs; complete v3.0.5 virtual-network behavior remains incomplete",
-      "CI 41222836845: authenticated wrong-source and disallowed-destination cases passed; full upstream virtual network policy remains incomplete"
+      "src/virtual_policy.rs: fixed-address isolation, local-service exclusion and subnet blackholes",
+      "src/api/internal.rs: control/customer NAT collision handling; tests/internal_network.rs uses three actual IP stacks",
+      "src/api/local_http.rs: bounded local HTTP endpoint; fragment/ICMP/dynamic Windows subnet parity remains incomplete"
+    ],
+    "code_status": "partial"
+  },
+  {
+    "id": "connectivity-probes",
+    "requirement": "Initial data-path verification, 500 unanswered-packet trigger, bounded probe retries and failover",
+    "source": "https://rust-registry.proton.me/index/pv/pn/pvpnclient",
+    "status": "partially-implemented",
+    "code_status": "partial",
+    "evidence": [
+      "src/path_probe.rs and src/engine.rs: published ICMP wire marker, 500/1000/2000/4000ms retries, authenticated decrypted data confirms path",
+      "tests/api_connection.rs: handshake-only peer must fail over to a peer answering encrypted probes; new CI verification pending"
     ]
   }
 ]

@@ -20,6 +20,9 @@ impl<S: Read + Write> TlsIo<S> {
     pub fn socket(&self) -> &S {
         &self.socket
     }
+    pub fn socket_mut(&mut self) -> &mut S {
+        &mut self.socket
+    }
     pub fn wants_write(&self) -> bool {
         self.connection.wants_write()
     }

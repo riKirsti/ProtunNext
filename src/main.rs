@@ -13,6 +13,7 @@ fn run() -> protun_next::Result<()> {
             Ok(())
         }
         Some("verify-parity") => control::release_gate(),
+        Some("verify-code-parity") => control::code_coverage_gate(),
         Some("check-config") if args.len() == 3 => {
             let config = config::load(std::path::Path::new(&args[2]))?;
             println!(
@@ -68,7 +69,7 @@ fn run() -> protun_next::Result<()> {
         }
         _ => {
             eprintln!(
-                "usage: protun-next status | verify-parity | check-config FILE | run-udp FILE TUN_FD UPLINK_DEVICE | run-tcp FILE TUN_FD UPLINK_DEVICE | run-tls FILE TUN_FD UPLINK_DEVICE SERVER_NAME | run-stealth FILE TUN_FD UPLINK_DEVICE [random|top|DNS_SNI]"
+                "usage: protun-next status | verify-parity | verify-code-parity | check-config FILE | run-udp FILE TUN_FD UPLINK_DEVICE | run-tcp FILE TUN_FD UPLINK_DEVICE | run-tls FILE TUN_FD UPLINK_DEVICE SERVER_NAME | run-stealth FILE TUN_FD UPLINK_DEVICE [random|top|DNS_SNI]"
             );
             Err(protun_next::Error::Invalid("command"))
         }

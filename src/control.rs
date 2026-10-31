@@ -106,11 +106,35 @@ pub struct ParityItem {
     pub requirement: String,
     pub source: String,
     pub status: Support,
+    pub code_status: CodeSupport,
     pub evidence: Vec<String>,
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum CodeSupport {
+    Complete,
+    Partial,
+    Missing,
+    NotApplicable,
 }
 pub fn parity_manifest() -> Result<Vec<ParityItem>> {
     serde_json::from_str(include_str!("../docs/parity.json"))
         .map_err(|e| Error::Protocol(e.to_string()))
+}
+/// Code coverage is a separate gate from the user's deferred live validation.
+/// Only the matched target benchmark is evidence-only, not a software function.
+pub fn code_coverage_gate() -> Result<()> {
+    let items = parity_manifest()?;
+    if items.is_empty()
+        || items.iter().any(|item| match item.code_status {
+            CodeSupport::Complete => item.evidence.is_empty(),
+            CodeSupport::NotApplicable => item.id != "performance-evidence",
+            _ => true,
+        })
+    {
+        return Err(Error::Unsupported("v3.0.5 code coverage is incomplete"));
+    }
+    Ok(())
 }
 /// Release gate fails unless every required feature has verified implementation evidence.
 pub fn release_gate() -> Result<()> {
