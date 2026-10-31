@@ -8,6 +8,8 @@ pub mod control;
 pub mod framing;
 #[cfg(target_os = "linux")]
 pub mod linux;
+#[cfg(target_os = "linux")]
+mod linux_network;
 pub mod natpmp;
 pub mod packet;
 pub mod session;

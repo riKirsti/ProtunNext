@@ -3,8 +3,11 @@
 use crate::{
     Error, Result,
     config::WireguardConfig,
+    linux_network::{self, Datagram, Network, Stream},
     packet::{PacketPool, PacketQueue},
     session::{Output, Session},
+    stream::{FramedIo, Receive},
+    tls::TlsIo,
 };
 use mio::{Events, Interest, Poll, Token, unix::SourceFd};
 use std::{
@@ -21,13 +24,13 @@ const BUDGET: usize = 64;
 #[derive(Debug, Default, serde::Serialize)]
 pub struct Counters {
     pub tun_reads: u64,
-    pub udp_reads: u64,
+    pub network_reads: u64,
     pub decrypted_packets: u64,
     pub invalid_packets: u64,
     pub pool_pressure: u64,
     pub polls: u64,
     pub tun_backpressure: u64,
-    pub udp_backpressure: u64,
+    pub network_backpressure: u64,
 }
 pub fn boottime() -> Result<Duration> {
     let mut ts = libc::timespec {
@@ -92,13 +95,6 @@ pub fn run_udp(
     bind_device: &str,
     stop: &AtomicBool,
 ) -> Result<Counters> {
-    if bind_device.is_empty()
-        || bind_device.len() >= libc::IFNAMSIZ
-        || bind_device.as_bytes().contains(&0)
-    {
-        return Err(Error::Invalid("uplink device"));
-    }
-    let mut tun = duplicate_nonblocking(tun_fd)?;
     let addr = if config.endpoint.is_ipv4() {
         "0.0.0.0:0"
     } else {
@@ -106,28 +102,57 @@ pub fn run_udp(
     };
     let socket = std::net::UdpSocket::bind(addr)?;
     socket.set_nonblocking(true)?;
-    let device =
-        std::ffi::CString::new(bind_device).map_err(|_| Error::Invalid("uplink device"))?;
-    // SAFETY: valid socket fd, NUL-terminated bounded interface name, exact length.
-    if unsafe {
-        libc::setsockopt(
-            socket.as_raw_fd(),
-            libc::SOL_SOCKET,
-            libc::SO_BINDTODEVICE,
-            device.as_ptr().cast(),
-            device.as_bytes_with_nul().len() as libc::socklen_t,
-        )
-    } < 0
-    {
-        return Err(std::io::Error::last_os_error().into());
-    }
+    linux_network::bind_device(socket.as_raw_fd(), bind_device)?;
     socket.connect(config.endpoint)?;
-    let mut socket = mio::net::UdpSocket::from_std(socket);
+    run(tun_fd, config, Datagram(socket), stop)
+}
+/// Experimental TunSafe-framed WireGuard TCP using the same packet worker as UDP.
+pub fn run_tcp(
+    tun_fd: i32,
+    config: &WireguardConfig,
+    bind_device: &str,
+    stop: &AtomicBool,
+) -> Result<Counters> {
+    if config.mtu > 16_351 {
+        return Err(Error::Invalid("MTU exceeds normal TCP frame capacity"));
+    }
+    let socket = linux_network::connect_tcp(config.endpoint, bind_device, stop)?;
+    run(tun_fd, config, Stream(FramedIo::new(socket, 64)?), stop)
+}
+/// Explicit TLS policy supplied by the caller. This is not yet a claim of live
+/// Proton Stealth interoperability; standard validation is available in tls.rs.
+pub fn run_tls(
+    tun_fd: i32,
+    config: &WireguardConfig,
+    bind_device: &str,
+    connection: rustls::ClientConnection,
+    stop: &AtomicBool,
+) -> Result<Counters> {
+    if config.mtu > 16_351 {
+        return Err(Error::Invalid("MTU exceeds normal TCP frame capacity"));
+    }
+    let socket = linux_network::connect_tcp(config.endpoint, bind_device, stop)?;
+    run(
+        tun_fd,
+        config,
+        Stream(FramedIo::new(TlsIo::new(socket, connection), 64)?),
+        stop,
+    )
+}
+fn run<N: Network>(
+    tun_fd: i32,
+    config: &WireguardConfig,
+    mut network: N,
+    stop: &AtomicBool,
+) -> Result<Counters> {
+    let mut tun = duplicate_nonblocking(tun_fd)?;
+    let network_fd = network.fd();
+    let handshake_deadline = boottime()? + Duration::from_secs(10);
     let mut poll = Poll::new()?;
     poll.registry()
         .register(&mut SourceFd(&tun.as_raw_fd()), TUN, Interest::READABLE)?;
     poll.registry()
-        .register(&mut socket, NET, Interest::READABLE)?;
+        .register(&mut SourceFd(&network_fd), NET, Interest::READABLE)?;
     let mut events = Events::with_capacity(16);
     let mut tun_writable = false;
     let mut net_writable = false;
@@ -148,6 +173,9 @@ pub fn run_udp(
     let mut net_ready = true;
     let mut drain = false;
     while !stop.load(Ordering::Relaxed) {
+        if network.handshaking() && boottime()? >= handshake_deadline {
+            return Err(std::io::Error::from(std::io::ErrorKind::TimedOut).into());
+        }
         let mut timer_packet = pool.take().ok_or(Error::Full)?;
         let timed = session.advance(boottime()?, timer_packet.writable())?;
         match timed {
@@ -159,7 +187,7 @@ pub fn run_udp(
         }
         // Bounded work per source, with immediate continuation if a budget expires.
         for _ in 0..BUDGET {
-            if !tun_ready || pool.available() < 2 || to_net.len() >= 63 {
+            if !tun_ready || pool.available() < 2 || to_net.len() + network.pending() >= 63 {
                 break;
             }
             let mut input = pool.take().ok_or(Error::Full)?;
@@ -198,14 +226,17 @@ pub fn run_udp(
             }
         }
         for _ in 0..BUDGET {
-            if !net_ready || pool.available() < 2 || to_tun.len() >= 63 || to_net.len() >= 63 {
+            if !net_ready
+                || pool.available() < 2
+                || to_tun.len() >= 63
+                || to_net.len() + network.pending() >= 63
+            {
                 break;
             }
             let mut input = pool.take().ok_or(Error::Full)?;
-            match socket.recv(input.writable()) {
-                Ok(n) => {
-                    counters.udp_reads += 1;
-                    input.set_len(n)?;
+            match network.receive(&mut input) {
+                Ok(Receive::Packet) => {
+                    counters.network_reads += 1;
                     let mut output = pool.take().ok_or(Error::Full)?;
                     let result = session.decrypt(input.data(), output.writable());
                     pool.recycle(input)?;
@@ -227,22 +258,26 @@ pub fn run_udp(
                         }
                     }
                 }
-                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                Ok(Receive::WouldBlock) => {
                     net_ready = false;
                     pool.recycle(input)?;
                     break;
                 }
-                Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {
+                Ok(Receive::Yield) => {
                     pool.recycle(input)?;
+                }
+                Ok(Receive::Eof) => {
+                    pool.recycle(input)?;
+                    return Err(std::io::Error::from(std::io::ErrorKind::UnexpectedEof).into());
                 }
                 Err(e) => {
                     pool.recycle(input)?;
-                    return Err(e.into());
+                    return Err(e);
                 }
             }
         }
         for _ in 0..BUDGET {
-            if !drain || to_net.len() >= 63 {
+            if !drain || to_net.len() + network.pending() >= 63 {
                 break;
             }
             let mut output = pool.take().ok_or(Error::Full)?;
@@ -258,22 +293,8 @@ pub fn run_udp(
                 }
             }
         }
-        for _ in 0..BUDGET {
-            let Some(packet) = to_net.front() else {
-                break;
-            };
-            match socket.send(packet.data()) {
-                Ok(n) if n == packet.data().len() => {
-                    pool.recycle(to_net.pop().expect("front exists"))?
-                }
-                Ok(_) => return Err(Error::Invalid("partial UDP send")),
-                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                    counters.udp_backpressure += 1;
-                    break;
-                }
-                Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
-                Err(e) => return Err(e.into()),
-            }
+        if network.flush(&mut to_net, &mut pool)? {
+            counters.network_backpressure += 1;
         }
         for _ in 0..BUDGET {
             let Some(packet) = to_tun.front() else {
@@ -295,11 +316,11 @@ pub fn run_udp(
                 Err(e) => return Err(e.into()),
             }
         }
-        let wants_net = !to_net.is_empty();
+        let wants_net = !to_net.is_empty() || network.pending() > 0 || network.wants_write();
         let wants_tun = !to_tun.is_empty();
         if wants_net != net_writable {
             poll.registry().reregister(
-                &mut socket,
+                &mut SourceFd(&network_fd),
                 NET,
                 if wants_net {
                     Interest::READABLE | Interest::WRITABLE
@@ -321,9 +342,9 @@ pub fn run_udp(
             )?;
             tun_writable = wants_tun;
         }
-        let can_continue = (tun_ready && to_net.len() < 63)
-            || (net_ready && to_tun.len() < 63 && to_net.len() < 63)
-            || (drain && to_net.len() < 63);
+        let can_continue = (tun_ready && to_net.len() + network.pending() < 63)
+            || (net_ready && to_tun.len() < 63 && to_net.len() + network.pending() < 63)
+            || (drain && to_net.len() + network.pending() < 63);
         let timeout = if can_continue {
             Duration::ZERO
         } else {

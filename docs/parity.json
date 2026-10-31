@@ -40,21 +40,28 @@
     "requirement": "Complete WireGuard UDP tunnel and packet I/O",
     "source": "https://github.com/ProtonVPN/protun/blob/a498c38ae6ffb0e68e7190b2831ef985d73fa6da/src/connection/mio/udp.rs",
     "status": "needs-live-verification",
-    "evidence": []
+    "evidence": [
+      "tests/linux_tun.rs: actual UDP TUN roundtrip passed in CI 41220824642; live Proton server pending"
+    ]
   },
   {
     "id": "tcp-end-to-end",
     "requirement": "Complete WireGuard TCP tunnel and flow control",
     "source": "https://github.com/ProtonVPN/protun/blob/a498c38ae6ffb0e68e7190b2831ef985d73fa6da/src/connection/mio/tcp.rs",
-    "status": "not-implemented",
-    "evidence": []
+    "status": "needs-live-verification",
+    "evidence": [
+      "tests/tcp_wireguard.rs: real TCP and Noise exchange",
+      "tests/linux_tun.rs: shared TCP TUN worker; CI execution pending"
+    ]
   },
   {
     "id": "stealth-end-to-end",
     "requirement": "Proton Stealth TLS-over-TCP with correct inner peer authentication and TLS policy",
     "source": "https://github.com/ProtonVPN/protun/blob/a498c38ae6ffb0e68e7190b2831ef985d73fa6da/src/connection/mio/tcp.rs",
     "status": "not-implemented",
-    "evidence": []
+    "evidence": [
+      "tests/tcp_wireguard.rs: actual WireGuard over standard certificate-verifying nonblocking TLS; Proton-specific policy and live interoperability pending"
+    ]
   },
   {
     "id": "connection-lifecycle",
