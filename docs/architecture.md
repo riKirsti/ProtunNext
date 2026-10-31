@@ -55,7 +55,10 @@ UDP worker relabeled as kernel WireGuard.
 * **proton-vpn-netstack 0.8.1:** private API/DNS/LocalAgent sockets and the local
   HTTP endpoint. Ordinary customer ports bypass it. The small reserved port
   range uses a bounded flow map to prevent control/customer reply collisions.
-  Complete upstream fragment/ICMP and dynamic-subnet policy remains unfinished.
+  IPv4 private-response fragments retain the first fragment's route for ten
+  seconds in a bounded table. Dynamic Windows subnet policy remains unfinished.
+  Non-TCP/UDP traffic passes unchanged, as in the pinned upstream firewall;
+  quoted-ICMP and IPv6 extension-header NAT are not upstream features.
 * **Ed25519 dalek / PKCS#8:** identity creation, PEM compatibility and the
   published Ed25519-to-X25519 conversion; cryptography is not handwritten.
 * **Mio/libc/socket2:** Unix readiness and thin OS calls. No packet representation is

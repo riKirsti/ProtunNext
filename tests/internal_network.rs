@@ -185,22 +185,23 @@ fn private_tcp_and_dns_datagrams_cross_real_ip_stack_with_port_translation() {
             let client_udp = async {
                 let socket = client.udp("10.2.0.1:53".parse().unwrap()).unwrap();
                 socket.send(b"DNS request").await.unwrap();
-                let mut reply = [0; 32];
+                let mut reply = [0; 1024];
                 let n = socket.recv(&mut reply).await.unwrap();
-                assert_eq!(&reply[..n], b"DNS response");
+                assert_eq!(&reply[..n], &[0x5a; 1024]);
             };
             let server_udp = async {
                 let mut bytes = [0; 32];
                 let (n, from) = dns.recv_from(&mut bytes).await.unwrap();
                 assert_eq!(&bytes[..n], b"DNS request");
                 assert!(from.port() < 1024);
-                dns.sendto(b"DNS response", from.into()).await.unwrap();
+                dns.sendto(&[0x5a; 1024], from.into()).await.unwrap();
             };
             futures::join!(client_tcp, server_tcp, client_udp, server_udp);
         };
         let pump = async {
             let started = Instant::now();
             let mut packet = [0; 65535];
+            let mut fragments_delivered = 0;
             loop {
                 let now = started.elapsed();
                 for _ in 0..64 {
@@ -214,7 +215,18 @@ fn private_tcp_and_dns_datagrams_cross_real_ip_stack_with_port_translation() {
                     match peer.read_packet(&mut packet, now.as_micros() as i64) {
                         Ok(n) => {
                             assert!(InternalNetwork::might_receive(&packet[..n]));
-                            assert!(wire.receive(&mut packet[..n], now).unwrap());
+                            if packet[9] == 17 && n > 200 {
+                                // A real UDP reply from the server IP stack is
+                                // fragmented on its wire path. All fragments
+                                // must reach the private reassembler, never TUN.
+                                for mut fragment in ipv4_fragments(&packet[..n], 200) {
+                                    assert!(InternalNetwork::might_receive(&fragment));
+                                    assert!(wire.receive(&mut fragment, now).unwrap());
+                                    fragments_delivered += 1;
+                                }
+                            } else {
+                                assert!(wire.receive(&mut packet[..n], now).unwrap());
+                            }
                         }
                         Err(DeviceReadError::WouldBlock) => break,
                         Err(error) => panic!("peer read: {error:?}"),
@@ -222,7 +234,7 @@ fn private_tcp_and_dns_datagrams_cross_real_ip_stack_with_port_translation() {
                 }
                 assert!(
                     started.elapsed() < Duration::from_secs(3),
-                    "in-memory control exchange timed out"
+                    "in-memory control exchange timed out after {fragments_delivered} fragments"
                 );
                 tokio::time::sleep(Duration::from_millis(1)).await;
             }
@@ -233,4 +245,40 @@ fn private_tcp_and_dns_datagrams_cross_real_ip_stack_with_port_translation() {
             "control socket writes must wake the packet loop"
         );
     });
+}
+
+fn ipv4_fragments(packet: &[u8], payload_size: usize) -> Vec<Vec<u8>> {
+    assert_eq!(packet[0], 0x45);
+    assert_eq!(payload_size % 8, 0);
+    let payload = &packet[20..];
+    payload
+        .chunks(payload_size)
+        .enumerate()
+        .map(|(index, chunk)| {
+            let mut fragment = packet[..20].to_vec();
+            fragment.extend_from_slice(chunk);
+            let length = fragment.len() as u16;
+            fragment[2..4].copy_from_slice(&length.to_be_bytes());
+            let offset = index * payload_size;
+            let flags = (offset / 8) as u16
+                | if offset + chunk.len() < payload.len() {
+                    0x2000
+                } else {
+                    0
+                };
+            fragment[6..8].copy_from_slice(&flags.to_be_bytes());
+            fragment[10..12].fill(0);
+            let mut checksum: u32 = fragment[..20]
+                .as_chunks::<2>()
+                .0
+                .iter()
+                .map(|word| u32::from(u16::from_be_bytes([word[0], word[1]])))
+                .sum();
+            while checksum > 0xffff {
+                checksum = (checksum & 0xffff) + (checksum >> 16);
+            }
+            fragment[10..12].copy_from_slice(&(!(checksum as u16)).to_be_bytes());
+            fragment
+        })
+        .collect()
 }

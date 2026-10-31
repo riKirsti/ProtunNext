@@ -55,8 +55,24 @@ flow map now protects customer traffic with colliding source ports. Ordinary
 customer ports bypass that connection-tracking map.
 
 Still required before full source/API parity can be asserted: complete upstream
-virtual-router/NAT/firewall behavior (especially IP fragments and ICMP), native
+virtual-router/NAT/firewall behavior (including dynamic Windows subnets), native
 Windows transports and management, higher-level Android service integration,
 and comprehensive offline account/protocol failure fixtures. NAT-PMP lease management is an extra
 router capability, not a v3.0.5 parity requirement: upstream exposes LocalAgent
 port-forwarding enablement without implementing that lease manager.
+
+IPv4 private response fragments now retain the first fragment's ownership for
+ten seconds (a bounded 4,096-entry table). Real private-stack tests split a
+1,024-byte UDP response on its wire path and verify reassembly at the private
+socket. Customer tracked flows use upstream's fifteen-minute idle timeout.
+Queue pressure on private receive consumes/drops its packet instead of failing
+the VPN worker or passing the packet into TUN. Ordinary customer ports still
+avoid the map. Fragments arriving without their first fragment follow the
+upstream untracked path; no out-of-order reassembly is added to the router.
+
+The pinned pvpnclient `net/packet.rs::next_transport` recognizes only directly
+encapsulated TCP/UDP. `firewall.rs::no_track_not_addressable` accepts other
+customer/tunnel protocols unchanged. Thus ICMP quoted-flow translation and IPv6
+extension-header NAT are not implemented upstream and are not additional
+v3.0.5 parity requirements. ProtunNext also passes them unchanged, apart from
+its internal connectivity-probe replies and virtual-address isolation.

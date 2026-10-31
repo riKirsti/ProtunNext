@@ -5,16 +5,17 @@ use std::time::Duration;
 fn capture_owned_descriptors_support_write_only_files_and_nonseekable_streams() {
     use std::{
         fs::File,
-        io::Read,
+        io::{Read, Write},
         os::{fd::IntoRawFd, unix::net::UnixStream},
     };
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("write-only.pcap");
-    let output = File::options()
+    let mut output = File::options()
         .write(true)
         .create_new(true)
         .open(&path)
         .unwrap();
+    output.write_all(b"prefix:").unwrap();
     let mut capture = CaptureController::new();
     capture
         .start(PcapFileInfo {
@@ -24,7 +25,9 @@ fn capture_owned_descriptors_support_write_only_files_and_nonseekable_streams() 
         .unwrap();
     capture.packet(Duration::from_secs(1), &[0x45; 20]).unwrap();
     capture.stop(false).unwrap();
-    assert_eq!(std::fs::read(&path).unwrap().len(), 60);
+    let bytes = std::fs::read(&path).unwrap();
+    assert_eq!(bytes.len(), 67);
+    assert_eq!(&bytes[..7], b"prefix:");
     let (output, mut input) = UnixStream::pair().unwrap();
     input
         .set_read_timeout(Some(Duration::from_secs(1)))
