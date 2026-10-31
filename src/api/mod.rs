@@ -12,6 +12,8 @@ pub mod agent_state;
 pub mod cache;
 pub mod capture;
 #[cfg(feature = "local-agent")]
+mod fragments;
+#[cfg(feature = "local-agent")]
 pub mod internal;
 pub mod keys;
 #[cfg(feature = "local-agent")]

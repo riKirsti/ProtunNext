@@ -21,6 +21,8 @@ use std::{
 };
 
 const PRIVILEGED: [u16; 16] = [4, 6, 8, 10, 12, 14, 15, 16, 26, 28, 30, 32, 34, 36, 40, 60];
+// pvpnclient 4.4.1 conntrack.rs ENTRY_TIMEOUT, including idle customer TCP.
+const FLOW_TIMEOUT: Duration = Duration::from_secs(15 * 60);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum Origin {
     Control,
@@ -55,6 +57,7 @@ impl std::fmt::Debug for InternalConnector {
 pub struct InternalNetwork {
     interface: NetworkInterface,
     flows: Arc<Mutex<Flows>>,
+    fragments: super::fragments::FragmentRoutes,
 }
 impl std::fmt::Debug for InternalNetwork {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -66,7 +69,8 @@ impl InternalNetwork {
         transport(packet).is_some_and(|p| reserved(p.source_port))
     }
     pub fn might_receive(packet: &[u8]) -> bool {
-        transport(packet).is_some_and(|p| reserved(p.destination_port))
+        super::fragments::FragmentRoutes::later(packet)
+            || transport(packet).is_some_and(|p| reserved(p.destination_port))
     }
     pub fn next_wakeup(&self, now: Duration) -> Option<Duration> {
         use proton_vpn_netstack::Deadline;
@@ -108,7 +112,11 @@ impl InternalNetwork {
                 factory,
                 flows: flows.clone(),
             },
-            Self { interface, flows },
+            Self {
+                interface,
+                flows,
+                fragments: Default::default(),
+            },
         ))
     }
     pub fn read_packet(&mut self, output: &mut [u8], now: Duration) -> Result<Option<usize>> {
@@ -149,6 +157,12 @@ impl InternalNetwork {
     }
     /// True means the packet belongs to a registered private socket, never TUN.
     pub fn receive(&mut self, packet: &mut [u8], now: Duration) -> Result<bool> {
+        if let Some(private) = self.fragments.lookup(packet, now) {
+            if private {
+                self.deliver_private(packet, now);
+            }
+            return Ok(private);
+        }
         let Some(parsed) = transport(packet) else {
             return Ok(false);
         };
@@ -169,7 +183,7 @@ impl InternalNetwork {
                 })
                 .map(|m| {
                     if m.flow.origin == Origin::Customer {
-                        m.expires = Some(Instant::now() + Duration::from_secs(60));
+                        m.expires = Some(Instant::now() + FLOW_TIMEOUT);
                     }
                     (m.flow.local.port(), m.flow.origin)
                 })
@@ -177,17 +191,36 @@ impl InternalNetwork {
         let Some((original, origin)) = mapping else {
             // Reserve an unsolicited inbound customer flow before a later
             // control socket can choose the same reply tuple.
-            self.reserve_customer(&parsed, false)?;
+            if let Err(error) = self.reserve_customer(&parsed, false) {
+                self.fragments.remember(packet, now, true);
+                return match error {
+                    Error::Full => Ok(true), // Drop this packet, retain the VPN session.
+                    other => Err(other),
+                };
+            }
+            self.fragments.remember(packet, now, false);
             return Ok(false);
         };
+        self.fragments
+            .remember(packet, now, origin == Origin::Control);
         rewrite_port(packet, parsed.offset, parsed.protocol, false, original);
         if origin == Origin::Customer {
             return Ok(false);
         }
-        self.interface
-            .write_packet(packet, now.as_micros().min(i64::MAX as u128) as i64)
-            .map_err(|_| Error::Full)?;
+        self.deliver_private(packet, now);
         Ok(true)
+    }
+    fn deliver_private(&mut self, packet: &[u8], now: Duration) {
+        // This SDK method can only return WouldBlock. A full private receive
+        // queue drops its packet; it must neither stop the whole VPN nor leak
+        // an account/DNS response into the customer's TUN.
+        if self
+            .interface
+            .write_packet(packet, now.as_micros().min(i64::MAX as u128) as i64)
+            .is_err()
+        {
+            log::debug!("private receive queue full; packet dropped");
+        }
     }
     /// Only the small upstream addressable port range needs connection tracking.
     /// Ordinary application ports bypass this map and its lock entirely.
@@ -218,7 +251,7 @@ impl InternalNetwork {
             },
         };
         let mut flows = self.flows.lock().unwrap_or_else(|e| e.into_inner());
-        let expires = Some(Instant::now() + Duration::from_secs(60));
+        let expires = Some(Instant::now() + FLOW_TIMEOUT);
         if let Some(mapping) = flows.entries.get_mut(&flow) {
             mapping.expires = expires;
             return Ok(mapping.wire);
@@ -265,9 +298,7 @@ impl InternalNetwork {
         if !local_service_destination(packet) {
             return Ok(false);
         }
-        self.interface
-            .write_packet(packet, now.as_micros().min(i64::MAX as u128) as i64)
-            .map_err(|_| Error::Full)?;
+        self.deliver_private(packet, now);
         Ok(true)
     }
 }
@@ -287,7 +318,7 @@ impl Drop for Lease {
             .entries
             .get_mut(&self.flow)
         {
-            m.expires = Some(Instant::now() + Duration::from_secs(60));
+            m.expires = Some(Instant::now() + FLOW_TIMEOUT);
         }
     }
 }

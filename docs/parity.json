@@ -142,7 +142,7 @@
     "status": "partially-implemented",
     "evidence": [
       "src/api/capture.rs, src/connection.rs: file modes, bounds, events and failover-persistent sink",
-      "tests/capture_controls.rs; tests/api_connection.rs; non-Linux fd support pending"
+      "tests/capture_controls.rs: Unix owned write-only files preserve offset, nonseekable streams, file limits, symlink rejection; tests/api_connection.rs: failover capture continuity"
     ],
     "code_status": "partial"
   },
@@ -316,7 +316,7 @@
     "source": "https://github.com/ProtonVPN/protun/blob/a498c38ae6ffb0e68e7190b2831ef985d73fa6da/src/api/connection_unix.rs",
     "status": "partially-implemented",
     "evidence": [
-      "src/api/supervisor.rs: Linux native Rust compatibility API; UniFFI and other Unix platforms pending"
+      "src/api/supervisor.rs: native Unix compatibility API and descriptor ownership; generated Python calls actual native constructor/cache/state/shutdown in CI 41251229331; full platform policy tracked separately"
     ],
     "code_status": "partial"
   },
@@ -377,7 +377,8 @@
     "evidence": [
       "src/virtual_policy.rs: fixed-address isolation, local-service exclusion and subnet blackholes",
       "src/api/internal.rs: control/customer NAT collision handling; tests/internal_network.rs uses three actual IP stacks",
-      "src/api/local_http.rs: bounded local HTTP endpoint; fragment/ICMP/dynamic Windows subnet parity remains incomplete"
+      "src/api/local_http.rs: bounded local HTTP endpoint; src/api/fragments.rs: bounded ten-second first-fragment ownership, real-stack fragmented UDP fixture; dynamic Windows subnet parity remains incomplete",
+      "Pinned pvpnclient net/packet.rs and firewall.rs pass non-TCP/UDP (including ICMP/IPv6 extensions) unchanged; related-ICMP NAT is not an upstream requirement"
     ],
     "code_status": "partial"
   },
@@ -389,7 +390,7 @@
     "code_status": "partial",
     "evidence": [
       "src/path_probe.rs and src/engine.rs: published ICMP wire marker, 500/1000/2000/4000ms retries, authenticated decrypted data confirms path",
-      "tests/api_connection.rs: handshake-only peer must fail over to a peer answering encrypted probes; new CI verification pending"
+      "tests/api_connection.rs: handshake-only peer must fail over to a peer answering encrypted probes; passed CI 41251229331"
     ]
   }
 ]
