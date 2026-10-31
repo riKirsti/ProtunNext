@@ -20,6 +20,9 @@ or a green unit test does not mean a complete VPN client or paid-feature support
 * Shared Linux UDP/framed TCP/TLS worker attaching only to an existing caller-owned TUN descriptor and
   binding the outer socket to an explicitly supplied uplink interface before connect.
   TLS uses bounded rustls buffering and keeps flushing pending ciphertext.
+* Linux managed worker start/disconnect/join, bounded latest-state observation
+  and real WireGuard byte/loss/handshake/RTT statistics; no user callbacks or
+  control messages run per packet.
 * Strict single-peer WireGuard configuration reader; unknown directives fail
   rather than being silently ignored. No routing or DNS settings are applied.
 * PCAP writer, NAT-PMP wire codec and candidate-selection/settings validation.

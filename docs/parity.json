@@ -51,7 +51,7 @@
     "status": "needs-live-verification",
     "evidence": [
       "tests/tcp_wireguard.rs: real TCP and Noise exchange",
-      "tests/linux_tun.rs: shared TCP TUN worker; CI execution pending"
+      "CI 41221611485: real Linux TUN TCP roundtrip passed; live Proton server pending"
     ]
   },
   {
@@ -61,7 +61,7 @@
     "status": "needs-live-verification",
     "evidence": [
       "src/stealth.rs: verified against published pvpnclient 4.4.1 and proton-pfff-module 0.8.10",
-      "tests/linux_tun.rs: mismatched outer SNI accepted with valid inner WG; wrong inner WG peer must deliver no data; CI execution pending"
+      "CI 41221982426: mismatched outer SNI accepted with valid inner WG; wrong inner WG peer delivered no data; live Proton pending"
     ]
   },
   {
@@ -69,7 +69,9 @@
     "requirement": "Create, update, disconnect, wait/join, asynchronous state events",
     "source": "https://github.com/ProtonVPN/protun/blob/a498c38ae6ffb0e68e7190b2831ef985d73fa6da/src/api/connection.rs",
     "status": "not-implemented",
-    "evidence": []
+    "evidence": [
+      "src/connection.rs: Linux owned worker start, disconnect/join and coalescing state observation; updates, callbacks and cross-platform parity remain incomplete"
+    ]
   },
   {
     "id": "peer-failover",
@@ -104,7 +106,9 @@
     "requirement": "Byte counters, handshake age, loss, RTT and timestamp events",
     "source": "https://github.com/ProtonVPN/protun/blob/a498c38ae6ffb0e68e7190b2831ef985d73fa6da/src/api/events.rs",
     "status": "not-implemented",
-    "evidence": []
+    "evidence": [
+      "src/connection.rs and session::Statistics: actual WG bytes, loss, handshake age/RTT and monotonic timestamp; complete upstream callbacks/platform parity pending"
+    ]
   },
   {
     "id": "packet-capture-controls",
@@ -125,7 +129,9 @@
     "requirement": "Production OS-seeded keys and persisted identity lifecycle",
     "source": "https://github.com/ProtonVPN/protun/blob/a498c38ae6ffb0e68e7190b2831ef985d73fa6da/src/api/connection.rs",
     "status": "not-implemented",
-    "evidence": []
+    "evidence": [
+      "config::PrivateKey::generate uses OS entropy and zeroizing temporary storage; persisted identity lifecycle remains incomplete"
+    ]
   },
   {
     "id": "local-agent",

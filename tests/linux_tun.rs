@@ -4,6 +4,7 @@ mod common;
 use base64::{Engine, engine::general_purpose::STANDARD};
 use protun_next::{
     config::WireguardConfig,
+    connection::{Connection, State},
     linux,
     packet::{Packet, PacketPool},
     session::{Output, Session},
@@ -14,12 +15,8 @@ use std::{
     fs::File,
     io::{Read, Write},
     net::{TcpListener, TcpStream, UdpSocket},
-    os::fd::{AsRawFd, FromRawFd},
+    os::fd::{AsFd, AsRawFd},
     process::Command,
-    sync::{
-        Arc,
-        atomic::{AtomicBool, Ordering},
-    },
     thread,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
@@ -158,35 +155,18 @@ fn actual_udp_tcp_tls_engine_tun_roundtrips() {
             }))
         );
         let config = WireguardConfig::parse(&text).unwrap();
-        let stop = Arc::new(AtomicBool::new(false));
-        let worker_stop = stop.clone();
-        // SAFETY: duplicates a valid fd; the worker exclusively owns the duplicate File.
-        let fd = unsafe { libc::fcntl(tun.as_raw_fd(), libc::F_DUPFD_CLOEXEC, 3) };
-        assert!(fd >= 0);
-        // SAFETY: newly duplicated descriptor is owned exactly once.
-        let owned = unsafe { File::from_raw_fd(fd) };
-        let worker = thread::spawn(move || {
-            let result = match mode {
-                0 => linux::run_udp(owned.as_raw_fd(), &config, "lo", &worker_stop),
-                1 => linux::run_tcp(owned.as_raw_fd(), &config, "lo", &worker_stop),
-                2 => linux::run_tls(
-                    owned.as_raw_fd(),
-                    &config,
-                    "lo",
-                    tls::client_with_roots("localhost", common::roots()).unwrap(),
-                    &worker_stop,
-                ),
-                _ => linux::run_stealth(
-                    owned.as_raw_fd(),
-                    &config,
-                    "lo",
-                    &protun_next::stealth::SniStrategy::Explicit("unrelated.test".into()),
-                    &worker_stop,
-                ),
-            };
-            drop(owned);
-            result
-        });
+        let transport = match mode {
+            0 => linux::Transport::Udp,
+            1 => linux::Transport::Tcp,
+            2 => linux::Transport::Tls(Box::new(
+                tls::client_with_roots("localhost", common::roots()).unwrap(),
+            )),
+            _ => linux::Transport::Stealth(protun_next::stealth::SniStrategy::Explicit(
+                "unrelated.test".into(),
+            )),
+        };
+        let mut connection =
+            Connection::start(tun.as_fd(), config, "lo".into(), transport).unwrap();
         let app = UdpSocket::bind("10.2.0.2:0").unwrap();
         app.set_read_timeout(Some(if mode == 4 {
             Duration::from_millis(500)
@@ -198,8 +178,32 @@ fn actual_udp_tcp_tls_engine_tun_roundtrips() {
             .unwrap();
         let mut response = [0; 128];
         let received = app.recv_from(&mut response);
-        stop.store(true, Ordering::Relaxed);
-        let counters = worker.join().unwrap().unwrap();
+        let request = connection.request_stats();
+        let snapshot = connection.wait_for_stats(request, Duration::from_secs(2));
+        assert!(
+            snapshot.stats_generation >= request,
+            "stats request must be sampled"
+        );
+        let statistics = snapshot
+            .statistics
+            .as_ref()
+            .expect("real session statistics");
+        if mode == 4 {
+            assert_ne!(snapshot.state, State::TunnelEstablished);
+            assert!(statistics.handshake_age.is_none());
+            assert_eq!(statistics.received_bytes, 0);
+        } else {
+            assert_eq!(snapshot.state, State::TunnelEstablished);
+            assert!(statistics.handshake_age.is_some());
+            assert!(statistics.received_bytes > 0 && statistics.sent_bytes > 0);
+        }
+        let counters = connection.disconnect_and_wait().unwrap();
+        assert_eq!(connection.snapshot().state, State::Stopped);
+        // Repeated shutdown/join must be safe and preserve final counters.
+        assert_eq!(
+            connection.disconnect_and_wait().unwrap().tun_reads,
+            counters.tun_reads
+        );
         release.send(()).unwrap();
         reference.join().unwrap();
         if mode == 4 {
