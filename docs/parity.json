@@ -68,32 +68,40 @@
     "id": "connection-lifecycle",
     "requirement": "Create, update, disconnect, wait/join, asynchronous state events",
     "source": "https://github.com/ProtonVPN/protun/blob/a498c38ae6ffb0e68e7190b2831ef985d73fa6da/src/api/connection.rs",
-    "status": "not-implemented",
+    "status": "partially-implemented",
     "evidence": [
-      "src/connection.rs: Linux owned worker start, disconnect/join and coalescing state observation; updates, callbacks and cross-platform parity remain incomplete",
-      "CI 41222836845: actual Linux tunnel state, generation-tagged statistics and repeated disconnect/join passed; broader parity remains incomplete"
+      "src/api/supervisor.rs: executable Linux constructor/update/disconnect/join and callbacks; native platform paths pending",
+      "tests/api_connection.rs"
     ]
   },
   {
     "id": "peer-failover",
     "requirement": "Automatic timed failover and live peer updates without unnecessary reconnect",
     "source": "https://github.com/ProtonVPN/protun/blob/a498c38ae6ffb0e68e7190b2831ef985d73fa6da/src/api/connection.rs",
-    "status": "not-implemented",
-    "evidence": []
+    "status": "partially-implemented",
+    "evidence": [
+      "src/api/supervisor.rs: candidate timeout, retry and metadata-preserving updates",
+      "tests/api_connection.rs: unchanged endpoint retains session"
+    ]
   },
   {
     "id": "network-recovery",
     "requirement": "Connectivity up/down, switch, resume and socket recreation",
     "source": "https://github.com/ProtonVPN/protun/blob/a498c38ae6ffb0e68e7190b2831ef985d73fa6da/src/connection/network_recovery_handler.rs",
-    "status": "not-implemented",
-    "evidence": []
+    "status": "partially-implemented",
+    "evidence": [
+      "src/api/supervisor.rs: up/down/network-switch recreate outer worker",
+      "tests/api_connection.rs"
+    ]
   },
   {
     "id": "tun-replacement",
     "requirement": "Live TUN replacement and interface errors",
     "source": "https://github.com/ProtonVPN/protun/blob/a498c38ae6ffb0e68e7190b2831ef985d73fa6da/src/api/connection_unix.rs",
-    "status": "not-implemented",
-    "evidence": []
+    "status": "partially-implemented",
+    "evidence": [
+      "src/connection.rs and src/linux.rs: wakeable replacement, optional TUN, detach on interface I/O errors; platform coverage pending"
+    ]
   },
   {
     "id": "socket-protection",
@@ -106,118 +114,146 @@
     "id": "stats-events",
     "requirement": "Byte counters, handshake age, loss, RTT and timestamp events",
     "source": "https://github.com/ProtonVPN/protun/blob/a498c38ae6ffb0e68e7190b2831ef985d73fa6da/src/api/events.rs",
-    "status": "not-implemented",
+    "status": "partially-implemented",
     "evidence": [
-      "src/connection.rs and session::Statistics: actual WG bytes, loss, handshake age/RTT and monotonic timestamp; complete upstream callbacks/platform parity pending",
-      "CI 41222836845: actual Linux tunnel state, generation-tagged statistics and repeated disconnect/join passed; broader parity remains incomplete"
+      "src/api/supervisor.rs: generation-tagged worker statistics converted to compatibility callback events"
     ]
   },
   {
     "id": "packet-capture-controls",
     "requirement": "Start/stop, file paths/descriptors, append/overwrite, disconnect and size events",
     "source": "https://github.com/ProtonVPN/protun/blob/a498c38ae6ffb0e68e7190b2831ef985d73fa6da/src/api/connection.rs",
-    "status": "not-implemented",
-    "evidence": []
+    "status": "partially-implemented",
+    "evidence": [
+      "src/api/capture.rs, src/connection.rs: file modes, bounds, events and failover-persistent sink",
+      "tests/capture_controls.rs; tests/api_connection.rs; non-Linux fd support pending"
+    ]
   },
   {
     "id": "persistent-cache",
     "requirement": "Credential cache compatibility, invalidation and secure persistence",
     "source": "https://github.com/ProtonVPN/protun/blob/a498c38ae6ffb0e68e7190b2831ef985d73fa6da/src/api/connection.rs",
-    "status": "not-implemented",
-    "evidence": []
+    "status": "partially-implemented",
+    "evidence": [
+      "src/api/cache.rs, src/api/account_material.rs: opaque callback persistence; legacy key/certificate/session formats"
+    ]
   },
   {
     "id": "key-generation",
     "requirement": "Production OS-seeded keys and persisted identity lifecycle",
     "source": "https://github.com/ProtonVPN/protun/blob/a498c38ae6ffb0e68e7190b2831ef985d73fa6da/src/api/connection.rs",
-    "status": "not-implemented",
+    "status": "implemented-local",
     "evidence": [
-      "config::PrivateKey::generate uses OS entropy and zeroizing temporary storage; persisted identity lifecycle remains incomplete"
+      "src/api/keys.rs: persisted OS-seeded Ed25519 identity, RFC8410 v1 PKCS8, verified X25519 conversion"
     ]
   },
   {
     "id": "local-agent",
     "requirement": "Authenticated Local Agent transport and state",
     "source": "https://github.com/ProtonVPN/protun/blob/a498c38ae6ffb0e68e7190b2831ef985d73fa6da/src/api/local_agent.rs",
-    "status": "not-implemented",
-    "evidence": []
+    "status": "partially-implemented",
+    "evidence": [
+      "src/api/account.rs: managed mTLS plus registered private control sockets, subscriptions and rekey; complete offline issuer fixture pending"
+    ]
   },
   {
     "id": "api-fork",
     "requirement": "Fork selector/cookies, token invalidation and refresh-loop protection",
     "source": "https://github.com/ProtonVPN/protun/blob/a498c38ae6ffb0e68e7190b2831ef985d73fa6da/src/api/connection.rs",
-    "status": "not-implemented",
-    "evidence": []
+    "status": "partially-implemented",
+    "evidence": [
+      "src/api/account.rs: session restore, selector/cookies exchange, duplicate-selector suppression and invalidation; detailed API error compatibility pending"
+    ]
   },
   {
     "id": "certificate-renewal",
     "requirement": "API certificate issuance/renewal, fatal expiry, configured duration",
     "source": "https://github.com/ProtonVPN/protun/blob/a498c38ae6ffb0e68e7190b2831ef985d73fa6da/src/api/connection.rs",
-    "status": "not-implemented",
-    "evidence": []
+    "status": "partially-implemented",
+    "evidence": [
+      "src/api/account.rs: RCRL issuance/renewal, duration, invalidation, expiry disconnection and key rejection; offline service fixtures pending"
+    ]
   },
   {
     "id": "api-environments",
     "requirement": "Production, Atlas and custom API hosts plus pins",
     "source": "https://github.com/ProtonVPN/protun/blob/a498c38ae6ffb0e68e7190b2831ef985d73fa6da/src/api/connection.rs",
-    "status": "not-implemented",
-    "evidence": []
+    "status": "implemented-local",
+    "evidence": [
+      "src/api/account_material.rs: Proton VPN production host and official pins, Atlas and validated custom servers/pins; unit tests"
+    ]
   },
   {
     "id": "netshield",
     "requirement": "All v3.0.5 NetShield levels and applied-server feedback",
     "source": "https://github.com/ProtonVPN/protun/blob/a498c38ae6ffb0e68e7190b2831ef985d73fa6da/src/api/local_agent.rs",
-    "status": "not-implemented",
-    "evidence": []
+    "status": "partially-implemented",
+    "evidence": [
+      "src/api/account.rs and src/api/agent_state.rs: real managed LocalAgent settings/subscriptions, server-observed feedback and policy handling; offline protocol fixtures and native bindings pending"
+    ]
   },
   {
     "id": "port-forwarding",
-    "requirement": "Local Agent enablement, entitlement refusals, NAT-PMP mapping and renewal",
+    "requirement": "Local Agent port-forwarding enablement, entitlement refusals and applied-server feedback (NAT-PMP lease manager is outside upstream parity)",
     "source": "https://github.com/ProtonVPN/protun/blob/a498c38ae6ffb0e68e7190b2831ef985d73fa6da/src/api/local_agent.rs",
-    "status": "not-implemented",
-    "evidence": []
+    "status": "partially-implemented",
+    "evidence": [
+      "src/api/account.rs and src/api/agent_state.rs: real managed LocalAgent settings/subscriptions, server-observed feedback and policy handling; offline protocol fixtures and native bindings pending"
+    ]
   },
   {
     "id": "split-tcp",
     "requirement": "VPN Accelerator split-TCP request, policy refusal and applied feedback",
     "source": "https://github.com/ProtonVPN/protun/blob/a498c38ae6ffb0e68e7190b2831ef985d73fa6da/src/api/local_agent.rs",
-    "status": "not-implemented",
-    "evidence": []
+    "status": "partially-implemented",
+    "evidence": [
+      "src/api/account.rs and src/api/agent_state.rs: real managed LocalAgent settings/subscriptions, server-observed feedback and policy handling; offline protocol fixtures and native bindings pending"
+    ]
   },
   {
     "id": "random-nat",
     "requirement": "NAT policy request and applied feedback",
     "source": "https://github.com/ProtonVPN/protun/blob/a498c38ae6ffb0e68e7190b2831ef985d73fa6da/src/api/local_agent.rs",
-    "status": "not-implemented",
-    "evidence": []
+    "status": "partially-implemented",
+    "evidence": [
+      "src/api/account.rs and src/api/agent_state.rs: real managed LocalAgent settings/subscriptions, server-observed feedback and policy handling; offline protocol fixtures and native bindings pending"
+    ]
   },
   {
     "id": "circumvention-routing",
     "requirement": "Circumvention routing setting and applied feedback",
     "source": "https://github.com/ProtonVPN/protun/blob/a498c38ae6ffb0e68e7190b2831ef985d73fa6da/src/api/local_agent.rs",
-    "status": "not-implemented",
-    "evidence": []
+    "status": "partially-implemented",
+    "evidence": [
+      "src/api/account.rs and src/api/agent_state.rs: real managed LocalAgent settings/subscriptions, server-observed feedback and policy handling; offline protocol fixtures and native bindings pending"
+    ]
   },
   {
     "id": "jails-restrictions",
     "requirement": "Soft/hard jails, plan/2FA/invoice/session limits, streaming/P2P restrictions",
     "source": "https://github.com/ProtonVPN/protun/blob/a498c38ae6ffb0e68e7190b2831ef985d73fa6da/src/api/local_agent.rs",
-    "status": "not-implemented",
-    "evidence": []
+    "status": "partially-implemented",
+    "evidence": [
+      "src/api/account.rs and src/api/agent_state.rs: real managed LocalAgent settings/subscriptions, server-observed feedback and policy handling; offline protocol fixtures and native bindings pending"
+    ]
   },
   {
     "id": "exit-labels",
     "requirement": "Selected exits/server-name metadata and bouncing semantics",
     "source": "https://github.com/ProtonVPN/protun/blob/a498c38ae6ffb0e68e7190b2831ef985d73fa6da/src/api/connection.rs",
-    "status": "not-implemented",
-    "evidence": []
+    "status": "partially-implemented",
+    "evidence": [
+      "src/api/account.rs and src/api/agent_state.rs: real managed LocalAgent settings/subscriptions, server-observed feedback and policy handling; offline protocol fixtures and native bindings pending"
+    ]
   },
   {
     "id": "agent-statistics",
     "requirement": "Traffic, block categories and data-saved events",
     "source": "https://github.com/ProtonVPN/protun/blob/a498c38ae6ffb0e68e7190b2831ef985d73fa6da/src/api/events.rs",
-    "status": "not-implemented",
-    "evidence": []
+    "status": "partially-implemented",
+    "evidence": [
+      "src/api/account.rs and src/api/agent_state.rs: real managed LocalAgent settings/subscriptions, server-observed feedback and policy handling; offline protocol fixtures and native bindings pending"
+    ]
   },
   {
     "id": "sni-strategy",
@@ -233,15 +269,19 @@
     "id": "logging",
     "requirement": "Initialization, diagnostics and secret redaction",
     "source": "https://github.com/ProtonVPN/protun/blob/a498c38ae6ffb0e68e7190b2831ef985d73fa6da/src/api/logger.rs",
-    "status": "not-implemented",
-    "evidence": []
+    "status": "partially-implemented",
+    "evidence": [
+      "src/api/logger.rs: callback levels, recursion guard and suppression of SDK logs containing raw fork selectors; FFI export pending"
+    ]
   },
   {
     "id": "unix-bindings",
     "requirement": "Unix/Linux constructor, descriptor lifecycle and API bindings",
     "source": "https://github.com/ProtonVPN/protun/blob/a498c38ae6ffb0e68e7190b2831ef985d73fa6da/src/api/connection_unix.rs",
-    "status": "not-implemented",
-    "evidence": []
+    "status": "partially-implemented",
+    "evidence": [
+      "src/api/supervisor.rs: Linux native Rust compatibility API; UniFFI and other Unix platforms pending"
+    ]
   },
   {
     "id": "apple-adapter",

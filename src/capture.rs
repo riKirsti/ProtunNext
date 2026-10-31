@@ -7,6 +7,19 @@ pub struct Capture<W: Write> {
     limit: u64,
 }
 impl<W: Write> Capture<W> {
+    pub(crate) fn resume(writer: W, written: u64, limit: u64) -> io::Result<Self> {
+        if written < 24 || written > limit {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "capture append bounds",
+            ));
+        }
+        Ok(Self {
+            writer,
+            written,
+            limit,
+        })
+    }
     pub fn new(mut writer: W, limit: u64) -> io::Result<Self> {
         if limit < 24 {
             return Err(io::Error::new(io::ErrorKind::InvalidInput, "capture limit"));

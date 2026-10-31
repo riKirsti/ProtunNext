@@ -159,6 +159,7 @@ pub(crate) fn connect_tcp(
     endpoint: SocketAddr,
     device: &str,
     stop: &AtomicBool,
+    protector: Option<&dyn crate::api::types::SocketProtector>,
 ) -> Result<TcpStream> {
     let family = if endpoint.is_ipv4() {
         libc::AF_INET
@@ -178,7 +179,14 @@ pub(crate) fn connect_tcp(
     }
     // SAFETY: fresh valid socket fd with exactly one owner.
     let socket = unsafe { TcpStream::from_raw_fd(fd) };
-    bind_device(fd, device)?;
+    if !device.is_empty() {
+        bind_device(fd, device)?;
+    }
+    if let Some(protector) = protector {
+        if !protector.protect_socket(fd) {
+            return Err(io::Error::from(io::ErrorKind::PermissionDenied).into());
+        }
+    }
     let result = match endpoint {
         SocketAddr::V4(address) => {
             let raw = libc::sockaddr_in {

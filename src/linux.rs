@@ -20,6 +20,7 @@ use std::{
 
 const TUN: Token = Token(1);
 const NET: Token = Token(2);
+const CONTROL: Token = Token(3);
 const BUDGET: usize = 64;
 #[derive(Debug, Default, Clone, serde::Serialize)]
 pub struct Counters {
@@ -91,6 +92,17 @@ fn enqueue(
     }
     Ok(())
 }
+fn enqueue_network(
+    pool: &mut PacketPool,
+    queue: &mut PacketQueue,
+    packet: crate::packet::Packet,
+    observer: Option<&crate::connection::Observer>,
+) -> Result<()> {
+    if let Some(observer) = observer {
+        observer.capture_wireguard(packet.data(), true);
+    }
+    enqueue(pool, queue, packet)
+}
 pub enum Transport {
     Udp,
     Tcp,
@@ -103,7 +115,14 @@ pub fn run_udp(
     bind_device: &str,
     stop: &AtomicBool,
 ) -> Result<Counters> {
-    run_transport(tun_fd, config, bind_device, Transport::Udp, stop, None)
+    run_transport(
+        Some(tun_fd),
+        config,
+        bind_device,
+        Transport::Udp,
+        stop,
+        None,
+    )
 }
 pub fn run_tcp(
     tun_fd: i32,
@@ -111,7 +130,14 @@ pub fn run_tcp(
     bind_device: &str,
     stop: &AtomicBool,
 ) -> Result<Counters> {
-    run_transport(tun_fd, config, bind_device, Transport::Tcp, stop, None)
+    run_transport(
+        Some(tun_fd),
+        config,
+        bind_device,
+        Transport::Tcp,
+        stop,
+        None,
+    )
 }
 /// Explicit TLS policy supplied by the caller, separate from Proton Stealth.
 pub fn run_tls(
@@ -122,7 +148,7 @@ pub fn run_tls(
     stop: &AtomicBool,
 ) -> Result<Counters> {
     run_transport(
-        tun_fd,
+        Some(tun_fd),
         config,
         bind_device,
         Transport::Tls(Box::new(connection)),
@@ -140,7 +166,7 @@ pub fn run_stealth(
     stop: &AtomicBool,
 ) -> Result<Counters> {
     run_transport(
-        tun_fd,
+        Some(tun_fd),
         config,
         bind_device,
         Transport::Stealth(sni.clone()),
@@ -149,13 +175,16 @@ pub fn run_stealth(
     )
 }
 pub(crate) fn run_transport(
-    tun_fd: i32,
+    tun_fd: Option<i32>,
     config: &WireguardConfig,
     bind_device: &str,
     transport: Transport,
     stop: &AtomicBool,
     observer: Option<&crate::connection::Observer>,
 ) -> Result<Counters> {
+    if bind_device.is_empty() && observer.is_none() {
+        return Err(Error::Invalid("uplink device"));
+    }
     match transport {
         Transport::Udp => {
             let addr = if config.endpoint.is_ipv4() {
@@ -165,7 +194,14 @@ pub(crate) fn run_transport(
             };
             let socket = std::net::UdpSocket::bind(addr)?;
             socket.set_nonblocking(true)?;
-            linux_network::bind_device(socket.as_raw_fd(), bind_device)?;
+            if !bind_device.is_empty() {
+                linux_network::bind_device(socket.as_raw_fd(), bind_device)?;
+            }
+            if let Some(protector) = observer.and_then(|o| o.protector()) {
+                if !protector.protect_socket(socket.as_raw_fd()) {
+                    return Err(std::io::Error::from(std::io::ErrorKind::PermissionDenied).into());
+                }
+            }
             socket.connect(config.endpoint)?;
             run(tun_fd, config, Datagram(socket), stop, observer)
         }
@@ -173,7 +209,12 @@ pub(crate) fn run_transport(
             if config.mtu > 16_351 {
                 return Err(Error::Invalid("MTU exceeds normal TCP frame capacity"));
             }
-            let socket = linux_network::connect_tcp(config.endpoint, bind_device, stop)?;
+            let socket = linux_network::connect_tcp(
+                config.endpoint,
+                bind_device,
+                stop,
+                observer.and_then(|o| o.protector()),
+            )?;
             match other {
                 Transport::Tcp => run(
                     tun_fd,
@@ -205,19 +246,27 @@ pub(crate) fn run_transport(
     }
 }
 fn run<N: Network>(
-    tun_fd: i32,
+    tun_fd: Option<i32>,
     config: &WireguardConfig,
     mut network: N,
     stop: &AtomicBool,
     observer: Option<&crate::connection::Observer>,
 ) -> Result<Counters> {
-    let mut tun = duplicate_nonblocking(tun_fd)?;
+    let mut tun = tun_fd.map(duplicate_nonblocking).transpose()?;
     let allowed_ips = crate::routing::AllowedIps::new(&config.allowed_ips)?;
     let network_fd = network.fd();
     let handshake_deadline = boottime()? + Duration::from_secs(10);
     let mut poll = Poll::new()?;
-    poll.registry()
-        .register(&mut SourceFd(&tun.as_raw_fd()), TUN, Interest::READABLE)?;
+    if let Some(observer) = observer {
+        observer.set_waker(std::sync::Arc::new(mio::Waker::new(
+            poll.registry(),
+            CONTROL,
+        )?));
+    }
+    if let Some(tun) = &tun {
+        poll.registry()
+            .register(&mut SourceFd(&tun.as_raw_fd()), TUN, Interest::READABLE)?;
+    }
     poll.registry()
         .register(&mut SourceFd(&network_fd), NET, Interest::READABLE)?;
     let mut events = Events::with_capacity(16);
@@ -240,15 +289,39 @@ fn run<N: Network>(
     match session.initiate(initiation.writable())? {
         Output::Network(n) => {
             initiation.set_len(n)?;
-            enqueue(&mut pool, &mut to_net, initiation)?;
+            enqueue_network(&mut pool, &mut to_net, initiation, observer)?;
         }
         _ => pool.recycle(initiation)?,
     }
-    let mut tun_ready = true;
+    let mut tun_ready = tun.is_some();
     let mut net_ready = true;
     let mut drain = false;
     let mut network_error = None;
     while !stop.load(Ordering::Relaxed) {
+        if let Some(replacement) = observer.and_then(|o| o.take_tun_update()) {
+            if let Some(old) = &tun {
+                poll.registry()
+                    .deregister(&mut SourceFd(&old.as_raw_fd()))?;
+            }
+            tun = replacement;
+            tun_ready = tun.is_some();
+            tun_writable = false;
+            if let Some(new) = &tun {
+                poll.registry().register(
+                    &mut SourceFd(&new.as_raw_fd()),
+                    TUN,
+                    Interest::READABLE,
+                )?;
+            }
+            if let Some(observer) = observer {
+                observer.interface(tun.is_some(), None);
+            }
+            if tun.is_none() {
+                while let Some(packet) = to_tun.pop() {
+                    pool.recycle(packet)?;
+                }
+            }
+        }
         if network.handshaking() && boottime()? >= handshake_deadline {
             return Err(std::io::Error::from(std::io::ErrorKind::TimedOut).into());
         }
@@ -258,7 +331,7 @@ fn run<N: Network>(
             match timed {
                 Output::Network(n) => {
                     timer_packet.set_len(n)?;
-                    enqueue(&mut pool, &mut to_net, timer_packet)?;
+                    enqueue_network(&mut pool, &mut to_net, timer_packet, observer)?;
                 }
                 _ => pool.recycle(timer_packet)?,
             }
@@ -273,10 +346,17 @@ fn run<N: Network>(
                 break;
             }
             let mut input = pool.take().ok_or(Error::Full)?;
-            match tun.read(&mut input.writable()[..config.mtu as usize]) {
+            let Some(device) = tun.as_mut() else {
+                pool.recycle(input)?;
+                break;
+            };
+            match device.read(&mut input.writable()[..config.mtu as usize]) {
                 Ok(0) => {
                     pool.recycle(input)?;
-                    return Err(Error::Invalid("TUN EOF"));
+                    detach_tun(&mut tun, &poll, observer, Error::Invalid("TUN EOF"))?;
+                    tun_ready = false;
+                    tun_writable = false;
+                    break;
                 }
                 Ok(n) => {
                     counters.tun_reads += 1;
@@ -286,13 +366,23 @@ fn run<N: Network>(
                         pool.recycle(input)?;
                         continue;
                     }
+                    #[cfg(feature = "local-agent")]
+                    if let Some(observer) = observer {
+                        if observer.internal_local(input.data(), boottime()?)? {
+                            pool.recycle(input)?;
+                            continue;
+                        }
+                    }
+                    if let Some(observer) = observer {
+                        observer.capture(input.data());
+                    }
                     let mut output = pool.take().ok_or(Error::Full)?;
                     let result = session.encrypt(input.data(), output.writable());
                     pool.recycle(input)?;
                     match result? {
                         Output::Network(n) => {
                             output.set_len(n)?;
-                            enqueue(&mut pool, &mut to_net, output)?;
+                            enqueue_network(&mut pool, &mut to_net, output, observer)?;
                             drain = true;
                         }
                         _ => pool.recycle(output)?,
@@ -308,8 +398,49 @@ fn run<N: Network>(
                 }
                 Err(e) => {
                     pool.recycle(input)?;
-                    return Err(e.into());
+                    detach_tun(&mut tun, &poll, observer, e.into())?;
+                    tun_ready = false;
+                    tun_writable = false;
+                    break;
                 }
+            }
+        }
+        #[cfg(feature = "local-agent")]
+        for _ in 0..BUDGET {
+            let Some(observer) = observer else {
+                break;
+            };
+            if network_error.is_some()
+                || to_net.len() + network.pending() >= 63
+                || pool.available() < 2
+            {
+                break;
+            }
+            let mut input = pool.take().ok_or(Error::Full)?;
+            let Some(n) = observer.internal_read(input.writable(), boottime()?)? else {
+                pool.recycle(input)?;
+                break;
+            };
+            input.set_len(n)?;
+            if crate::api::internal::local_service_source(input.data()) {
+                if tun.is_some() && to_tun.len() < 63 {
+                    enqueue(&mut pool, &mut to_tun, input)?;
+                } else {
+                    pool.recycle(input)?;
+                }
+                continue;
+            }
+            observer.capture(input.data());
+            let mut output = pool.take().ok_or(Error::Full)?;
+            let result = session.encrypt(input.data(), output.writable());
+            pool.recycle(input)?;
+            match result? {
+                Output::Network(n) => {
+                    output.set_len(n)?;
+                    enqueue_network(&mut pool, &mut to_net, output, Some(observer))?;
+                    drain = true;
+                }
+                _ => pool.recycle(output)?,
             }
         }
         for _ in 0..BUDGET {
@@ -325,19 +456,32 @@ fn run<N: Network>(
             match network.receive(&mut input) {
                 Ok(Receive::Packet) => {
                     counters.network_reads += 1;
+                    if let Some(observer) = observer {
+                        observer.capture_wireguard(input.data(), false);
+                    }
                     let mut output = pool.take().ok_or(Error::Full)?;
                     let result = session.decrypt(input.data(), output.writable());
                     pool.recycle(input)?;
                     match result {
                         Ok(Output::Network(n)) => {
                             output.set_len(n)?;
-                            enqueue(&mut pool, &mut to_net, output)?;
+                            enqueue_network(&mut pool, &mut to_net, output, observer)?;
                             drain = true;
                         }
                         Ok(Output::Tunnel(n)) => {
                             output.set_len(n)?;
                             counters.decrypted_packets += 1;
-                            if allowed_ips.inbound(output.data()) {
+                            if let Some(observer) = observer {
+                                observer.capture(output.data());
+                            }
+                            #[cfg(feature = "local-agent")]
+                            if let Some(observer) = observer {
+                                if observer.internal_receive(output.data_mut(), boottime()?)? {
+                                    pool.recycle(output)?;
+                                    continue;
+                                }
+                            }
+                            if allowed_ips.inbound(output.data()) && tun.is_some() {
                                 enqueue(&mut pool, &mut to_tun, output)?;
                             } else {
                                 counters.inbound_filtered += 1;
@@ -386,7 +530,7 @@ fn run<N: Network>(
             match session.drain(output.writable())? {
                 Output::Network(n) => {
                     output.set_len(n)?;
-                    enqueue(&mut pool, &mut to_net, output)?;
+                    enqueue_network(&mut pool, &mut to_net, output, observer)?;
                 }
                 _ => {
                     pool.recycle(output)?;
@@ -411,11 +555,27 @@ fn run<N: Network>(
             let Some(packet) = to_tun.front() else {
                 break;
             };
-            match tun.write(packet.data()) {
+            let Some(device) = tun.as_mut() else {
+                while let Some(packet) = to_tun.pop() {
+                    pool.recycle(packet)?;
+                }
+                break;
+            };
+            match device.write(packet.data()) {
                 Ok(n) if n == packet.data().len() => {
                     pool.recycle(to_tun.pop().expect("front exists"))?
                 }
-                Ok(_) => return Err(Error::Invalid("partial TUN write")),
+                Ok(_) => {
+                    detach_tun(
+                        &mut tun,
+                        &poll,
+                        observer,
+                        Error::Invalid("partial TUN write"),
+                    )?;
+                    tun_ready = false;
+                    tun_writable = false;
+                    break;
+                }
                 Err(e)
                     if e.kind() == std::io::ErrorKind::WouldBlock
                         || e.raw_os_error() == Some(libc::ENOBUFS) =>
@@ -424,7 +584,12 @@ fn run<N: Network>(
                     break;
                 }
                 Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
-                Err(e) => return Err(e.into()),
+                Err(e) => {
+                    detach_tun(&mut tun, &poll, observer, e.into())?;
+                    tun_ready = false;
+                    tun_writable = false;
+                    break;
+                }
             }
         }
         if let Some(observer) = observer {
@@ -453,9 +618,9 @@ fn run<N: Network>(
             )?;
             net_writable = wants_net;
         }
-        if wants_tun != tun_writable {
+        if tun.is_some() && wants_tun != tun_writable {
             poll.registry().reregister(
-                &mut SourceFd(&tun.as_raw_fd()),
+                &mut SourceFd(&tun.as_ref().expect("present").as_raw_fd()),
                 TUN,
                 if wants_tun {
                     Interest::READABLE | Interest::WRITABLE
@@ -477,6 +642,10 @@ fn run<N: Network>(
                 .unwrap_or(Duration::from_millis(250))
                 .min(Duration::from_millis(250))
         };
+        #[cfg(feature = "local-agent")]
+        let timeout = observer
+            .and_then(|o| boottime().ok().and_then(|now| o.internal_wakeup(now)))
+            .map_or(timeout, |internal| internal.min(timeout));
         match poll.poll(&mut events, Some(timeout)) {
             Ok(()) => {}
             Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
@@ -494,4 +663,19 @@ fn run<N: Network>(
         }
     }
     Ok(counters)
+}
+fn detach_tun(
+    tun: &mut Option<File>,
+    poll: &Poll,
+    observer: Option<&crate::connection::Observer>,
+    error: Error,
+) -> Result<()> {
+    let Some(observer) = observer else {
+        return Err(error);
+    };
+    if let Some(old) = tun.take() {
+        let _ = poll.registry().deregister(&mut SourceFd(&old.as_raw_fd()));
+    }
+    observer.interface(false, Some(error.to_string()));
+    Ok(())
 }
