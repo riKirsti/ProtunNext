@@ -31,7 +31,7 @@ impl CaptureController {
                 }
                 let mut options = File::options();
                 options.create(true).read(true).write(true);
-                #[cfg(target_os = "linux")]
+                #[cfg(unix)]
                 {
                     use std::os::unix::fs::OpenOptionsExt;
                     options
@@ -45,7 +45,7 @@ impl CaptureController {
                 (file, *mode == FileWriteMode::Append)
             }
             PcapFile::Fd(fd) => {
-                #[cfg(target_os = "linux")]
+                #[cfg(unix)]
                 {
                     use std::os::fd::FromRawFd;
                     // SAFETY: duplicates the raw input fd; only the fresh fd is owned here.
@@ -63,7 +63,7 @@ impl CaptureController {
                     }
                     (file, true)
                 }
-                #[cfg(not(target_os = "linux"))]
+                #[cfg(not(unix))]
                 {
                     let _ = fd;
                     return Err(Error::Unsupported("capture fd on this platform"));

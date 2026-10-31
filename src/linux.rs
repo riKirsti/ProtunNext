@@ -8,6 +8,7 @@ use crate::{
     session::{Output, Session},
     stream::{FramedIo, Receive},
     tls::TlsIo,
+    tun_device::TunDevice,
 };
 use mio::{Events, Interest, Poll, Token, unix::SourceFd};
 use std::{
@@ -40,8 +41,15 @@ pub fn boottime() -> Result<Duration> {
         tv_sec: 0,
         tv_nsec: 0,
     };
-    // SAFETY: initialized output object; CLOCK_BOOTTIME advances through suspend.
-    if unsafe { libc::clock_gettime(libc::CLOCK_BOOTTIME, &mut ts) } != 0 {
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    let clock = libc::CLOCK_BOOTTIME;
+    #[cfg(target_vendor = "apple")]
+    let clock = libc::CLOCK_MONOTONIC_RAW;
+    #[cfg(not(any(target_os = "linux", target_os = "android", target_vendor = "apple")))]
+    let clock = libc::CLOCK_MONOTONIC;
+    // SAFETY: initialized output object and a supported monotonic clock ID.
+    // Linux BOOTTIME and Apple's MONOTONIC_RAW both advance through sleep.
+    if unsafe { libc::clock_gettime(clock, &mut ts) } != 0 {
         return Err(std::io::Error::last_os_error().into());
     }
     Ok(Duration::new(
@@ -59,16 +67,40 @@ pub(crate) fn duplicate_nonblocking(fd: i32) -> Result<File> {
     }
     // SAFETY: duplicate is a new owned descriptor from successful fcntl.
     let file = unsafe { File::from_raw_fd(duplicate) };
-    let mut info = [0u8; 40];
-    // SAFETY: live descriptor, adequately sized Linux ifreq storage for TUNGETIFF.
-    if unsafe { libc::ioctl(file.as_raw_fd(), libc::TUNGETIFF, info.as_mut_ptr()) } < 0 {
-        return Err(std::io::Error::last_os_error().into());
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    {
+        let mut info = [0u8; 40];
+        // SAFETY: live descriptor, adequately sized Linux ifreq storage for TUNGETIFF.
+        if unsafe { libc::ioctl(file.as_raw_fd(), libc::TUNGETIFF, info.as_mut_ptr()) } < 0 {
+            return Err(std::io::Error::last_os_error().into());
+        }
+        let tun_flags = i16::from_ne_bytes([info[libc::IFNAMSIZ], info[libc::IFNAMSIZ + 1]]) as i32;
+        if tun_flags & (libc::IFF_TUN | libc::IFF_NO_PI) != (libc::IFF_TUN | libc::IFF_NO_PI) {
+            return Err(Error::Invalid(
+                "descriptor must be TUN without packet-info header",
+            ));
+        }
     }
-    let tun_flags = i16::from_ne_bytes([info[libc::IFNAMSIZ], info[libc::IFNAMSIZ + 1]]) as i32;
-    if tun_flags & (libc::IFF_TUN | libc::IFF_NO_PI) != (libc::IFF_TUN | libc::IFF_NO_PI) {
-        return Err(Error::Invalid(
-            "descriptor must be TUN without packet-info header",
-        ));
+    #[cfg(target_vendor = "apple")]
+    {
+        let mut kind = 0i32;
+        let mut length = size_of::<i32>() as libc::socklen_t;
+        // SAFETY: live descriptor and correctly sized mutable scalar output.
+        if unsafe {
+            libc::getsockopt(
+                file.as_raw_fd(),
+                libc::SOL_SOCKET,
+                libc::SO_TYPE,
+                (&mut kind as *mut i32).cast(),
+                &mut length,
+            )
+        } < 0
+        {
+            return Err(std::io::Error::last_os_error().into());
+        }
+        if kind != libc::SOCK_DGRAM {
+            return Err(Error::Invalid("utun requires a datagram descriptor"));
+        }
     }
     // SAFETY: valid owned descriptor and scalar fcntl arguments.
     let flags = unsafe { libc::fcntl(file.as_raw_fd(), libc::F_GETFL) };
@@ -195,12 +227,16 @@ pub(crate) fn run_transport(
             let socket = std::net::UdpSocket::bind(addr)?;
             socket.set_nonblocking(true)?;
             if !bind_device.is_empty() {
-                linux_network::bind_device(socket.as_raw_fd(), bind_device)?;
+                linux_network::bind_device(
+                    socket.as_raw_fd(),
+                    bind_device,
+                    config.endpoint.is_ipv6(),
+                )?;
             }
-            if let Some(protector) = observer.and_then(|o| o.protector()) {
-                if !protector.protect_socket(socket.as_raw_fd()) {
-                    return Err(std::io::Error::from(std::io::ErrorKind::PermissionDenied).into());
-                }
+            if let Some(protector) = observer.and_then(|o| o.protector())
+                && !protector.protect_socket(socket.as_raw_fd())
+            {
+                return Err(std::io::Error::from(std::io::ErrorKind::PermissionDenied).into());
             }
             socket.connect(config.endpoint)?;
             run(tun_fd, config, Datagram(socket), stop, observer)
@@ -252,8 +288,12 @@ fn run<N: Network>(
     stop: &AtomicBool,
     observer: Option<&crate::connection::Observer>,
 ) -> Result<Counters> {
-    let mut tun = tun_fd.map(duplicate_nonblocking).transpose()?;
+    let mut tun = tun_fd
+        .map(duplicate_nonblocking)
+        .transpose()?
+        .map(TunDevice);
     let allowed_ips = crate::routing::AllowedIps::new(&config.allowed_ips)?;
+    let compatibility_policy = observer.is_some_and(|o| o.compatibility_policy());
     let network_fd = network.fd();
     let handshake_deadline = boottime()? + Duration::from_secs(10);
     let mut poll = Poll::new()?;
@@ -303,7 +343,7 @@ fn run<N: Network>(
                 poll.registry()
                     .deregister(&mut SourceFd(&old.as_raw_fd()))?;
             }
-            tun = replacement;
+            tun = replacement.map(TunDevice);
             tun_ready = tun.is_some();
             tun_writable = false;
             if let Some(new) = &tun {
@@ -361,20 +401,36 @@ fn run<N: Network>(
                 Ok(n) => {
                     counters.tun_reads += 1;
                     input.set_len(n)?;
+                    if compatibility_policy
+                        && crate::virtual_policy::outbound(input.data())
+                            == crate::virtual_policy::Route::Drop
+                    {
+                        counters.outbound_filtered += 1;
+                        pool.recycle(input)?;
+                        continue;
+                    }
                     if !allowed_ips.outbound(input.data()) {
                         counters.outbound_filtered += 1;
                         pool.recycle(input)?;
                         continue;
                     }
                     #[cfg(feature = "local-agent")]
-                    if let Some(observer) = observer {
-                        if observer.internal_local(input.data(), boottime()?)? {
-                            pool.recycle(input)?;
-                            continue;
-                        }
+                    if let Some(observer) = observer
+                        && observer.internal_local(input.data(), boottime()?)?
+                    {
+                        pool.recycle(input)?;
+                        continue;
                     }
                     if let Some(observer) = observer {
                         observer.capture(input.data());
+                    }
+                    #[cfg(feature = "local-agent")]
+                    if let Some(observer) = observer
+                        && observer.customer_outbound(input.data_mut()).is_err()
+                    {
+                        counters.outbound_filtered += 1;
+                        pool.recycle(input)?;
+                        continue;
                     }
                     let mut output = pool.take().ok_or(Error::Full)?;
                     let result = session.encrypt(input.data(), output.writable());
@@ -474,12 +530,20 @@ fn run<N: Network>(
                             if let Some(observer) = observer {
                                 observer.capture(output.data());
                             }
+                            if compatibility_policy
+                                && crate::virtual_policy::inbound(output.data())
+                                    == crate::virtual_policy::Route::Drop
+                            {
+                                counters.inbound_filtered += 1;
+                                pool.recycle(output)?;
+                                continue;
+                            }
                             #[cfg(feature = "local-agent")]
-                            if let Some(observer) = observer {
-                                if observer.internal_receive(output.data_mut(), boottime()?)? {
-                                    pool.recycle(output)?;
-                                    continue;
-                                }
+                            if let Some(observer) = observer
+                                && observer.internal_receive(output.data_mut(), boottime()?)?
+                            {
+                                pool.recycle(output)?;
+                                continue;
                             }
                             if allowed_ips.inbound(output.data()) && tun.is_some() {
                                 enqueue(&mut pool, &mut to_tun, output)?;
@@ -618,9 +682,11 @@ fn run<N: Network>(
             )?;
             net_writable = wants_net;
         }
-        if tun.is_some() && wants_tun != tun_writable {
+        if let Some(tun) = &tun
+            && wants_tun != tun_writable
+        {
             poll.registry().reregister(
-                &mut SourceFd(&tun.as_ref().expect("present").as_raw_fd()),
+                &mut SourceFd(&tun.as_raw_fd()),
                 TUN,
                 if wants_tun {
                     Interest::READABLE | Interest::WRITABLE
@@ -665,7 +731,7 @@ fn run<N: Network>(
     Ok(counters)
 }
 fn detach_tun(
-    tun: &mut Option<File>,
+    tun: &mut Option<TunDevice>,
     poll: &Poll,
     observer: Option<&crate::connection::Observer>,
     error: Error,

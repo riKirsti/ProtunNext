@@ -23,16 +23,19 @@ pub(crate) enum Command {
     StopCapture,
     Stats,
     AgentStats,
-    Fork(ForkSelectorInfo),
+    Fork(Zeroizing<ForkSelectorInfo>),
     InvalidateCertificate,
     Debug,
 }
+#[cfg_attr(feature = "uniffi", derive(uniffi::Object))]
 pub struct Connection {
     sender: mpsc::Sender<Command>,
     join: Mutex<Option<JoinHandle<()>>>,
 }
+#[cfg_attr(feature = "uniffi", uniffi::export)]
 impl Connection {
     /// v3.0.5 constructor transfers ownership of the supplied raw descriptor.
+    #[cfg_attr(feature = "uniffi", uniffi::constructor)]
     pub fn unix_connect(
         config: InitialConnectionConfig,
         tun_fd: Option<i32>,
@@ -91,9 +94,6 @@ impl Connection {
             join: Mutex::new(Some(join)),
         }
     }
-    fn send(&self, command: Command) {
-        let _ = self.sender.send(command);
-    }
     pub fn update_peers(&self, peers: Vec<PeerInfo>) {
         self.update(ConfigUpdate {
             peers: Some(peers),
@@ -111,10 +111,10 @@ impl Connection {
     }
     pub fn disconnect_and_wait(&self) {
         self.disconnect();
-        if let Some(join) = self.join.lock().unwrap_or_else(|e| e.into_inner()).take() {
-            if join.thread().id() != thread::current().id() {
-                let _ = join.join();
-            }
+        if let Some(join) = self.join.lock().unwrap_or_else(|e| e.into_inner()).take()
+            && join.thread().id() != thread::current().id()
+        {
+            let _ = join.join();
         }
     }
     pub fn update_unix_tun(&self, tun_fd: TunStreamInfo) {
@@ -145,10 +145,15 @@ impl Connection {
         self.send(Command::AgentStats);
     }
     pub fn provide_api_fork_selector(&self, fork_selector_info: ForkSelectorInfo) {
-        self.send(Command::Fork(fork_selector_info));
+        self.send(Command::Fork(Zeroizing::new(fork_selector_info)));
     }
     pub fn invalidate_certificate(&self) {
         self.send(Command::InvalidateCertificate);
+    }
+}
+impl Connection {
+    fn send(&self, command: Command) {
+        let _ = self.sender.send(command);
     }
 }
 impl Drop for Connection {
@@ -228,7 +233,7 @@ struct Supervisor {
     #[cfg(feature = "local-agent")]
     agent_state: super::agent_state::AgentState,
     #[cfg(feature = "local-agent")]
-    pending_fork: Option<ForkSelectorInfo>,
+    pending_fork: Option<Zeroizing<ForkSelectorInfo>>,
     fatal: bool,
 }
 impl Supervisor {
@@ -372,11 +377,12 @@ impl Supervisor {
             if self.fatal {
                 break;
             }
-            if self.worker.is_none() && Instant::now() >= self.retry_at {
-                if let Err(error) = self.start_next() {
-                    log::warn!("candidate start failed: {error}");
-                    self.schedule_retry();
-                }
+            if self.worker.is_none()
+                && Instant::now() >= self.retry_at
+                && let Err(error) = self.start_next()
+            {
+                log::warn!("candidate start failed: {error}");
+                self.schedule_retry();
             }
             let snapshot = self.worker.as_ref().map(Worker::snapshot);
             for event in self.capture.take_events() {
@@ -386,6 +392,16 @@ impl Supervisor {
                 Some(snapshot) if snapshot.state == WorkerState::TunnelEstablished => {
                     self.attempts = 0;
                     let peer = self.active.as_ref().expect("active worker").info();
+                    #[cfg(feature = "local-agent")]
+                    {
+                        if let Err(error) = self.poll_account() {
+                            log::error!("cannot start control path: {error}");
+                            self.fatal = true;
+                        }
+                        if self.active.is_none() {
+                            continue;
+                        }
+                    }
                     match self.config.connection_mode {
                         ConnectionMode::NoLocalAgent { .. } => {
                             self.publish(ConnectionState::Connected {
@@ -396,13 +412,6 @@ impl Supervisor {
                         ConnectionMode::LocalAgent { .. } => {
                             #[cfg(feature = "local-agent")]
                             {
-                                if let Err(error) = self.poll_account() {
-                                    log::error!("cannot start account control path: {error}");
-                                    self.fatal = true;
-                                }
-                                if self.active.is_none() {
-                                    continue;
-                                }
                                 self.publish(self.agent_state.state(peer));
                             }
                         }
@@ -486,13 +495,12 @@ impl Supervisor {
                         self.active = retained;
                     }
                 }
-                if let Some(settings) = update.settings {
-                    if let ConnectionMode::LocalAgent {
+                if let Some(settings) = update.settings
+                    && let ConnectionMode::LocalAgent {
                         settings: current, ..
                     } = &mut self.config.connection_mode
-                    {
-                        *current = settings;
-                    }
+                {
+                    *current = settings;
                 }
                 #[cfg(feature = "local-agent")]
                 if let (Some(account), ConnectionMode::LocalAgent { settings, .. }) =
@@ -582,10 +590,7 @@ impl Supervisor {
         }
         // Each pass is bounded; a noisy server cannot starve connectivity commands.
         for _ in 0..64 {
-            let notice = self
-                .account
-                .as_ref()
-                .and_then(|a| a.receiver.try_recv().ok());
+            let notice = self.account.as_ref().and_then(Service::try_recv);
             let Some(notice) = notice else { break };
             match notice {
                 Notice::Event(event) => self.event_callback.on_event(event),

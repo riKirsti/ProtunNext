@@ -28,6 +28,44 @@ jobs:
             exit 1
           fi
       - run: cargo build --locked --release --all-features
+      - name: Call the native compatibility API through generated bindings
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          cargo run --locked --features bindgen --bin uniffi-bindgen -- generate --library target/release/libprotun_next.so --language python --out-dir target/generated --no-format
+          cp target/release/libprotun_next.so target/generated/
+          python3 tests/ffi_contract.py target/generated
+      - name: Generate and typecheck Swift and Kotlin contracts
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          cargo run --locked --features bindgen --bin uniffi-bindgen -- generate --library target/release/libprotun_next.dylib --language swift --language kotlin --config uniffi.toml --out-dir target/generated --no-format
+          swiftc -typecheck target/generated/ProtunNext.swift -I target/generated -Xcc -fmodule-map-file=target/generated/ProtunNextFFI.modulemap
+  android-native:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+      - name: Compile native Android library for the upstream minimum API level
+        shell: bash
+        run: |
+          toolchain="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          export CC_aarch64_linux_android="$toolchain/aarch64-linux-android25-clang"
+          export AR_aarch64_linux_android="$toolchain/llvm-ar"
+          export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$CC_aarch64_linux_android"
+          cargo build --locked --release --lib --features android --target aarch64-linux-android
+      - name: Generate Kotlin bindings from the actual Android library
+        shell: bash
+        run: |
+          cargo run --locked --features bindgen --bin uniffi-bindgen -- generate --library target/aarch64-linux-android/release/libprotun_next.so --language kotlin --config uniffi.toml --out-dir target/android-bindings --no-format
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-development-library-and-bindings
+          path: |
+            target/aarch64-linux-android/release/libprotun_next.so
+            target/android-bindings/
   linux-tun:
     runs-on: ubuntu-latest
     steps:

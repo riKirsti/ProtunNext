@@ -14,12 +14,14 @@ pub mod capture;
 #[cfg(feature = "local-agent")]
 pub mod internal;
 pub mod keys;
+#[cfg(feature = "local-agent")]
+pub(crate) mod local_http;
 pub mod logger;
-#[cfg(target_os = "linux")]
+#[cfg(unix)]
 pub(crate) mod supervisor;
 pub mod types;
 pub mod connection {
-    #[cfg(target_os = "linux")]
+    #[cfg(unix)]
     pub use super::supervisor::Connection;
     pub use super::types::*;
 }

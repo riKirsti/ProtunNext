@@ -58,6 +58,7 @@ struct Shared {
     next_sample_ms: AtomicU64,
     capture: Arc<CaptureState>,
     owns_capture: bool,
+    compatibility_policy: bool,
     tun_update: Mutex<Option<Option<File>>>,
     protector: Option<Arc<dyn SocketProtector>>,
     waker: Mutex<Option<Arc<mio::Waker>>>,
@@ -121,6 +122,9 @@ pub(crate) struct Observer {
     start: Duration,
 }
 impl Observer {
+    pub(crate) fn compatibility_policy(&self) -> bool {
+        self.shared.compatibility_policy
+    }
     pub(crate) fn set_waker(&self, waker: Arc<mio::Waker>) {
         *self.shared.waker.lock().unwrap_or_else(|e| e.into_inner()) = Some(waker);
     }
@@ -157,6 +161,25 @@ impl Observer {
             Some(network) => network.receive(bytes, now),
             None => Ok(false),
         }
+    }
+    #[cfg(feature = "local-agent")]
+    pub(crate) fn customer_outbound(&self, bytes: &mut [u8]) -> Result<()> {
+        if !self.shared.compatibility_policy
+            || !self.shared.internal_enabled.load(Ordering::Relaxed)
+            || !crate::api::internal::InternalNetwork::might_send(bytes)
+        {
+            return Ok(());
+        }
+        if let Some(network) = self
+            .shared
+            .internal
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_mut()
+        {
+            network.customer_outbound(bytes)?;
+        }
+        Ok(())
     }
     #[cfg(feature = "local-agent")]
     pub(crate) fn internal_local(&self, bytes: &[u8], now: Duration) -> Result<bool> {
@@ -264,7 +287,9 @@ impl Observer {
         packet[22..24].copy_from_slice(&dport.to_be_bytes());
         packet[24..26].copy_from_slice(&((bytes.len() + 8) as u16).to_be_bytes());
         let mut sum: u32 = packet[..20]
-            .chunks_exact(2)
+            .as_chunks::<2>()
+            .0
+            .iter()
             .map(|p| u16::from_be_bytes([p[0], p[1]]) as u32)
             .sum();
         while sum > 65535 {
@@ -392,6 +417,7 @@ impl Connection {
             established: AtomicBool::new(false),
             next_sample_ms: AtomicU64::new(0),
             owns_capture: capture.is_none(),
+            compatibility_policy: capture.is_some(),
             capture: capture.unwrap_or_else(|| Arc::new(CaptureState::default())),
             tun_update: Mutex::new(None),
             protector,
@@ -468,15 +494,14 @@ impl Connection {
         struct WakeControl(std::sync::Weak<Shared>);
         impl std::task::Wake for WakeControl {
             fn wake(self: Arc<Self>) {
-                if let Some(shared) = self.0.upgrade() {
-                    if let Some(waker) = shared
+                if let Some(shared) = self.0.upgrade()
+                    && let Some(waker) = shared
                         .waker
                         .lock()
                         .unwrap_or_else(|e| e.into_inner())
                         .as_ref()
-                    {
-                        let _ = waker.wake();
-                    }
+                {
+                    let _ = waker.wake();
                 }
             }
         }

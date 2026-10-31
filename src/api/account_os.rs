@@ -7,23 +7,31 @@ use std::{
     io,
     net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr},
     pin::Pin,
-    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 #[derive(Debug, Clone)]
+#[cfg_attr(unix, derive(Default))]
 pub struct Clock {
-    start: Instant,
+    #[cfg(not(unix))]
+    start: std::time::Instant,
 }
+#[cfg(not(unix))]
 impl Default for Clock {
     fn default() -> Self {
         Self {
-            start: Instant::now(),
+            #[cfg(not(unix))]
+            start: std::time::Instant::now(),
         }
     }
 }
 impl rt::InstantFactory for Clock {
     type Instant = rt::MuonInstant;
     fn now(&self) -> Self::Instant {
-        rt::MuonInstant::from_duration(self.start.elapsed())
+        #[cfg(unix)]
+        let now = crate::unix::boottime().expect("supported continuous monotonic clock");
+        #[cfg(not(unix))]
+        let now = self.start.elapsed();
+        rt::MuonInstant::from_duration(now)
     }
 }
 impl rt::SystemTimeFactory for Clock {
@@ -36,7 +44,7 @@ impl rt::SystemTimeFactory for Clock {
         )
     }
 }
-// SAFETY: std::Instant is monotonic; this clock never derives an instant from wall time.
+// SAFETY: selected clocks are monotonic and never derive instants from wall time.
 unsafe impl rt::Monotonic for Clock {}
 impl rt::Sleep for Clock {
     type Sleep<'a> = Pin<Box<dyn Future<Output = ()> + Send + Sync + 'a>>;
