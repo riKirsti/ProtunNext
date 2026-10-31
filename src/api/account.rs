@@ -253,6 +253,8 @@ async fn run(
     let (fork_tx, mut fork_rx) = async_channel::channel(1);
     let mut fork_task: Option<tokio::task::JoinHandle<()>> = None;
     let mut last_selector: Option<zeroize::Zeroizing<String>> = None;
+    let mut fork_generation = 0u64;
+    let mut fork_in_progress = false;
     let mut tick = tokio::time::interval(Duration::from_secs(1));
     loop {
         // certificate() applies RCRL's API clock correction and expiry policy.
@@ -297,32 +299,43 @@ async fn run(
                 Some(Command::Fork(info)) => {
                     if last_selector.as_deref().is_some_and(|selector| selector == &info.selector) { continue; }
                     if let Some(task) = fork_task.take() { task.abort(); }
+                    fork_generation=fork_generation.wrapping_add(1);let generation=fork_generation;fork_in_progress=true;
+                    refresher.suspend();invalidated=true;cache.remove(CacheKey::Certificate);
+                    if connected_certificate.take().is_some() { agent.disconnect(); let _=notices.send(Notice::CertificateUnavailable); }
                     *cookies.0.lock().unwrap_or_else(|e| e.into_inner()) = Some(zeroize::Zeroizing::new(info.cookies.clone()));
                     last_selector = Some(zeroize::Zeroizing::new(info.selector.clone()));
                     let client = client.clone(); let sender = fork_tx.clone(); let notices = notices.clone();
                     fork_task = Some(tokio::task::spawn_local(async move {
+                        // Muon's in-memory storage is authoritative. Removing
+                        // only the host cache would leave SessionAlreadyExists.
+                        client.remove_all_sessions().await;
                         let result = async {
                             let session = client.new_session_without_credentials(()).await?;
                             Ok::<_, muon::Error>(session.auth().from_fork().with_selector(&info.selector).await)
                         }.await;
                         match result {
-                            Ok(muon::auth::WithSelectorFlow::Ok(session, _)) => { let _ = sender.send(session).await; }
+                            Ok(muon::auth::WithSelectorFlow::Ok(session, _)) => { let _ = sender.send((generation,Some(session))).await; }
                             Ok(muon::auth::WithSelectorFlow::Failed { reason, .. }) => {
                                 let error: muon::Error = reason.into();
-                                let _ = notices.send(muon_error(ApiEndpoint::Auth, &error)); fork_needed(&notices);
+                                let _ = notices.send(muon_error(ApiEndpoint::Auth, &error)); fork_needed(&notices);let _=sender.send((generation,None)).await;
                             }
                             Err(error) => {
                                 let _ = notices.send(muon_error(ApiEndpoint::Auth, &error));
                                 fork_needed(&notices);
+                                let _=sender.send((generation,None)).await;
                             }
                         }
                     }));
                 }
             },
-            Some(session) = fork_rx.recv() => { refresher.change_session(Some(session)); refresher.resume(); },
+            Some((generation,session)) = fork_rx.recv() => {
+                if generation==fork_generation { fork_in_progress=false;if let Some(session)=session { refresher.change_session(Some(session));refresher.refresh_now();refresher.resume(); } }
+            },
             event = refresher.next_event(), if !refresher.is_stopped() => match event {
                 Some(RefresherEvent::CertificateIssued) => invalidated = false,
                 Some(RefresherEvent::SessionNeeded(error)) => {
+                    if fork_in_progress { continue; }
+                    client.remove_all_sessions().await;
                     cache.remove(CacheKey::ApiSession);
                     use proton_vpn_rcrl::error::SessionRejectedError;
                     match error {

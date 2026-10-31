@@ -6,6 +6,8 @@ rust-version = "1.88"
 license = "GPL-3.0-or-later"
 description = "Independent Protun successor; explicit parity and performance verification gates"
 repository = "https://github.com/riKirsti/ProtunNext"
+default-run = "protun-next-cli"
+autobins = false
 
 [lib]
 crate-type = ["rlib", "cdylib", "staticlib"]
@@ -63,6 +65,10 @@ tempfile = "3"
 [[bench]]
 name = "packet_path"
 harness = false
+
+[[bin]]
+name = "protun-next-cli"
+path = "src/main.rs"
 
 [[bin]]
 name = "uniffi-bindgen"
