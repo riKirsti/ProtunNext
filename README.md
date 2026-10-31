@@ -23,6 +23,8 @@ or a green unit test does not mean a complete VPN client or paid-feature support
 * Linux managed worker start/disconnect/join, bounded latest-state observation
   and real WireGuard byte/loss/handshake/RTT statistics; no user callbacks or
   control messages run per packet.
+* Allocation-free single-peer `AllowedIPs` enforcement for outbound destinations
+  and authenticated inbound sources, including IPv4/IPv6 family checks.
 * Strict single-peer WireGuard configuration reader; unknown directives fail
   rather than being silently ignored. No routing or DNS settings are applied.
 * PCAP writer, NAT-PMP wire codec and candidate-selection/settings validation.

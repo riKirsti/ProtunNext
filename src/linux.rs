@@ -27,6 +27,8 @@ pub struct Counters {
     pub network_reads: u64,
     pub decrypted_packets: u64,
     pub invalid_packets: u64,
+    pub outbound_filtered: u64,
+    pub inbound_filtered: u64,
     pub pool_pressure: u64,
     pub polls: u64,
     pub tun_backpressure: u64,
@@ -210,6 +212,7 @@ fn run<N: Network>(
     observer: Option<&crate::connection::Observer>,
 ) -> Result<Counters> {
     let mut tun = duplicate_nonblocking(tun_fd)?;
+    let allowed_ips = crate::routing::AllowedIps::new(&config.allowed_ips)?;
     let network_fd = network.fd();
     let handshake_deadline = boottime()? + Duration::from_secs(10);
     let mut poll = Poll::new()?;
@@ -244,22 +247,29 @@ fn run<N: Network>(
     let mut tun_ready = true;
     let mut net_ready = true;
     let mut drain = false;
+    let mut network_error = None;
     while !stop.load(Ordering::Relaxed) {
         if network.handshaking() && boottime()? >= handshake_deadline {
             return Err(std::io::Error::from(std::io::ErrorKind::TimedOut).into());
         }
-        let mut timer_packet = pool.take().ok_or(Error::Full)?;
-        let timed = session.advance(boottime()?, timer_packet.writable())?;
-        match timed {
-            Output::Network(n) => {
-                timer_packet.set_len(n)?;
-                enqueue(&mut pool, &mut to_net, timer_packet)?;
+        if network_error.is_none() {
+            let mut timer_packet = pool.take().ok_or(Error::Full)?;
+            let timed = session.advance(boottime()?, timer_packet.writable())?;
+            match timed {
+                Output::Network(n) => {
+                    timer_packet.set_len(n)?;
+                    enqueue(&mut pool, &mut to_net, timer_packet)?;
+                }
+                _ => pool.recycle(timer_packet)?,
             }
-            _ => pool.recycle(timer_packet)?,
         }
         // Bounded work per source, with immediate continuation if a budget expires.
         for _ in 0..BUDGET {
-            if !tun_ready || pool.available() < 2 || to_net.len() + network.pending() >= 63 {
+            if network_error.is_some()
+                || !tun_ready
+                || pool.available() < 2
+                || to_net.len() + network.pending() >= 63
+            {
                 break;
             }
             let mut input = pool.take().ok_or(Error::Full)?;
@@ -271,6 +281,11 @@ fn run<N: Network>(
                 Ok(n) => {
                     counters.tun_reads += 1;
                     input.set_len(n)?;
+                    if !allowed_ips.outbound(input.data()) {
+                        counters.outbound_filtered += 1;
+                        pool.recycle(input)?;
+                        continue;
+                    }
                     let mut output = pool.take().ok_or(Error::Full)?;
                     let result = session.encrypt(input.data(), output.writable());
                     pool.recycle(input)?;
@@ -298,7 +313,8 @@ fn run<N: Network>(
             }
         }
         for _ in 0..BUDGET {
-            if !net_ready
+            if network_error.is_some()
+                || !net_ready
                 || pool.available() < 2
                 || to_tun.len() >= 63
                 || to_net.len() + network.pending() >= 63
@@ -321,7 +337,12 @@ fn run<N: Network>(
                         Ok(Output::Tunnel(n)) => {
                             output.set_len(n)?;
                             counters.decrypted_packets += 1;
-                            enqueue(&mut pool, &mut to_tun, output)?;
+                            if allowed_ips.inbound(output.data()) {
+                                enqueue(&mut pool, &mut to_tun, output)?;
+                            } else {
+                                counters.inbound_filtered += 1;
+                                pool.recycle(output)?;
+                            }
                         }
                         Ok(Output::None) => pool.recycle(output)?,
                         Err(_) => {
@@ -340,11 +361,20 @@ fn run<N: Network>(
                 }
                 Ok(Receive::Eof) => {
                     pool.recycle(input)?;
-                    return Err(std::io::Error::from(std::io::ErrorKind::UnexpectedEof).into());
+                    network_error =
+                        Some(std::io::Error::from(std::io::ErrorKind::UnexpectedEof).into());
+                    tun_ready = false;
+                    net_ready = false;
+                    drain = false;
+                    break;
                 }
                 Err(e) => {
                     pool.recycle(input)?;
-                    return Err(e);
+                    network_error = Some(e);
+                    tun_ready = false;
+                    net_ready = false;
+                    drain = false;
+                    break;
                 }
             }
         }
@@ -365,8 +395,17 @@ fn run<N: Network>(
                 }
             }
         }
-        if network.flush(&mut to_net, &mut pool)? {
-            counters.network_backpressure += 1;
+        if network_error.is_none() {
+            match network.flush(&mut to_net, &mut pool) {
+                Ok(true) => counters.network_backpressure += 1,
+                Ok(false) => {}
+                Err(e) => {
+                    network_error = Some(e);
+                    tun_ready = false;
+                    net_ready = false;
+                    drain = false;
+                }
+            }
         }
         for _ in 0..BUDGET {
             let Some(packet) = to_tun.front() else {
@@ -391,7 +430,16 @@ fn run<N: Network>(
         if let Some(observer) = observer {
             observer.observe(&session, &counters, boottime()?);
         }
-        let wants_net = !to_net.is_empty() || network.pending() > 0 || network.wants_write();
+        // Preserve already authenticated inbound packets before reporting a
+        // terminal stream error. Otherwise a reply followed by FIN in the same
+        // readiness batch would be discarded before its TUN write.
+        if to_tun.is_empty()
+            && let Some(error) = network_error.take()
+        {
+            return Err(error);
+        }
+        let wants_net = network_error.is_none()
+            && (!to_net.is_empty() || network.pending() > 0 || network.wants_write());
         let wants_tun = !to_tun.is_empty();
         if wants_net != net_writable {
             poll.registry().reregister(
@@ -417,9 +465,10 @@ fn run<N: Network>(
             )?;
             tun_writable = wants_tun;
         }
-        let can_continue = (tun_ready && to_net.len() + network.pending() < 63)
-            || (net_ready && to_tun.len() < 63 && to_net.len() + network.pending() < 63)
-            || (drain && to_net.len() + network.pending() < 63);
+        let can_continue = network_error.is_none()
+            && ((tun_ready && to_net.len() + network.pending() < 63)
+                || (net_ready && to_tun.len() < 63 && to_net.len() + network.pending() < 63)
+                || (drain && to_net.len() + network.pending() < 63));
         let timeout = if can_continue {
             Duration::ZERO
         } else {

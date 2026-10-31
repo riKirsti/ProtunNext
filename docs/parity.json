@@ -275,5 +275,14 @@
     "source": "https://github.com/ProtonVPN/protun/blob/a498c38ae6ffb0e68e7190b2831ef985d73fa6da/src/connection",
     "status": "needs-live-verification",
     "evidence": []
+  },
+  {
+    "id": "virtual-network-policy",
+    "requirement": "Upstream virtual-router, address translation and firewall behavior for all supported interface/address and traffic modes",
+    "source": "https://rust-registry.proton.me/index/pv/pn/pvpnclient",
+    "status": "not-implemented",
+    "evidence": [
+      "src/routing.rs enforces standard single-peer AllowedIPs; complete v3.0.5 virtual-network behavior remains incomplete"
+    ]
   }
 ]

@@ -80,6 +80,7 @@ fn pair() -> (Session, Session) {
 fn healthy_established_crypto_and_framing_do_not_allocate_per_packet() {
     let (mut a, mut b) = pair();
     let mut pool = PacketPool::new(3, 2048).unwrap();
+    let allowed = protun_next::routing::AllowedIps::new(&["0.0.0.0/0".into()]).unwrap();
     let mut tx = Encoder::default();
     let mut rx = Decoder::new(65536).unwrap();
     let mut ip = [0; 1280];
@@ -99,6 +100,7 @@ fn healthy_established_crypto_and_framing_do_not_allocate_per_packet() {
     ALLOCATIONS.with(|n| n.set(0));
     WATCH.with(|w| w.set(true));
     for _ in 0..1024 {
+        assert!(allowed.outbound(&ip));
         let mut encrypted = pool.take().unwrap();
         let Output::Network(n) = a.encrypt(&ip, encrypted.writable()).unwrap() else {
             panic!()
@@ -111,6 +113,7 @@ fn healthy_established_crypto_and_framing_do_not_allocate_per_packet() {
         let Output::Tunnel(n) = b.decrypt(restored.data(), &mut clear).unwrap() else {
             panic!()
         };
+        assert!(allowed.inbound(&clear[..n]));
         assert_eq!(&clear[..n], ip);
         pool.recycle(restored).unwrap();
         pool.recycle(encrypted).unwrap();

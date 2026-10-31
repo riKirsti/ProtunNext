@@ -12,6 +12,14 @@ userspace NAT graph or app/control callback. `PacketPool` reserves memory once;
 queues reject excess ownership. Established sessions retain the original crypto
 scratch copy required by the reused cipher interface. This is not zero-copy I/O.
 
+Single-peer `AllowedIPs` is enforced as destination routing on outbound IP
+and source ACL on authenticated inbound IP, following WireGuard's documented
+cryptokey-routing rules. CIDRs are parsed once; default v4/v6 routes have constant
+checks and no per-packet allocation. Malformed IP lengths are rejected. This is
+not a complete replacement for upstream virtual-router/NAT/firewall behavior.
+Validated inbound packets are written to TUN before a terminal TCP/TLS read error
+is reported, so an immediately following FIN cannot discard the final reply.
+
 Control-plane protocol compatibility and platform policy remain separate from
 the worker. Account APIs, certificates, applied server settings and policy
 failures must be verified before Local Agent/Plus parity is marked complete.

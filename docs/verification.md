@@ -36,7 +36,13 @@ mismatched outer SNI, but valid inner WG peer) and checks that a wrong inner WG
 peer delivers no data. This is real local protocol I/O, not a live Proton server
 or paid subscription verification.
 
-The subsequent managed worker/statistics integration needs its own CI result.
+The first managed-worker run (`41222476857`, commit `326e90e`) exposed an
+IPv6 TUN control packet reaching the IPv4-only reference peer. It was not a
+passing integration result. The following change enforces the configured
+AllowedIPs before outbound encryption and after authenticated inbound decryption.
+Its expanded test checks wrong inner identity, spoofed source, disallowed
+destination, requested statistics, repeated shutdown/join and a final TCP reply
+followed immediately by EOF. These changes need their own successful CI result.
 
 ## Cross compilation
 

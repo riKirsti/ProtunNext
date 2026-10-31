@@ -23,7 +23,7 @@ use std::{
 fn ip(args: &[&str]) {
     assert!(Command::new("ip").args(args).status().unwrap().success());
 }
-fn echo_ipv4(packet: &mut [u8]) {
+fn echo_ipv4(packet: &mut [u8], spoof: bool) {
     assert_eq!(packet[0] >> 4, 4);
     let header = (packet[0] & 15) as usize * 4;
     assert!(header >= 20 && packet.len() >= header + 8);
@@ -33,6 +33,9 @@ fn echo_ipv4(packet: &mut [u8]) {
     }
     for n in 0..2 {
         packet.swap(header + n, header + 2 + n);
+    }
+    if spoof {
+        packet[12..16].copy_from_slice(&[10, 2, 0, 4]);
     }
     packet[header + 6..header + 8].fill(0);
     packet[10..12].fill(0);
@@ -70,7 +73,7 @@ fn actual_udp_tcp_tls_engine_tun_roundtrips() {
     ip(&["addr", "add", "10.2.0.2/32", "dev", "pn0"]);
     ip(&["link", "set", "pn0", "mtu", "1280", "up"]);
     ip(&["route", "add", "10.2.0.3/32", "dev", "pn0"]);
-    for mode in 0..5 {
+    for mode in 0..8 {
         let peer = UdpSocket::bind("127.0.0.1:0").unwrap();
         peer.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -101,7 +104,7 @@ fn actual_udp_tcp_tls_engine_tun_roundtrips() {
                 tcp.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
                 tcp.set_write_timeout(Some(Duration::from_secs(5))).unwrap();
                 tcp.set_nodelay(true).unwrap();
-                let io: Box<dyn Duplex> = if mode >= 2 {
+                let io: Box<dyn Duplex> = if mode >= 2 && mode != 7 {
                     Box::new(rustls::StreamOwned::new(
                         rustls::ServerConnection::new(common::server()).unwrap(),
                         tcp,
@@ -132,12 +135,19 @@ fn actual_udp_tcp_tls_engine_tun_roundtrips() {
                 match result {
                     Output::Network(n) => transport.send(&out[..n], &mut pool),
                     Output::Tunnel(n) => {
-                        echo_ipv4(&mut out[..n]);
+                        echo_ipv4(&mut out[..n], mode == 5);
                         let Output::Network(n) = session.encrypt(&out[..n], &mut reply).unwrap()
                         else {
                             panic!("echo encrypt")
                         };
                         transport.send(&reply[..n], &mut pool);
+                        if mode == 7 {
+                            return;
+                        }
+                        wait_release.recv_timeout(Duration::from_secs(10)).unwrap();
+                        return;
+                    }
+                    Output::None if mode == 6 => {
                         wait_release.recv_timeout(Duration::from_secs(10)).unwrap();
                         return;
                     }
@@ -154,10 +164,13 @@ fn actual_udp_tcp_tls_engine_tun_roundtrips() {
                 [9; 32]
             }))
         );
-        let config = WireguardConfig::parse(&text).unwrap();
+        let mut config = WireguardConfig::parse(&text).unwrap();
+        if mode == 6 {
+            config.allowed_ips = vec!["10.2.0.4/32".into()];
+        }
         let transport = match mode {
             0 => linux::Transport::Udp,
-            1 => linux::Transport::Tcp,
+            1 | 7 => linux::Transport::Tcp,
             2 => linux::Transport::Tls(Box::new(
                 tls::client_with_roots("localhost", common::roots()).unwrap(),
             )),
@@ -168,7 +181,7 @@ fn actual_udp_tcp_tls_engine_tun_roundtrips() {
         let mut connection =
             Connection::start(tun.as_fd(), config, "lo".into(), transport).unwrap();
         let app = UdpSocket::bind("10.2.0.2:0").unwrap();
-        app.set_read_timeout(Some(if mode == 4 {
+        app.set_read_timeout(Some(if (4..=6).contains(&mode) {
             Duration::from_millis(500)
         } else {
             Duration::from_secs(8)
@@ -178,6 +191,25 @@ fn actual_udp_tcp_tls_engine_tun_roundtrips() {
             .unwrap();
         let mut response = [0; 128];
         let received = app.recv_from(&mut response);
+        if mode == 7 {
+            let (n, _) = received.unwrap();
+            assert_eq!(
+                &response[..n],
+                b"real kernel TUN and UDP",
+                "final validated reply must precede FIN failure"
+            );
+            let deadline = std::time::Instant::now() + Duration::from_secs(2);
+            let mut snapshot = connection.snapshot();
+            while !matches!(snapshot.state, State::Failed(_))
+                && std::time::Instant::now() < deadline
+            {
+                snapshot = connection.wait_after(snapshot.sequence, Duration::from_millis(100));
+            }
+            assert!(matches!(snapshot.state, State::Failed(_)));
+            assert!(connection.disconnect_and_wait().is_err());
+            reference.join().unwrap();
+            continue;
+        }
         let request = connection.request_stats();
         let snapshot = connection.wait_for_stats(request, Duration::from_secs(2));
         assert!(
@@ -195,7 +227,11 @@ fn actual_udp_tcp_tls_engine_tun_roundtrips() {
         } else {
             assert_eq!(snapshot.state, State::TunnelEstablished);
             assert!(statistics.handshake_age.is_some());
-            assert!(statistics.received_bytes > 0 && statistics.sent_bytes > 0);
+            if mode == 6 {
+                assert_eq!(statistics.sent_bytes, 0);
+            } else {
+                assert!(statistics.received_bytes > 0 && statistics.sent_bytes > 0);
+            }
         }
         let counters = connection.disconnect_and_wait().unwrap();
         assert_eq!(connection.snapshot().state, State::Stopped);
@@ -206,16 +242,26 @@ fn actual_udp_tcp_tls_engine_tun_roundtrips() {
         );
         release.send(()).unwrap();
         reference.join().unwrap();
-        if mode == 4 {
+        if mode >= 4 {
             let error = received.unwrap_err();
             assert!(matches!(
                 error.kind(),
                 std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
             ));
-            assert_eq!(
-                counters.decrypted_packets, 0,
-                "untrusted TLS cannot authenticate a WG peer"
-            );
+            match mode {
+                4 => assert_eq!(
+                    counters.decrypted_packets, 0,
+                    "untrusted TLS cannot authenticate a WG peer"
+                ),
+                5 => assert!(
+                    counters.inbound_filtered > 0,
+                    "authenticated wrong-source IP must be rejected"
+                ),
+                _ => assert!(
+                    counters.outbound_filtered > 0,
+                    "disallowed destination must not be encrypted"
+                ),
+            }
             continue;
         }
         let (n, source) = received.unwrap();

@@ -14,6 +14,7 @@ pub mod linux;
 mod linux_network;
 pub mod natpmp;
 pub mod packet;
+pub mod routing;
 pub mod session;
 pub mod stealth;
 pub mod stream;
