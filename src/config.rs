@@ -4,6 +4,41 @@ use serde::{Deserialize, Serialize};
 use std::net::{IpAddr, SocketAddr};
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
+pub fn load(path: &std::path::Path) -> Result<WireguardConfig> {
+    use std::io::Read;
+    let mut options = std::fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(target_os = "linux")]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC);
+    }
+    let file = options.open(path)?;
+    let metadata = file.metadata()?;
+    if !metadata.is_file() || metadata.len() > 65536 {
+        return Err(Error::Invalid(
+            "regular bounded configuration file required",
+        ));
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if metadata.permissions().mode() & 0o077 != 0 {
+            return Err(Error::Invalid(
+                "private configuration requires owner-only permissions",
+            ));
+        }
+    }
+    let mut bytes = zeroize::Zeroizing::new(Vec::new());
+    file.take(65537).read_to_end(&mut bytes)?;
+    if bytes.len() > 65536 {
+        return Err(Error::Invalid("configuration too large"));
+    }
+    WireguardConfig::parse(
+        std::str::from_utf8(&bytes).map_err(|_| Error::Invalid("UTF-8 configuration"))?,
+    )
+}
+
 #[derive(Zeroize, ZeroizeOnDrop)]
 pub struct PrivateKey([u8; 32]);
 impl PrivateKey {

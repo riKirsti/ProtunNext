@@ -37,6 +37,7 @@ UDP worker relabeled as kernel WireGuard.
   or certificate verifier is fabricated. The helper currently verifies standard
   certificates. Proton Stealth's special certificate policy is not silently
   equated with HTTPS validation or enabled as an insecure fallback.
+* **proton-vpn-local-agent 0.13.0 (optional):** official mTLS/RESP3 control protocol only. This is needed for server selector/settings compatibility and stays outside the packet worker. The adapter checks requested settings against readback; it does not provide account authorization, certificate issuance, renewal or complete Local Agent runtime integration yet.
 * **Mio/libc:** Linux readiness and thin OS calls. No packet representation is
   copied into an additional framework action queue.
 * **serde/JSON/base64:** configuration/status/control boundaries, not required

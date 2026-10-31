@@ -1,5 +1,7 @@
 //! Independent packet engine. Control operations do not traverse the packet path.
 //! See docs/parity.json for verified support, rather than inferring it from types.
+#[cfg(feature = "local-agent")]
+pub mod agent;
 pub mod capture;
 pub mod config;
 pub mod control;
