@@ -1,5 +1,6 @@
 use std::sync::OnceLock;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "uniffi", derive(uniffi::Enum))]
 pub enum LogLevel {
     Trace,
     Debug,
@@ -7,6 +8,7 @@ pub enum LogLevel {
     Warn,
     Error,
 }
+#[cfg_attr(feature = "uniffi", uniffi::export(callback_interface))]
 pub trait ClientLogger: Send + Sync {
     fn log(&self, level: LogLevel, message: String);
 }
@@ -20,7 +22,7 @@ impl log::Log for CallbackLogger {
     fn enabled(&self, metadata: &log::Metadata<'_>) -> bool {
         // Muon 3 logs raw fork selectors in its auth tracing events. Account
         // failures are delivered as structured, credential-free API events.
-        metadata.level() <= self.level && !metadata.target().starts_with("muon")
+        metadata.level() <= self.level && metadata.target().starts_with("protun_next")
     }
     fn log(&self, record: &log::Record<'_>) {
         if !self.enabled(record.metadata()) {
@@ -52,6 +54,7 @@ impl log::Log for CallbackLogger {
 }
 /// First initialization wins. No environment mutation or process-wide panic-hook
 /// replacement is needed to deliver the v3.0.5 logging callback contract.
+#[cfg_attr(feature = "uniffi", uniffi::export)]
 pub fn init_logger(level: LogLevel, logger: Box<dyn ClientLogger>) {
     let level = match level {
         LogLevel::Trace => log::LevelFilter::Trace,

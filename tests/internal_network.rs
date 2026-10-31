@@ -5,13 +5,126 @@ use proton_vpn_netstack::{NetworkConfig, NetworkConfigV4, NetworkStack, error::D
 use protun_next::api::internal::InternalNetwork;
 use rand_chacha::ChaCha20Rng;
 use std::{
-    sync::Arc,
+    sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    },
     task::Wake,
     time::{Duration, Instant},
 };
-struct Noop;
-impl Wake for Noop {
-    fn wake(self: Arc<Self>) {}
+struct CountWake(Arc<AtomicUsize>);
+impl Wake for CountWake {
+    fn wake(self: Arc<Self>) {
+        self.0.fetch_add(1, Ordering::Relaxed);
+    }
+}
+fn stack(
+    address: &str,
+) -> (
+    proton_vpn_netstack::TransportFactory,
+    proton_vpn_netstack::NetworkInterface,
+) {
+    NetworkStack::builder()
+        .with_time(0)
+        .with_config(NetworkConfig::V4(NetworkConfigV4::new(
+            address.parse().unwrap(),
+            24,
+            None,
+        )))
+        .with_rng(ChaCha20Rng::from_seed([42; 32]))
+        .with_mtu(1420)
+        .with_tcp_rx_buffer_size(65536)
+        .with_tcp_tx_buffer_size(65536)
+        .build::<Strict>()
+        .into_sides()
+}
+
+#[test]
+fn customer_and_private_socket_with_identical_tuple_receive_their_own_udp_replies() {
+    tokio::runtime::Builder::new_current_thread()
+        .enable_time()
+        .build()
+        .unwrap()
+        .block_on(async {
+            let (control, mut router) =
+                InternalNetwork::new(Duration::ZERO, CountWake(Arc::new(AtomicUsize::new(0))))
+                    .unwrap();
+            let (customer, mut customer_wire) = stack("10.2.0.2");
+            let (server, mut peer_wire) = stack("10.2.0.1");
+            let address: std::net::SocketAddr = "10.2.0.1:53".parse().unwrap();
+            let private = control.udp(address).unwrap(); // first privileged wire port: 4
+            let application = customer
+                .udp_bind("10.2.0.2:4".parse::<std::net::SocketAddr>().unwrap())
+                .unwrap()
+                .connect(address);
+            let echo = server.udp_bind(address).unwrap();
+            let exchanges = async {
+                let a = async {
+                    private.send(b"private DNS").await.unwrap();
+                    let mut bytes = [0; 32];
+                    let n = private.recv(&mut bytes).await.unwrap();
+                    assert_eq!(&bytes[..n], b"private DNS");
+                };
+                let b = async {
+                    application.send(b"customer DNS").await.unwrap();
+                    let mut bytes = [0; 32];
+                    let n = application.recv(&mut bytes).await.unwrap();
+                    assert_eq!(&bytes[..n], b"customer DNS");
+                };
+                let c = async {
+                    let mut ports = std::collections::HashSet::new();
+                    for _ in 0..2 {
+                        let mut bytes = [0; 32];
+                        let (n, from) = echo.recv_from(&mut bytes).await.unwrap();
+                        ports.insert(from.port());
+                        echo.sendto(&bytes[..n], from.into()).await.unwrap();
+                    }
+                    assert_eq!(ports, std::collections::HashSet::from([4, 1000]));
+                };
+                futures::join!(a, b, c);
+            };
+            let pump = async {
+                let start = Instant::now();
+                let mut bytes = [0; 65535];
+                loop {
+                    let now = start.elapsed();
+                    let micros = now.as_micros() as i64;
+                    for _ in 0..64 {
+                        let Some(n) = router.read_packet(&mut bytes, now).unwrap() else {
+                            break;
+                        };
+                        peer_wire.write_packet(&bytes[..n], micros).unwrap();
+                    }
+                    for _ in 0..64 {
+                        match customer_wire.read_packet(&mut bytes, micros) {
+                            Ok(n) => {
+                                router.customer_outbound(&mut bytes[..n]).unwrap();
+                                peer_wire.write_packet(&bytes[..n], micros).unwrap();
+                            }
+                            Err(DeviceReadError::WouldBlock) => break,
+                            Err(e) => panic!("customer read: {e:?}"),
+                        }
+                    }
+                    for _ in 0..64 {
+                        match peer_wire.read_packet(&mut bytes, micros) {
+                            Ok(n) => {
+                                if !router.receive(&mut bytes[..n], now).unwrap() {
+                                    customer_wire.write_packet(&bytes[..n], micros).unwrap();
+                                }
+                            }
+                            Err(DeviceReadError::WouldBlock) => break,
+                            Err(e) => panic!("peer read: {e:?}"),
+                        }
+                    }
+                    assert!(
+                        now < Duration::from_secs(3),
+                        "colliding flow exchange timed out"
+                    );
+                    tokio::time::sleep(Duration::from_millis(1)).await;
+                }
+            };
+            tokio::select! { _=exchanges=>{}, _=pump=>unreachable!() }
+        });
 }
 
 #[test]
@@ -21,7 +134,9 @@ fn private_tcp_and_dns_datagrams_cross_real_ip_stack_with_port_translation() {
         .build()
         .unwrap();
     runtime.block_on(async {
-        let (client, mut wire) = InternalNetwork::new(Duration::ZERO, Noop).unwrap();
+        let wakes = Arc::new(AtomicUsize::new(0));
+        let (client, mut wire) =
+            InternalNetwork::new(Duration::ZERO, CountWake(wakes.clone())).unwrap();
         let stack = NetworkStack::builder()
             .with_time(0)
             .with_config(NetworkConfig::V4(NetworkConfigV4::new(
@@ -113,5 +228,9 @@ fn private_tcp_and_dns_datagrams_cross_real_ip_stack_with_port_translation() {
             }
         };
         tokio::select! { _ = exchange => {}, _ = pump => unreachable!() }
+        assert!(
+            wakes.load(Ordering::Relaxed) > 0,
+            "control socket writes must wake the packet loop"
+        );
     });
 }

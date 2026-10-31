@@ -1,4 +1,4 @@
-#![cfg(target_os = "linux")]
+#![cfg(unix)]
 use protun_next::{
     api::{cache::MemoryCache, connection::*},
     linux,

@@ -120,7 +120,7 @@ pub fn features(settings: &LocalAgentSettings) -> CertificateRefreshParameters {
 }
 
 #[derive(Clone, Default)]
-pub struct CookiesStore(pub Arc<Mutex<Option<Cookies>>>);
+pub struct CookiesStore(pub Arc<Mutex<Option<zeroize::Zeroizing<Cookies>>>>);
 impl std::fmt::Debug for CookiesStore {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("CookiesStore([REDACTED])")

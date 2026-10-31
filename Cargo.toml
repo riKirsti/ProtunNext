@@ -7,8 +7,17 @@ license = "GPL-3.0-or-later"
 description = "Independent Protun successor; explicit parity and performance verification gates"
 repository = "https://github.com/riKirsti/ProtunNext"
 
+[lib]
+crate-type = ["rlib", "cdylib", "staticlib"]
+
 [features]
-default = []
+default = ["local-agent", "uniffi"]
+uniffi = ["dep:uniffi"]
+bindgen = ["uniffi", "uniffi/cli"]
+unix = ["uniffi"]
+linux = ["unix"]
+apple = ["unix"]
+android = ["unix"]
 local-agent = ["dep:proton-vpn-local-agent", "dep:futures", "dep:muon", "dep:proton-vpn-rcrl", "dep:proton-vpn-netstack", "dep:tokio", "dep:rand", "dep:httpdate", "dep:x509-parser", "dep:cookie_store", "dep:url"]
 
 [dependencies]
@@ -36,10 +45,12 @@ httpdate = { version = "1", optional = true }
 x509-parser = { version = "0.18", optional = true }
 cookie_store = { version = "0.22.1", optional = true }
 url = { version = "2", optional = true }
+uniffi = { version = "=0.31.0", optional = true }
 
-[target.'cfg(target_os = "linux")'.dependencies]
+[target.'cfg(unix)'.dependencies]
 libc = "0.2"
 mio = { version = "1", features = ["net", "os-poll", "os-ext"] }
+socket2 = "0.6"
 
 [profile.release]
 lto = "thin"
@@ -52,6 +63,11 @@ tempfile = "3"
 [[bench]]
 name = "packet_path"
 harness = false
+
+[[bin]]
+name = "uniffi-bindgen"
+path = "src/bin/uniffi-bindgen.rs"
+required-features = ["bindgen"]
 
 [lints.rust]
 unsafe_op_in_unsafe_fn = "deny"

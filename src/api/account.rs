@@ -27,7 +27,7 @@ use tokio::sync::mpsc as async_channel;
 pub enum Command {
     Settings(LocalAgentSettings, Option<String>),
     Stats,
-    Fork(ForkSelectorInfo),
+    Fork(zeroize::Zeroizing<ForkSelectorInfo>),
     Invalidate,
     Stop,
 }
@@ -40,7 +40,7 @@ pub enum Notice {
 }
 pub struct Service {
     sender: async_channel::UnboundedSender<Command>,
-    pub receiver: mpsc::Receiver<Notice>,
+    notices: Option<mpsc::Receiver<Notice>>,
     join: Option<JoinHandle<()>>,
 }
 impl Service {
@@ -51,7 +51,7 @@ impl Service {
         cache: Arc<dyn PersistentCache>,
     ) -> Result<Self> {
         let (sender, commands) = async_channel::unbounded_channel();
-        let (notices, receiver) = mpsc::channel();
+        let (notices, receiver) = mpsc::sync_channel(128);
         let join = thread::Builder::new()
             .name("protun-next-account".into())
             .spawn(move || {
@@ -77,17 +77,25 @@ impl Service {
             })?;
         Ok(Self {
             sender,
-            receiver,
+            notices: Some(receiver),
             join: Some(join),
         })
     }
     pub fn send(&self, command: Command) {
         let _ = self.sender.send(command);
     }
+    pub fn try_recv(&self) -> Option<Notice> {
+        self.notices
+            .as_ref()
+            .and_then(|receiver| receiver.try_recv().ok())
+    }
 }
 impl Drop for Service {
     fn drop(&mut self) {
         self.send(Command::Stop);
+        // Closing the receiver releases a producer blocked by a slow host
+        // callback before joining the account thread. No shutdown deadlock.
+        self.notices = None;
         if let Some(join) = self.join.take() {
             let _ = join.join();
         }
@@ -105,10 +113,10 @@ impl LocalSpawn for Executor {
     }
 }
 #[derive(Clone)]
-struct Handler(async_channel::UnboundedSender<ManagedLocalAgentEvent>);
+struct Handler(async_channel::Sender<ManagedLocalAgentEvent>);
 impl HandleManagedLocalAgentEvent for Handler {
     async fn handle(&mut self, event: ManagedLocalAgentEvent) {
-        let _ = self.0.send(event);
+        let _ = self.0.send(event).await;
     }
 }
 fn error_event(
@@ -127,7 +135,41 @@ fn error_event(
         },
     })
 }
-fn fork_needed(notices: &mpsc::Sender<Notice>) {
+fn muon_error(endpoint: ApiEndpoint, error: &muon::Error) -> Notice {
+    api_error(
+        endpoint,
+        error.http_code().map(|s| s.as_u16()),
+        error.proton_error_code(),
+        error.proton_error_reason(),
+    )
+}
+fn reply_error(endpoint: ApiEndpoint, reply: &proton_vpn_rcrl::error::Reply) -> Notice {
+    let info = reply.0.error_info();
+    let (code, message) = info
+        .maybe_body_error
+        .map(|error| (Some(error.code), Some(error.error)))
+        .unwrap_or_default();
+    api_error(endpoint, Some(info.http_code.as_u16()), code, message)
+}
+fn api_error(
+    endpoint: ApiEndpoint,
+    http_code: Option<u16>,
+    proton_code: Option<i64>,
+    message: Option<String>,
+) -> Notice {
+    // This flag has a specific v3.0.5 meaning; authentication failure alone is
+    // insufficient. SessionNeeded independently requests a fresh fork selector.
+    Notice::Event(Event::LocalAgentError {
+        error: ErrorEvent::ApiError {
+            endpoint,
+            http_code,
+            proton_code,
+            message,
+            refresh_token_invalid: http_code == Some(422) && proton_code == Some(10013),
+        },
+    })
+}
+fn fork_needed(notices: &mpsc::SyncSender<Notice>) {
     let _ = notices.send(Notice::Event(Event::LocalAgentError {
         error: ErrorEvent::ForkSelectorNeeded,
     }));
@@ -138,8 +180,9 @@ async fn run(
     peer: PeerInfo,
     cache: Arc<dyn PersistentCache>,
     mut commands: async_channel::UnboundedReceiver<Command>,
-    notices: mpsc::Sender<Notice>,
+    notices: mpsc::SyncSender<Notice>,
 ) -> Result<()> {
+    tokio::task::spawn_local(super::local_http::run(network.factory().clone()));
     let ConnectionMode::LocalAgent {
         user_agent,
         app_version,
@@ -148,7 +191,12 @@ async fn run(
         certificate_duration,
     } = mode
     else {
-        return Err(Error::Invalid("account mode"));
+        while let Some(command) = commands.recv().await {
+            if matches!(command, Command::Stop) {
+                break;
+            }
+        }
+        return Ok(());
     };
     let identity = Identity::load_or_generate(cache.as_ref())?;
     let os = Os {
@@ -191,7 +239,7 @@ async fn run(
     .with_session(client.get_session(()).await);
     let mut refresher = CertificateRefresher::new(os.clone(), setup);
     refresher.resume();
-    let (agent_events_tx, mut agent_events) = async_channel::unbounded_channel();
+    let (agent_events_tx, mut agent_events) = async_channel::channel(64);
     let mut agent = ManagedLocalAgent::new(Handler(agent_events_tx), identity.private_der()?);
     agent.subscribe(super::agent_state::AgentState::watched());
     let server_name = match &peer.server_name {
@@ -249,7 +297,7 @@ async fn run(
                 Some(Command::Fork(info)) => {
                     if last_selector.as_deref().is_some_and(|selector| selector == &info.selector) { continue; }
                     if let Some(task) = fork_task.take() { task.abort(); }
-                    *cookies.0.lock().unwrap_or_else(|e| e.into_inner()) = Some(info.cookies.clone());
+                    *cookies.0.lock().unwrap_or_else(|e| e.into_inner()) = Some(zeroize::Zeroizing::new(info.cookies.clone()));
                     last_selector = Some(zeroize::Zeroizing::new(info.selector.clone()));
                     let client = client.clone(); let sender = fork_tx.clone(); let notices = notices.clone();
                     fork_task = Some(tokio::task::spawn_local(async move {
@@ -259,9 +307,12 @@ async fn run(
                         }.await;
                         match result {
                             Ok(muon::auth::WithSelectorFlow::Ok(session, _)) => { let _ = sender.send(session).await; }
-                            Ok(muon::auth::WithSelectorFlow::Failed { .. }) => fork_needed(&notices),
+                            Ok(muon::auth::WithSelectorFlow::Failed { reason, .. }) => {
+                                let error: muon::Error = reason.into();
+                                let _ = notices.send(muon_error(ApiEndpoint::Auth, &error)); fork_needed(&notices);
+                            }
                             Err(error) => {
-                                let _ = notices.send(error_event(ApiEndpoint::Auth, error.http_code().map(|s| s.as_u16()), None, true));
+                                let _ = notices.send(muon_error(ApiEndpoint::Auth, &error));
                                 fork_needed(&notices);
                             }
                         }
@@ -275,22 +326,30 @@ async fn run(
                     cache.remove(CacheKey::ApiSession);
                     use proton_vpn_rcrl::error::SessionRejectedError;
                     match error {
-                        SessionRejectedError::Reply(reply) => { let _ = notices.send(error_event(ApiEndpoint::CertificateRefresh, Some(reply.status().as_u16()), None, true)); }
-                        SessionRejectedError::Muon(error) => { let _ = notices.send(error_event(ApiEndpoint::Auth, error.http_code().map(|s| s.as_u16()), None, true)); }
+                        SessionRejectedError::Reply(reply) => { let _ = notices.send(reply_error(ApiEndpoint::CertificateRefresh, &reply)); }
+                        SessionRejectedError::Muon(error) => { let _ = notices.send(muon_error(ApiEndpoint::Auth, &error)); }
                         _ => {}
                     }
                     fork_needed(&notices);
                 }
                 Some(RefresherEvent::AttemptFailed(error)) => {
                     use proton_vpn_rcrl::error::RetriedError;
-                    let code = match error { RetriedError::Reply(reply) => Some(reply.status().as_u16()), _ => None };
-                    let _ = notices.send(error_event(ApiEndpoint::CertificateRefresh, code, None, false));
+                    let event = match error {
+                        RetriedError::Reply(reply) => reply_error(ApiEndpoint::CertificateRefresh, &reply),
+                        RetriedError::Transport(error) | RetriedError::TokenRefresh(error) | RetriedError::RequestBuilding(error) => muon_error(ApiEndpoint::CertificateRefresh, &error),
+                        _ => error_event(ApiEndpoint::CertificateRefresh, None, None, false),
+                    };
+                    let _ = notices.send(event);
                 }
                 Some(RefresherEvent::NewKeyNeeded(_)) => { let _ = notices.send(Notice::Rekey); break; }
                 _ => {}
             },
             Some(event) = agent_events.recv() => {
                 match &event {
+                    ManagedLocalAgentEvent::ClientError(proton_vpn_local_agent::managed::UnrecoverableError::UnusableCertificate(_)) => {
+                        cache.remove(CacheKey::Certificate); invalidated = true; refresher.refresh_now();
+                        let _ = notices.send(Notice::CertificateUnavailable); continue;
+                    }
                     ManagedLocalAgentEvent::NewCertificateNeeded(_) => { invalidated = true; refresher.refresh_now(); },
                     ManagedLocalAgentEvent::NewKeyNeeded(_) => { let _ = notices.send(Notice::Rekey); break; },
                     _ => {}
@@ -305,4 +364,36 @@ async fn run(
         task.abort();
     }
     Ok(())
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn refresh_token_flag_matches_upstream_http_and_proton_error_codes() {
+        for (http, code, expected) in [
+            (422, 10013, true),
+            (401, 10013, false),
+            (422, 10014, false),
+            (500, 10013, false),
+        ] {
+            let Notice::Event(Event::LocalAgentError {
+                error:
+                    ErrorEvent::ApiError {
+                        refresh_token_invalid,
+                        message,
+                        ..
+                    },
+            }) = api_error(
+                ApiEndpoint::Auth,
+                Some(http),
+                Some(code),
+                Some("server reason".into()),
+            )
+            else {
+                panic!("wrong event")
+            };
+            assert_eq!(refresh_token_invalid, expected);
+            assert_eq!(message.as_deref(), Some("server reason"));
+        }
+    }
 }

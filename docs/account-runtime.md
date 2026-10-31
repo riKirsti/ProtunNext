@@ -40,9 +40,17 @@ UDP request/reply traffic, real WG handshakes without a TUN, cache compatibility
 settings readback, jail gating, statistics aggregation and capture file controls.
 No test in this checkpoint uses a Proton account or a router.
 
+The shared Unix worker now also has Apple's utun header adapter, a continuous
+Apple clock, platform-specific uplink binding and Android TUN/socket-protection
+support. UniFFI 0.31.0 exports the compatibility records, callbacks and Unix
+connection object; Kotlin/Swift/Python binding generation is part of verification.
+The local HTTP connection-test service is implemented, and the private control
+flow map now protects customer traffic with colliding source ports. Ordinary
+customer ports bypass that connection-tracking map.
+
 Still required before full source/API parity can be asserted: complete upstream
-virtual-router/NAT/firewall behavior (including the local HTTP service), native
-Apple and Windows transports, Android and UniFFI bindings, and comprehensive
-offline account/protocol failure fixtures. NAT-PMP lease management is an extra
+virtual-router/NAT/firewall behavior (especially IP fragments and ICMP), native
+Windows transports and management, higher-level Android service integration,
+and comprehensive offline account/protocol failure fixtures. NAT-PMP lease management is an extra
 router capability, not a v3.0.5 parity requirement: upstream exposes LocalAgent
 port-forwarding enablement without implementing that lease manager.

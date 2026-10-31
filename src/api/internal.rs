@@ -22,7 +22,13 @@ use std::{
 
 const PRIVILEGED: [u16; 16] = [4, 6, 8, 10, 12, 14, 15, 16, 26, 28, 30, 32, 34, 36, 40, 60];
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+enum Origin {
+    Control,
+    Customer,
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 struct Flow {
+    origin: Origin,
     protocol: u8,
     local: SocketAddr,
     remote: SocketAddr,
@@ -56,6 +62,9 @@ impl std::fmt::Debug for InternalNetwork {
     }
 }
 impl InternalNetwork {
+    pub fn might_send(packet: &[u8]) -> bool {
+        transport(packet).is_some_and(|p| reserved(p.source_port))
+    }
     pub fn might_receive(packet: &[u8]) -> bool {
         transport(packet).is_some_and(|p| reserved(p.destination_port))
     }
@@ -120,6 +129,7 @@ impl InternalNetwork {
             ));
         };
         let flow = Flow {
+            origin: Origin::Control,
             protocol: parsed.protocol,
             local: SocketAddr::new(parsed.source, parsed.source_port),
             remote: SocketAddr::new(parsed.destination, parsed.destination_port),
@@ -145,27 +155,111 @@ impl InternalNetwork {
         if !reserved(parsed.destination_port) {
             return Ok(false);
         }
-        let original = {
-            let mappings = self.flows.lock().unwrap_or_else(|e| e.into_inner());
+        let mapping = {
+            let mut mappings = self.flows.lock().unwrap_or_else(|e| e.into_inner());
             mappings
                 .entries
-                .values()
+                .values_mut()
                 .find(|m| {
                     m.wire == parsed.destination_port
                         && m.flow.protocol == parsed.protocol
                         && m.flow.remote == SocketAddr::new(parsed.source, parsed.source_port)
                         && m.flow.local.ip() == parsed.destination
+                        && m.expires.is_none_or(|e| e > Instant::now())
                 })
-                .map(|m| m.flow.local.port())
+                .map(|m| {
+                    if m.flow.origin == Origin::Customer {
+                        m.expires = Some(Instant::now() + Duration::from_secs(60));
+                    }
+                    (m.flow.local.port(), m.flow.origin)
+                })
         };
-        let Some(original) = original else {
+        let Some((original, origin)) = mapping else {
+            // Reserve an unsolicited inbound customer flow before a later
+            // control socket can choose the same reply tuple.
+            self.reserve_customer(&parsed, false)?;
             return Ok(false);
         };
         rewrite_port(packet, parsed.offset, parsed.protocol, false, original);
+        if origin == Origin::Customer {
+            return Ok(false);
+        }
         self.interface
             .write_packet(packet, now.as_micros().min(i64::MAX as u128) as i64)
             .map_err(|_| Error::Full)?;
         Ok(true)
+    }
+    /// Only the small upstream addressable port range needs connection tracking.
+    /// Ordinary application ports bypass this map and its lock entirely.
+    pub fn customer_outbound(&mut self, packet: &mut [u8]) -> Result<()> {
+        let Some(parsed) = transport(packet) else {
+            return Ok(());
+        };
+        if !reserved(parsed.source_port) {
+            return Ok(());
+        }
+        let port = self.reserve_customer(&parsed, true)?;
+        rewrite_port(packet, parsed.offset, parsed.protocol, true, port);
+        Ok(())
+    }
+    fn reserve_customer(&mut self, parsed: &Parsed, outbound: bool) -> Result<u16> {
+        let flow = Flow {
+            origin: Origin::Customer,
+            protocol: parsed.protocol,
+            local: if outbound {
+                SocketAddr::new(parsed.source, parsed.source_port)
+            } else {
+                SocketAddr::new(parsed.destination, parsed.destination_port)
+            },
+            remote: if outbound {
+                SocketAddr::new(parsed.destination, parsed.destination_port)
+            } else {
+                SocketAddr::new(parsed.source, parsed.source_port)
+            },
+        };
+        let mut flows = self.flows.lock().unwrap_or_else(|e| e.into_inner());
+        let expires = Some(Instant::now() + Duration::from_secs(60));
+        if let Some(mapping) = flows.entries.get_mut(&flow) {
+            mapping.expires = expires;
+            return Ok(mapping.wire);
+        }
+        flows
+            .entries
+            .retain(|_, m| m.expires.is_none_or(|e| e > Instant::now()));
+        if flows.entries.len() >= 4096 {
+            return Err(Error::Full);
+        }
+        // Preserve the customer source port when its reply tuple is free.
+        // Only control-originated flows preferentially use privileged ports.
+        let wire = if !outbound
+            || !flows.entries.values().any(|m| {
+                m.wire == flow.local.port()
+                    && m.flow.protocol == flow.protocol
+                    && m.flow.remote == flow.remote
+                    && m.flow.local.ip() == flow.local.ip()
+            }) {
+            flow.local.port()
+        } else {
+            (1000..=2000)
+                .find(|port| {
+                    !flows.entries.values().any(|m| {
+                        m.wire == *port
+                            && m.flow.protocol == flow.protocol
+                            && m.flow.remote == flow.remote
+                            && m.flow.local.ip() == flow.local.ip()
+                    })
+                })
+                .ok_or(Error::Full)?
+        };
+        flows.entries.insert(
+            flow,
+            Mapping {
+                flow,
+                wire,
+                expires,
+            },
+        );
+        Ok(wire)
     }
     pub fn receive_local(&mut self, packet: &[u8], now: Duration) -> Result<bool> {
         if !local_service_destination(packet) {
@@ -200,6 +294,7 @@ impl Drop for Lease {
 impl InternalConnector {
     fn lease(&self, protocol: u8, local: SocketAddr, remote: SocketAddr) -> io::Result<Lease> {
         let flow = Flow {
+            origin: Origin::Control,
             protocol,
             local,
             remote,

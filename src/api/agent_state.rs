@@ -197,9 +197,8 @@ fn jail(value: Jail) -> WaitJail {
             ToHandleJail::WaitingClientChallengeReply(s) => {
                 (WaitJailReason::WaitingClientChallengeReply, s)
             }
-            ToHandleJail::PolicyViolation1(s) | ToHandleJail::PolicyViolation2(s) => {
-                (WaitJailReason::LowPlan, s)
-            }
+            ToHandleJail::PolicyViolation1(s) => (WaitJailReason::LowPlan, s),
+            ToHandleJail::PolicyViolation2(s) => (WaitJailReason::PendingInvoice, s),
             ToHandleJail::BadUserBehavior(s) => (WaitJailReason::BadUserBehavior, s),
             ToHandleJail::DisabledUser(s) => (WaitJailReason::DisabledUser, s),
             ToHandleJail::SessionOverLimit(s)

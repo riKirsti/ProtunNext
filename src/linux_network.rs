@@ -9,7 +9,7 @@ use mio::{Events, Interest, Poll, Token, unix::SourceFd};
 use std::{
     io::{self, Read, Write},
     net::{SocketAddr, TcpStream, UdpSocket},
-    os::fd::{AsRawFd, FromRawFd},
+    os::fd::AsRawFd,
     sync::atomic::{AtomicBool, Ordering},
     time::{Duration, Instant},
 };
@@ -133,23 +133,53 @@ impl<S: WireSocket> Network for Stream<S> {
     }
 }
 
-pub(crate) fn bind_device(fd: i32, device: &str) -> Result<()> {
+pub(crate) fn bind_device(fd: i32, device: &str, ipv6: bool) -> Result<()> {
     if device.is_empty() || device.len() >= libc::IFNAMSIZ || device.as_bytes().contains(&0) {
         return Err(Error::Invalid("uplink device"));
     }
     let device = std::ffi::CString::new(device).map_err(|_| Error::Invalid("uplink device"))?;
-    // SAFETY: live fd and bounded, NUL-terminated interface name.
-    if unsafe {
-        libc::setsockopt(
-            fd,
-            libc::SOL_SOCKET,
-            libc::SO_BINDTODEVICE,
-            device.as_ptr().cast(),
-            device.as_bytes_with_nul().len() as libc::socklen_t,
-        )
-    } < 0
+    #[cfg(any(target_os = "linux", target_os = "android"))]
     {
-        return Err(io::Error::last_os_error().into());
+        let _ = ipv6;
+        // SAFETY: live fd and bounded, NUL-terminated interface name.
+        if unsafe {
+            libc::setsockopt(
+                fd,
+                libc::SOL_SOCKET,
+                libc::SO_BINDTODEVICE,
+                device.as_ptr().cast(),
+                device.as_bytes_with_nul().len() as libc::socklen_t,
+            )
+        } < 0
+        {
+            return Err(io::Error::last_os_error().into());
+        }
+    }
+    #[cfg(target_vendor = "apple")]
+    {
+        // SAFETY: bounded, NUL-terminated interface name remains valid.
+        let index = unsafe { libc::if_nametoindex(device.as_ptr()) };
+        if index == 0 {
+            return Err(io::Error::last_os_error().into());
+        }
+        let (level, option) = if ipv6 {
+            (libc::IPPROTO_IPV6, libc::IPV6_BOUND_IF)
+        } else {
+            (libc::IPPROTO_IP, libc::IP_BOUND_IF)
+        };
+        // SAFETY: live socket, correctly sized read-only interface-index scalar.
+        if unsafe {
+            libc::setsockopt(
+                fd,
+                level,
+                option,
+                (&index as *const u32).cast(),
+                size_of::<u32>() as libc::socklen_t,
+            )
+        } < 0
+        {
+            return Err(io::Error::last_os_error().into());
+        }
     }
     Ok(())
 }
@@ -161,75 +191,28 @@ pub(crate) fn connect_tcp(
     stop: &AtomicBool,
     protector: Option<&dyn crate::api::types::SocketProtector>,
 ) -> Result<TcpStream> {
-    let family = if endpoint.is_ipv4() {
-        libc::AF_INET
-    } else {
-        libc::AF_INET6
-    };
-    // SAFETY: scalar socket arguments; successful fd is immediately RAII-owned.
-    let fd = unsafe {
-        libc::socket(
-            family,
-            libc::SOCK_STREAM | libc::SOCK_CLOEXEC | libc::SOCK_NONBLOCK,
-            0,
-        )
-    };
-    if fd < 0 {
-        return Err(io::Error::last_os_error().into());
-    }
-    // SAFETY: fresh valid socket fd with exactly one owner.
-    let socket = unsafe { TcpStream::from_raw_fd(fd) };
+    let socket = socket2::Socket::new(
+        socket2::Domain::for_address(endpoint),
+        socket2::Type::STREAM,
+        Some(socket2::Protocol::TCP),
+    )?;
+    socket.set_nonblocking(true)?;
+    let fd = socket.as_raw_fd();
     if !device.is_empty() {
-        bind_device(fd, device)?;
+        bind_device(fd, device, endpoint.is_ipv6())?;
     }
-    if let Some(protector) = protector {
-        if !protector.protect_socket(fd) {
-            return Err(io::Error::from(io::ErrorKind::PermissionDenied).into());
-        }
+    if let Some(protector) = protector
+        && !protector.protect_socket(fd)
+    {
+        return Err(io::Error::from(io::ErrorKind::PermissionDenied).into());
     }
-    let result = match endpoint {
-        SocketAddr::V4(address) => {
-            let raw = libc::sockaddr_in {
-                sin_family: libc::AF_INET as _,
-                sin_port: address.port().to_be(),
-                sin_addr: libc::in_addr {
-                    s_addr: u32::from_ne_bytes(address.ip().octets()),
-                },
-                sin_zero: [0; 8],
-            };
-            // SAFETY: address storage matches AF_INET and remains valid for connect.
-            unsafe {
-                libc::connect(
-                    fd,
-                    (&raw as *const libc::sockaddr_in).cast(),
-                    size_of::<libc::sockaddr_in>() as _,
-                )
-            }
-        }
-        SocketAddr::V6(address) => {
-            let raw = libc::sockaddr_in6 {
-                sin6_family: libc::AF_INET6 as _,
-                sin6_port: address.port().to_be(),
-                sin6_flowinfo: address.flowinfo().to_be(),
-                sin6_addr: libc::in6_addr {
-                    s6_addr: address.ip().octets(),
-                },
-                sin6_scope_id: address.scope_id(),
-            };
-            // SAFETY: address storage matches AF_INET6 and remains valid for connect.
-            unsafe {
-                libc::connect(
-                    fd,
-                    (&raw as *const libc::sockaddr_in6).cast(),
-                    size_of::<libc::sockaddr_in6>() as _,
-                )
-            }
-        }
+    let connecting = match socket.connect(&endpoint.into()) {
+        Ok(()) => false,
+        Err(error) if error.raw_os_error() == Some(libc::EINPROGRESS) => true,
+        Err(error) => return Err(error.into()),
     };
-    if result < 0 && io::Error::last_os_error().raw_os_error() != Some(libc::EINPROGRESS) {
-        return Err(io::Error::last_os_error().into());
-    }
-    if result < 0 {
+    let socket: TcpStream = socket.into();
+    if connecting {
         let mut poll = Poll::new()?;
         poll.registry()
             .register(&mut SourceFd(&fd), Token(0), Interest::WRITABLE)?;
