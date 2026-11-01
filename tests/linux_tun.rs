@@ -291,7 +291,7 @@ fn actual_udp_tcp_tls_engine_tun_roundtrips() {
             continue;
         }
         let (n, source) = received.unwrap();
-        assert_eq!(&response[..n], b"real kernel TUN and UDP");
+        assert_eq!(&response[..n], payload);
         assert_eq!(source, "10.2.0.3:9000".parse().unwrap());
         assert!(counters.decrypted_packets >= 1);
         assert!(counters.tun_reads >= 1);
