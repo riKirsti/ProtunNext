@@ -6,6 +6,34 @@ use zeroize::Zeroize;
 
 const TLS_BUFFER: usize = 65536;
 const RECORD: usize = 16384;
+const MAX_PROTOCOL_OUTPUT: usize = 128 * 1024;
+
+fn encode_control<Data>(
+    state: &mut rustls::unbuffered::EncodeTlsData<'_, Data>,
+    output: &mut Box<[u8]>,
+    used: usize,
+) -> io::Result<usize> {
+    match state.encode(&mut output[used..]) {
+        Ok(n) => Ok(n),
+        Err(rustls::unbuffered::EncodeError::InsufficientSize(size)) => {
+            let required = used
+                .checked_add(size.required_size)
+                .ok_or(io::ErrorKind::InvalidData)?;
+            if required > MAX_PROTOCOL_OUTPUT {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "bounded TLS protocol output exhausted",
+                ));
+            }
+            // Rare protocol backpressure, not per-application-record allocation.
+            let mut bytes = std::mem::replace(output, Box::new([])).into_vec();
+            bytes.resize(required.next_power_of_two().max(TLS_BUFFER), 0);
+            *output = bytes.into_boxed_slice();
+            state.encode(&mut output[used..]).map_err(io::Error::other)
+        }
+        Err(e) => Err(io::Error::other(e)),
+    }
+}
 enum Step {
     Progress,
     Read(usize),
@@ -116,7 +144,19 @@ impl<S: Read + Write> UnbufferedTlsIo<S> {
         input: Option<&[u8]>,
         consume: &mut impl FnMut(&[u8]) -> io::Result<usize>,
     ) -> io::Result<Step> {
-        self.flush_output()?;
+        match self.flush_output() {
+            Ok(()) => {}
+            // Readability is independent of writability. In particular both
+            // directions can have full TCP send buffers at the same time.
+            Err(e) if input.is_none() && e.kind() == io::ErrorKind::WouldBlock => {
+                if self.sent > 0 {
+                    self.outgoing.copy_within(self.sent..self.encoded, 0);
+                    self.encoded -= self.sent;
+                    self.sent = 0;
+                }
+            }
+            Err(e) => return Err(e),
+        }
         let status = self
             .connection
             .process_tls_records(&mut self.incoming[self.first..self.end]);
@@ -136,28 +176,36 @@ impl<S: Read + Write> UnbufferedTlsIo<S> {
                     Ok(Step::Progress)
                 }
             }
-            Ok(ConnectionState::EncodeTlsData(mut data)) => match data.encode(&mut self.outgoing) {
-                Ok(n) => {
-                    self.encoded = n;
+            Ok(ConnectionState::EncodeTlsData(mut data)) => {
+                match encode_control(&mut data, &mut self.outgoing, self.encoded) {
+                    Ok(n) => {
+                        self.encoded += n;
+                        self.drive_write = true;
+                        Ok(Step::Progress)
+                    }
+                    Err(e) => Err(io::Error::other(e)),
+                }
+            }
+            Ok(ConnectionState::TransmitTlsData(data)) => {
+                if self.sent < self.encoded {
+                    // Keep rustls's transmit flag until all encoded bytes have
+                    // reached socket.write, but continue processing inbound TLS.
                     self.drive_write = true;
+                    Ok(Step::NeedRead)
+                } else {
+                    data.done();
+                    self.drive_write = false;
                     Ok(Step::Progress)
                 }
-                Err(e) => Err(io::Error::other(e)),
-            },
-            Ok(ConnectionState::TransmitTlsData(data)) => {
-                // Every encoded byte has been acknowledged by socket.write.
-                data.done();
-                self.drive_write = false;
-                Ok(Step::Progress)
             }
             Ok(ConnectionState::WriteTraffic(mut traffic)) => {
                 self.drive_write = false;
                 if let Some(control) = self.control.take() {
                     match control {
                         ControlMessage::Close => {
-                            match traffic.queue_close_notify(&mut self.outgoing) {
+                            match traffic.queue_close_notify(&mut self.outgoing[self.encoded..]) {
                                 Ok(n) => {
-                                    self.encoded = n;
+                                    self.encoded += n;
                                     self.write_closed = true;
                                     Ok(Step::Written(0))
                                 }

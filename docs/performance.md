@@ -72,6 +72,10 @@ zero-copy or allocation-free TLS claim. Standard certificate/name verification
 and Proton's explicit inner-WireGuard Stealth policy remain separate.
 The borrowed-record framing path also omits the unused generic read scratch
 allocation. Consumed scratch/plaintext regions are erased before reuse.
+Readable TLS continues progressing when socket writes are blocked; protocol
+records append behind already accepted ciphertext. Protocol output can grow
+from 64 to at most 128 KiB under backpressure. A duplex/key-update regression
+checks that this preserves record ordering and accepted application bytes.
 
 Instrumentation stays local to the packet worker and is published with existing
 coalesced snapshots. Counters include syscall/message batching, fallback,
@@ -96,6 +100,10 @@ whose SHA256 was checked against the pre-change Cargo.lock:
 `UPSTREAM.json` records hashes of the original distributed files. Only Cargo.toml,
 noise/mod.rs and noise/session.rs are intentionally modified. LICENSE.md and
 upstream copyright notices are preserved. No other dependency is vendored.
+The dependency uses a direct path into this repository, so applications consuming
+ProtunNext inherit the extension without needing their own Cargo patch table.
+CI compiles a separate consumer to check this integration, in addition to the
+root lockfile builds. [Cargo's patch scope](https://doc.rust-lang.org/cargo/reference/overriding-dependencies.html#the-patch-section).
 
 The extension reuses the existing ring AEAD operations, counter allocation,
 pre-authentication replay check and post-authentication replay commit. Handshake,

@@ -29,6 +29,8 @@ jobs:
       - run: python scripts/verify-vendor.py
       - run: cargo fmt --package protun-next --check
       - run: cargo test --locked --all-targets --all-features
+      - name: Compile performance API from a separate application
+        run: python scripts/check-downstream.py
       - name: Require actual multishot receive and bounded cancellation
         if: runner.os == 'Linux'
         env:

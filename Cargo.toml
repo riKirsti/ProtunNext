@@ -37,7 +37,7 @@ thiserror = "2"
 zeroize = { version = "1", features = ["derive"] }
 getrandom = "0.4"
 base64 = "0.22"
-proton-boringtun = { version = "=4.9.0", registry = "proton", default-features = false }
+proton-boringtun = { version = "=4.9.0", path = "vendor/proton-boringtun", default-features = false }
 rand_chacha = "0.10"
 rustls = { version = "=0.23.46", default-features = false, features = ["std", "ring", "tls12"] }
 webpki-roots = "1"
@@ -94,9 +94,6 @@ required-features = ["bindgen"]
 
 [lints.rust]
 unsafe_op_in_unsafe_fn = "deny"
-
-[patch.proton]
-proton-boringtun = { path = "vendor/proton-boringtun" }
 
 [lints.clippy]
 undocumented_unsafe_blocks = "deny"
