@@ -2,11 +2,12 @@
 
 Independent Rust successor project targeting all functionality exposed by Protun v3.0.5.
 
-**Development snapshot — not a complete replacement, not ready for deployment.**
-`cargo run -- verify-parity` deliberately fails until the entire compatibility
-matrix has implementation and verification evidence. `verify-code-parity`
-separately checks code coverage without requiring the deferred live tests. A working protocol codec
-or a green unit test does not mean a complete VPN client or paid-feature support.
+**v3.0.5 function implementations are covered; live acceptance remains pending.**
+The [source comparison and function mapping](docs/parity-scope.md) covers 39
+functional requirements plus a separate performance-evidence item.
+`verify-code-parity` checks implementation coverage. `verify-parity` deliberately
+fails until deferred service/device acceptance is complete. This is a development
+build; offline tests do not establish live Proton Plus support or release readiness.
 
 ## Working implementation in this snapshot
 
@@ -18,16 +19,16 @@ or a green unit test does not mean a complete VPN client or paid-feature support
   receive storage, fragmented input and reset/error handling.
 * Framed stream I/O with vectored output, bounded backpressure and real TCP
   loopback/WireGuard handshake tests.
-* Shared Linux UDP/framed TCP/TLS worker attaching only to an existing caller-owned TUN descriptor and
+* Shared Unix/Windows UDP/framed TCP/TLS worker. Unix attaches only to a caller-owned TUN descriptor and
   binding the outer socket to an explicitly supplied uplink interface before connect.
   TLS uses bounded rustls buffering and keeps flushing pending ciphertext.
-* Linux managed worker start/disconnect/join, bounded latest-state observation
+* Managed worker start/disconnect/join, bounded latest-state observation
   and real WireGuard byte/loss/handshake/RTT statistics; no user callbacks or
   control messages run per packet.
 * Allocation-free single-peer `AllowedIPs` enforcement for outbound destinations
   and authenticated inbound sources, including IPv4/IPv6 family checks.
 * Strict single-peer WireGuard configuration reader; unknown directives fail
-  rather than being silently ignored. No routing or DNS settings are applied.
+  rather than being silently ignored. This low-level reader applies no OS settings.
 * PCAP writer, NAT-PMP wire codec and candidate-selection/settings validation.
 
 The compatibility API now has a separate supervisor for peer updates,
@@ -35,10 +36,10 @@ network recovery, replaceable/optional TUN, socket-protection callbacks, statist
 and persistent capture controls. The optional `local-agent` feature adds an
 account thread using Proton's published Muon, certificate refresher and managed
 mTLS Local Agent. API/DNS/control sockets use a private in-tunnel TCP/IP stack;
-ordinary customer packets bypass it. This implementation is still under parity
-review. Unix/Apple/Android and Windows platform code and bindings now exist;
-complete virtual-network policy and alternate Windows subnet handling remain
-unfinished. The Android service builds an AAR; Windows loopback transports and
+ordinary customer packets bypass it. The connection retains private sockets and
+NAT ownership through outer reconnects, and services local HTTP while offline or
+waiting for TCP connect. Virtual-network policy includes selected Windows subnets,
+tracked reply ownership and fragmented private responses. The Android service builds an AAR; Windows loopback transports and
 native initialization run without creating a VPN adapter.
 Account issuance, renewal and paid-server integration have not been tested with
 real credentials. Public API declarations alone do not count as implementation.
@@ -50,10 +51,11 @@ See [the complete parity ledger](docs/parity.json),
 
 ```sh
 cargo test --locked --all-targets
-cargo build --locked --release
+cargo build --locked --release --lib --bin protun-next-cli
 cargo run --locked -- status
 cargo run --locked -- check-config /path/to/private-config.conf
 cargo run --locked -- verify-parity # expected to fail during development
+cargo run --locked -- verify-code-parity # function implementation coverage
 ```
 
 The private Proton registry is configured in `.cargo/config.toml`. No Proton
@@ -106,6 +108,6 @@ Paid capabilities remain subject to Proton's server policy and the account's
 entitlements. A local setting, stub, codec or a successful connection cannot
 grant or demonstrate a subscription capability. Secure Core/server choice and
 other app/service features must be distinguished from capabilities actually
-implemented inside the v3.0.5 library. Missing work is recorded explicitly.
+implemented inside the v3.0.5 library. Deferred acceptance work is recorded explicitly.
 
 GPL-3.0-or-later. No affiliation with or endorsement by Proton AG is implied.
