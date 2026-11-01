@@ -24,6 +24,8 @@ windows = ["uniffi", "local-agent"]
 test_utils = ["local-agent", "muon/login", "tokio/net", "tokio/io-util"]
 real-connection-tests = ["test_utils"]
 debug-counters = []
+io-uring = ["dep:io-uring"]
+in-place-crypto = ["proton-boringtun/in-place"]
 mio = []
 control-plane = ["dep:futures", "dep:proton-vpn-netstack", "dep:tokio"]
 local-agent = ["control-plane", "dep:proton-vpn-local-agent", "dep:muon", "dep:proton-vpn-rcrl", "dep:rand", "dep:httpdate", "dep:x509-parser", "dep:cookie_store", "dep:url"]
@@ -60,6 +62,9 @@ libc = "0.2"
 mio = { version = "1", features = ["net", "os-poll", "os-ext"] }
 socket2 = "0.6"
 
+[target.'cfg(target_os = "linux")'.dependencies]
+io-uring = { version = "=0.7.15", optional = true }
+
 [target.'cfg(windows)'.dependencies]
 mio = { version = "1", features = ["net", "os-poll", "os-ext"] }
 socket2 = "0.6"
@@ -89,6 +94,9 @@ required-features = ["bindgen"]
 
 [lints.rust]
 unsafe_op_in_unsafe_fn = "deny"
+
+[patch.proton]
+proton-boringtun = { path = "vendor/proton-boringtun" }
 
 [lints.clippy]
 undocumented_unsafe_blocks = "deny"

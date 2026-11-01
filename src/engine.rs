@@ -285,10 +285,18 @@ pub(crate) fn run<N: Network>(
             .duration_since(UNIX_EPOCH)
             .map_err(|_| Error::Invalid("wall clock"))?,
     )?;
-    let mut pool = PacketPool::new(132, 65535)?;
+    let options = network.options();
+    let mut pool = if options.compact_pool {
+        PacketPool::compact(132, (usize::from(config.mtu) + 32).max(2048), 65535)?
+    } else {
+        PacketPool::new(132, 65535)?
+    };
     let mut to_net = PacketQueue::new(64)?;
     let mut to_tun = PacketQueue::new(64)?;
-    let mut counters = Counters::default();
+    let mut counters = Counters {
+        pool_reserved_bytes: pool.reserved_bytes() as u64,
+        ..Default::default()
+    };
     let mut probe = if compatibility_policy {
         Some(PathProbe::with_addresses(boottime()?, addresses)?)
     } else {
@@ -307,6 +315,7 @@ pub(crate) fn run<N: Network>(
     let mut drain = false;
     let mut network_error = None;
     while !stop.load(Ordering::Relaxed) {
+        let batch_now = boottime()?;
         if let Some(replacement) = observer.and_then(|o| o.take_tun_update()) {
             if let Some(old) = &tun {
                 old.deregister(poll.registry())?;
@@ -335,7 +344,7 @@ pub(crate) fn run<N: Network>(
         }
         if network_error.is_none() {
             let mut timer_packet = pool.take().ok_or(Error::Full)?;
-            let timed = session.advance(boottime()?, timer_packet.writable())?;
+            let timed = session.advance(batch_now, timer_packet.writable())?;
             match timed {
                 Output::Network(n) => {
                     timer_packet.set_len(n)?;
@@ -399,7 +408,7 @@ pub(crate) fn run<N: Network>(
             {
                 break;
             }
-            let mut input = pool.take().ok_or(Error::Full)?;
+            let mut input = pool.take_sized(65535).ok_or(Error::Full)?;
             let Some(device) = tun.as_mut() else {
                 pool.recycle(input)?;
                 break;
@@ -439,7 +448,7 @@ pub(crate) fn run<N: Network>(
                     }
                     #[cfg(feature = "control-plane")]
                     if let Some(observer) = observer
-                        && observer.internal_local(input.data(), boottime()?)?
+                        && observer.internal_local(input.data(), batch_now)?
                     {
                         pool.recycle(input)?;
                         continue;
@@ -455,12 +464,14 @@ pub(crate) fn run<N: Network>(
                         pool.recycle(input)?;
                         continue;
                     }
-                    let mut output = pool.take().ok_or(Error::Full)?;
-                    let result = session.encrypt(input.data(), output.writable());
-                    pool.recycle(input)?;
-                    match result? {
+                    let (result, mut output) =
+                        encrypt_owned(&mut session, &mut pool, input, options.in_place_crypto)?;
+                    if options.in_place_crypto {
+                        counters.in_place_encryptions += 1;
+                    }
+                    match result {
                         Output::Network(n) => {
-                            output.set_len(n)?;
+                            output.set_data_len(n)?;
                             enqueue_network(&mut pool, &mut to_net, output, observer, &mut probe)?;
                             drain = true;
                         }
@@ -495,8 +506,8 @@ pub(crate) fn run<N: Network>(
             {
                 break;
             }
-            let mut input = pool.take().ok_or(Error::Full)?;
-            let Some(n) = observer.internal_read(input.writable(), boottime()?)? else {
+            let mut input = pool.take_sized(65535).ok_or(Error::Full)?;
+            let Some(n) = observer.internal_read(input.writable(), batch_now)? else {
                 pool.recycle(input)?;
                 break;
             };
@@ -510,12 +521,14 @@ pub(crate) fn run<N: Network>(
                 continue;
             }
             observer.capture(input.data());
-            let mut output = pool.take().ok_or(Error::Full)?;
-            let result = session.encrypt(input.data(), output.writable());
-            pool.recycle(input)?;
-            match result? {
+            let (result, mut output) =
+                encrypt_owned(&mut session, &mut pool, input, options.in_place_crypto)?;
+            if options.in_place_crypto {
+                counters.in_place_encryptions += 1;
+            }
+            match result {
                 Output::Network(n) => {
-                    output.set_len(n)?;
+                    output.set_data_len(n)?;
                     enqueue_network(&mut pool, &mut to_net, output, Some(observer), &mut probe)?;
                     drain = true;
                 }
@@ -531,24 +544,28 @@ pub(crate) fn run<N: Network>(
             {
                 break;
             }
-            let mut input = pool.take().ok_or(Error::Full)?;
-            match network.receive(&mut input) {
+            let mut input = pool.take_sized(65535).ok_or(Error::Full)?;
+            match network.receive(&mut input, &mut pool) {
                 Ok(Receive::Packet) => {
                     counters.network_reads += 1;
                     if let Some(observer) = observer {
                         observer.capture_wireguard(input.data(), false);
                     }
-                    let mut output = pool.take().ok_or(Error::Full)?;
-                    let result = session.decrypt(input.data(), output.writable());
-                    pool.recycle(input)?;
+                    let in_place =
+                        options.in_place_crypto && input.data().starts_with(&[4, 0, 0, 0]);
+                    let (result, mut output) =
+                        decrypt_owned(&mut session, &mut pool, input, in_place)?;
+                    if in_place {
+                        counters.in_place_decryptions += 1;
+                    }
                     match result {
                         Ok(Output::Network(n)) => {
-                            output.set_len(n)?;
+                            output.set_data_len(n)?;
                             enqueue_network(&mut pool, &mut to_net, output, observer, &mut probe)?;
                             drain = true;
                         }
                         Ok(Output::Tunnel(n)) => {
-                            output.set_len(n)?;
+                            output.set_data_len(n)?;
                             counters.decrypted_packets += 1;
                             if probe.as_mut().is_some_and(PathProbe::received)
                                 && let Some(observer) = observer
@@ -571,7 +588,7 @@ pub(crate) fn run<N: Network>(
                             }
                             #[cfg(feature = "control-plane")]
                             let disposition = if let Some(observer) = observer {
-                                observer.internal_receive(output.data_mut(), boottime()?)?
+                                observer.internal_receive(output.data_mut(), batch_now)?
                             } else {
                                 crate::api::internal::PacketDisposition::Untracked
                             };
@@ -624,6 +641,7 @@ pub(crate) fn run<N: Network>(
                     pool.recycle(input)?;
                 }
                 Ok(Receive::Eof) => {
+                    counters.outer_eof += 1;
                     pool.recycle(input)?;
                     network_error =
                         Some(std::io::Error::from(std::io::ErrorKind::UnexpectedEof).into());
@@ -634,6 +652,7 @@ pub(crate) fn run<N: Network>(
                 }
                 Err(e) => {
                     pool.recycle(input)?;
+                    counters.outer_io_errors += 1;
                     network_error = Some(e);
                     tun_ready = false;
                     net_ready = false;
@@ -646,7 +665,7 @@ pub(crate) fn run<N: Network>(
             if !drain || to_net.len() + network.pending() >= 63 {
                 break;
             }
-            let mut output = pool.take().ok_or(Error::Full)?;
+            let mut output = pool.take_sized(65535).ok_or(Error::Full)?;
             match session.drain(output.writable())? {
                 Output::Network(n) => {
                     output.set_len(n)?;
@@ -659,11 +678,19 @@ pub(crate) fn run<N: Network>(
                 }
             }
         }
+        counters.to_network_high_water = counters
+            .to_network_high_water
+            .max((to_net.len() + network.pending()) as u64);
+        counters.to_tun_high_water = counters.to_tun_high_water.max(to_tun.len() as u64);
+        if pool.available() < 2 {
+            counters.pool_pressure += 1;
+        }
         if network_error.is_none() {
             match network.flush(&mut to_net, &mut pool) {
                 Ok(true) => counters.network_backpressure += 1,
                 Ok(false) => {}
                 Err(e) => {
+                    counters.outer_io_errors += 1;
                     network_error = Some(e);
                     tun_ready = false;
                     net_ready = false;
@@ -712,6 +739,11 @@ pub(crate) fn run<N: Network>(
                 }
             }
         }
+        counters.io = network.diagnostics();
+        counters.to_network_high_water = counters
+            .to_network_high_water
+            .max((to_net.len() + network.pending()) as u64);
+        counters.to_tun_high_water = counters.to_tun_high_water.max(to_tun.len() as u64);
         if let Some(observer) = observer {
             observer.observe(&session, &counters, boottime()?);
         }
@@ -724,6 +756,7 @@ pub(crate) fn run<N: Network>(
             return Err(error);
         }
         let wants_net = network_error.is_none()
+            && network.retry_delay().is_none()
             && (!to_net.is_empty() || network.pending() > 0 || network.wants_write());
         let wants_tun = !to_tun.is_empty();
         if wants_net != net_writable {
@@ -753,6 +786,7 @@ pub(crate) fn run<N: Network>(
             tun_writable = wants_tun;
         }
         let can_continue = network_error.is_none()
+            && network.retry_delay().is_none()
             && ((tun_ready && to_net.len() + network.pending() < 63)
                 || (net_ready && to_tun.len() < 63 && to_net.len() + network.pending() < 63)
                 || (drain && to_net.len() + network.pending() < 63));
@@ -782,6 +816,9 @@ pub(crate) fn run<N: Network>(
         } else {
             timeout
         };
+        let timeout = network
+            .retry_delay()
+            .map_or(timeout, |delay| delay.min(timeout));
         match poll.poll(&mut events, Some(timeout)) {
             Ok(()) => {}
             Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
@@ -792,7 +829,7 @@ pub(crate) fn run<N: Network>(
             if event.is_readable() {
                 if event.token() == TUN {
                     tun_ready = true;
-                } else if event.token() == NET {
+                } else if event.token() == NET || event.token() == crate::network::COMPLETION {
                     net_ready = true;
                 }
                 #[cfg(windows)]
@@ -818,4 +855,54 @@ fn detach_tun(
     }
     observer.interface(false, Some(error.to_string()));
     Ok(())
+}
+
+fn encrypt_owned(
+    session: &mut Session,
+    pool: &mut PacketPool,
+    input: crate::packet::Packet,
+    in_place: bool,
+) -> Result<(Output, crate::packet::Packet)> {
+    #[cfg(feature = "in-place-crypto")]
+    if in_place {
+        let mut input = input;
+        let length = input.data().len();
+        let result = session.encrypt_in_place(input.wireguard_buffer()?, length)?;
+        return Ok((result, input));
+    }
+    let _ = in_place;
+    let capacity = (input.data().len() + 32).max(148);
+    let mut output = pool.take_sized(capacity).ok_or(Error::Full)?;
+    // Erase the entire potentially modified region even when encryption fails.
+    output.set_len(capacity)?;
+    let result = session.encrypt(input.data(), output.writable());
+    pool.recycle(input)?;
+    Ok((result?, output))
+}
+
+type OwnedDecryption = (Result<Output>, crate::packet::Packet);
+fn decrypt_owned(
+    session: &mut Session,
+    pool: &mut PacketPool,
+    input: crate::packet::Packet,
+    in_place: bool,
+) -> Result<OwnedDecryption> {
+    #[cfg(feature = "in-place-crypto")]
+    if in_place {
+        let mut input = input;
+        let result = session.decrypt_data_in_place(input.data_mut());
+        if let Ok(Output::Tunnel(n)) = result {
+            input.consume(16)?;
+            input.set_data_len(n)?;
+        }
+        return Ok((result, input));
+    }
+    let _ = in_place;
+    let capacity = input.data().len().max(148);
+    let mut output = pool.take_sized(capacity).ok_or(Error::Full)?;
+    // A failed AEAD open is allowed to modify its output. Track it for erasure.
+    output.set_len(capacity)?;
+    let result = session.decrypt(input.data(), output.writable());
+    pool.recycle(input)?;
+    Ok((result, output))
 }

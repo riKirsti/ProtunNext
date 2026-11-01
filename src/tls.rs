@@ -112,6 +112,25 @@ pub fn client_with_roots(
     server_name: &str,
     roots: rustls::RootCertStore,
 ) -> Result<rustls::ClientConnection> {
+    rustls::ClientConnection::new(
+        config_with_roots(roots)?,
+        rustls::pki_types::ServerName::try_from(server_name.to_owned())
+            .map_err(|_| Error::Invalid("TLS server name"))?,
+    )
+    .map_err(|e| Error::Protocol(e.to_string()))
+}
+pub fn unbuffered_client_with_roots(
+    server_name: &str,
+    roots: rustls::RootCertStore,
+) -> Result<rustls::client::UnbufferedClientConnection> {
+    rustls::client::UnbufferedClientConnection::new(
+        config_with_roots(roots)?,
+        rustls::pki_types::ServerName::try_from(server_name.to_owned())
+            .map_err(|_| Error::Invalid("TLS server name"))?,
+    )
+    .map_err(|e| Error::Protocol(e.to_string()))
+}
+fn config_with_roots(roots: rustls::RootCertStore) -> Result<Arc<rustls::ClientConfig>> {
     let mut config = rustls::ClientConfig::builder_with_provider(Arc::new(
         rustls::crypto::ring::default_provider(),
     ))
@@ -120,10 +139,5 @@ pub fn client_with_roots(
     .with_root_certificates(roots)
     .with_no_client_auth();
     config.alpn_protocols.clear();
-    rustls::ClientConnection::new(
-        Arc::new(config),
-        rustls::pki_types::ServerName::try_from(server_name.to_owned())
-            .map_err(|_| Error::Invalid("TLS server name"))?,
-    )
-    .map_err(|e| Error::Protocol(e.to_string()))
+    Ok(Arc::new(config))
 }

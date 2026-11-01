@@ -73,12 +73,13 @@ fn actual_udp_tcp_tls_engine_tun_roundtrips() {
     ip(&["addr", "add", "10.2.0.2/32", "dev", "pn0"]);
     ip(&["link", "set", "pn0", "mtu", "1500", "up"]);
     ip(&["route", "add", "10.2.0.3/32", "dev", "pn0"]);
-    for mode in 0..8 {
+    for mode in 0..15 {
+        let udp_mode = matches!(mode, 0 | 8 | 9 | 10 | 13);
         let peer = UdpSocket::bind("127.0.0.1:0").unwrap();
         peer.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         listener.set_nonblocking(true).unwrap();
-        let endpoint = if mode == 0 {
+        let endpoint = if udp_mode {
             peer.local_addr().unwrap()
         } else {
             listener.local_addr().unwrap()
@@ -87,7 +88,7 @@ fn actual_udp_tcp_tls_engine_tun_roundtrips() {
         let now = linux::boottime().unwrap();
         let (release, wait_release) = std::sync::mpsc::channel();
         let reference = thread::spawn(move || {
-            let mut transport = if mode == 0 {
+            let mut transport = if udp_mode {
                 Reference::Udp(peer)
             } else {
                 let deadline = std::time::Instant::now() + Duration::from_secs(5);
@@ -104,7 +105,7 @@ fn actual_udp_tcp_tls_engine_tun_roundtrips() {
                 tcp.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
                 tcp.set_write_timeout(Some(Duration::from_secs(5))).unwrap();
                 tcp.set_nodelay(true).unwrap();
-                let io: Box<dyn Duplex> = if mode >= 2 && mode != 7 {
+                let io: Box<dyn Duplex> = if mode >= 2 && !matches!(mode, 7 | 14) {
                     Box::new(rustls::StreamOwned::new(
                         rustls::ServerConnection::new(common::server()).unwrap(),
                         tcp,
@@ -169,14 +170,32 @@ fn actual_udp_tcp_tls_engine_tun_roundtrips() {
             config.allowed_ips = vec!["10.2.0.4/32".into()];
         }
         let transport = match mode {
-            0 => linux::Transport::Udp,
-            1 | 7 => linux::Transport::Tcp,
+            0 | 8 | 9 | 10 | 13 => linux::Transport::Udp,
+            1 | 7 | 14 => linux::Transport::Tcp,
+            12 => linux::Transport::UnbufferedTls(Box::new(
+                tls::unbuffered_client_with_roots("localhost", common::roots()).unwrap(),
+            )),
             2 => linux::Transport::Tls(Box::new(
                 tls::client_with_roots("localhost", common::roots()).unwrap(),
             )),
             _ => linux::Transport::Stealth(protun_next::stealth::SniStrategy::Explicit(
                 "unrelated.test".into(),
             )),
+        };
+        let transport = if mode >= 8 {
+            transport.with_performance(protun_next::performance::Options {
+                udp_backend: if mode == 10 {
+                    protun_next::performance::UdpBackend::IoUring
+                } else {
+                    protun_next::performance::UdpBackend::Batch
+                },
+                udp_offload: mode == 9,
+                unbuffered_tls: mode == 11,
+                compact_pool: true,
+                ..Default::default()
+            })
+        } else {
+            transport
         };
         let mut connection =
             Connection::start(tun.as_fd(), config, "lo".into(), transport).unwrap();
@@ -268,7 +287,7 @@ fn actual_udp_tcp_tls_engine_tun_roundtrips() {
         );
         release.send(()).unwrap();
         reference.join().unwrap();
-        if mode >= 4 {
+        if (4..=6).contains(&mode) {
             let error = received.unwrap_err();
             assert!(matches!(
                 error.kind(),

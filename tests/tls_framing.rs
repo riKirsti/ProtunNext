@@ -24,18 +24,134 @@ fn roots() -> RootCertStore {
     r
 }
 fn server() -> Arc<ServerConfig> {
+    server_version(rustls::DEFAULT_VERSIONS)
+}
+fn server_version(versions: &[&'static rustls::SupportedProtocolVersion]) -> Arc<ServerConfig> {
     let cert = CertificateDer::from(include_bytes!("fixtures/server-TEST-ONLY.der").to_vec());
     let key = PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(
         include_bytes!("fixtures/private-PUBLIC-TEST-ONLY.der").to_vec(),
     ));
     Arc::new(
         ServerConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider()))
-            .with_safe_default_protocol_versions()
+            .with_protocol_versions(versions)
             .unwrap()
             .with_no_client_auth()
             .with_single_cert(vec![cert], key)
             .unwrap(),
     )
+}
+
+#[test]
+fn unbuffered_tls12_and_tls13_preserve_bytes_with_short_writes_and_small_reads() {
+    for version in [&rustls::version::TLS12, &rustls::version::TLS13] {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let handle = thread::spawn(move || {
+            let (tcp, _) = listener.accept().unwrap();
+            let mut stream = StreamOwned::new(
+                ServerConnection::new(server_version(&[version])).unwrap(),
+                bound_socket(tcp),
+            );
+            let mut body = vec![0; 80_000];
+            stream.read_exact(&mut body).unwrap();
+            assert!(body.iter().enumerate().all(|(n, b)| *b == (n % 251) as u8));
+            if version.version == rustls::ProtocolVersion::TLSv1_3 {
+                stream.conn.refresh_traffic_keys().unwrap();
+            }
+            stream.write_all(&body).unwrap();
+            stream.conn.send_close_notify();
+            stream.flush().unwrap();
+            let mut after_close = [0];
+            stream.read_exact(&mut after_close).unwrap();
+            assert_eq!(after_close, [b'X']);
+        });
+        let tcp = bound_socket(TcpStream::connect(address).unwrap());
+        tcp.set_nonblocking(true).unwrap();
+        let mut stream = protun_next::tls_unbuffered::UnbufferedTlsIo::new(
+            Pressured(tcp, false),
+            tls::unbuffered_client_with_roots("localhost", roots()).unwrap(),
+        );
+        let body: Vec<u8> = (0..80_000).map(|n| (n % 251) as u8).collect();
+        let mut accepted = 0;
+        let mut received = Vec::new();
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        while received.len() < body.len() {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "unbuffered TLS stalled: accepted {accepted}, received {}",
+                received.len()
+            );
+            if accepted < body.len() {
+                let end = (accepted + 24_000).min(body.len());
+                let middle = (accepted + 900).min(end);
+                match stream.write_vectored(&[
+                    std::io::IoSlice::new(&body[accepted..middle]),
+                    std::io::IoSlice::new(&body[middle..end]),
+                ]) {
+                    Ok(0) => panic!("zero write"),
+                    Ok(n) => accepted += n,
+                    Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {}
+                    Err(e) => panic!("write: {e}"),
+                }
+            }
+            match stream.flush() {
+                Ok(()) => {}
+                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {}
+                Err(e) => panic!("flush: {e}"),
+            }
+            let mut output = [0; 1013];
+            match stream.read(&mut output) {
+                Ok(0) => panic!("early EOF"),
+                Ok(n) => received.extend_from_slice(&output[..n]),
+                Err(e)
+                    if matches!(
+                        e.kind(),
+                        std::io::ErrorKind::WouldBlock | std::io::ErrorKind::Interrupted
+                    ) => {}
+                Err(e) => panic!("read: {e}"),
+            }
+            thread::sleep(Duration::from_millis(1));
+        }
+        assert_eq!(received, body);
+        assert_eq!(accepted, body.len());
+        let mut byte = [0];
+        loop {
+            match stream.read(&mut byte) {
+                Ok(0) => break,
+                Ok(_) => panic!("unexpected trailing plaintext"),
+                Err(e)
+                    if matches!(
+                        e.kind(),
+                        std::io::ErrorKind::WouldBlock | std::io::ErrorKind::Interrupted
+                    ) => {}
+                Err(e) => panic!("close_notify: {e}"),
+            }
+            assert!(std::time::Instant::now() < deadline);
+            thread::sleep(Duration::from_millis(1));
+        }
+        // Receiving close_notify closes only the peer's write direction.
+        loop {
+            match stream.write(b"X") {
+                Ok(1) => break,
+                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {}
+                result => panic!("half-close write: {result:?}"),
+            }
+            assert!(std::time::Instant::now() < deadline);
+        }
+        loop {
+            match stream.queue_close_notify() {
+                Ok(()) => break,
+                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {}
+                result => panic!("client close_notify: {result:?}"),
+            }
+            assert!(std::time::Instant::now() < deadline);
+        }
+        while let Err(e) = stream.flush() {
+            assert_eq!(e.kind(), std::io::ErrorKind::WouldBlock);
+            assert!(std::time::Instant::now() < deadline);
+        }
+        handle.join().unwrap();
+    }
 }
 fn bound_socket(tcp: TcpStream) -> TcpStream {
     tcp.set_read_timeout(Some(Duration::from_secs(5))).unwrap();

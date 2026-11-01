@@ -186,6 +186,7 @@ pub(crate) fn run_owned(
     if bind_device.is_empty() && observer.is_none() {
         return Err(Error::Invalid("uplink device"));
     }
+    let (transport, options) = transport.into_options()?;
     match transport {
         Transport::Udp => {
             let addr = if config.endpoint.is_ipv4() {
@@ -208,7 +209,13 @@ pub(crate) fn run_owned(
                 return Err(std::io::Error::from(std::io::ErrorKind::PermissionDenied).into());
             }
             socket.connect(config.endpoint)?;
-            run(tun_file, config, Datagram(socket), stop, observer)
+            run(
+                tun_file,
+                config,
+                Datagram::new(socket, options),
+                stop,
+                observer,
+            )
         }
         other => {
             if config.mtu > 16_351 {
@@ -223,28 +230,58 @@ pub(crate) fn run_owned(
                 Transport::Tcp => run(
                     tun_file,
                     config,
-                    Stream(FramedIo::new(socket, 64)?),
+                    Stream(FramedIo::new(socket, 64)?, options),
                     stop,
                     observer,
                 ),
                 Transport::Tls(connection) => run(
                     tun_file,
                     config,
-                    Stream(FramedIo::new(TlsIo::new(socket, *connection), 64)?),
+                    Stream(FramedIo::new(TlsIo::new(socket, *connection), 64)?, options),
+                    stop,
+                    observer,
+                ),
+                Transport::UnbufferedTls(connection) => run(
+                    tun_file,
+                    config,
+                    Stream(
+                        FramedIo::new(
+                            crate::tls_unbuffered::UnbufferedTlsIo::new(socket, *connection),
+                            64,
+                        )?,
+                        options,
+                    ),
                     stop,
                     observer,
                 ),
                 Transport::Stealth(sni) => {
+                    if options.unbuffered_tls {
+                        let connection =
+                            crate::stealth::unbuffered_client(sni.for_peer(config.endpoint.ip())?)?;
+                        return run(
+                            tun_file,
+                            config,
+                            Stream(
+                                FramedIo::new(
+                                    crate::tls_unbuffered::UnbufferedTlsIo::new(socket, connection),
+                                    64,
+                                )?,
+                                options,
+                            ),
+                            stop,
+                            observer,
+                        );
+                    }
                     let connection = crate::stealth::client(sni.for_peer(config.endpoint.ip())?)?;
                     run(
                         tun_file,
                         config,
-                        Stream(FramedIo::new(TlsIo::new(socket, connection), 64)?),
+                        Stream(FramedIo::new(TlsIo::new(socket, connection), 64)?, options),
                         stop,
                         observer,
                     )
                 }
-                Transport::Udp => unreachable!("handled above"),
+                Transport::Udp | Transport::Tuned(..) => unreachable!("handled above"),
             }
         }
     }

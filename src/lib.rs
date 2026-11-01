@@ -16,16 +16,22 @@ mod engine;
 pub mod framing;
 #[cfg(unix)]
 pub mod linux;
+#[cfg(target_os = "linux")]
+mod linux_batch;
 #[cfg(unix)]
 mod linux_network;
 #[cfg(any(unix, windows))]
 mod network;
 #[cfg(any(unix, windows))]
 mod path_probe;
+#[cfg(all(target_os = "linux", feature = "io-uring"))]
+mod uring_rx;
 #[cfg(unix)]
 pub use linux as unix;
 pub mod natpmp;
+pub mod offload;
 pub mod packet;
+pub mod performance;
 #[cfg(any(unix, windows))]
 mod platform;
 pub mod routing;
@@ -33,12 +39,15 @@ pub mod session;
 pub mod stealth;
 pub mod stream;
 pub mod tls;
+pub mod tls_unbuffered;
 pub mod transport;
 #[cfg(unix)]
 mod tun_device;
 #[cfg(windows)]
 #[path = "windows/tun.rs"]
 mod tun_device;
+#[cfg(target_os = "linux")]
+mod tun_offload;
 pub mod virtual_policy;
 #[cfg(windows)]
 pub mod windows;
