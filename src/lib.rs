@@ -7,25 +7,25 @@ pub mod agent;
 pub mod api;
 pub mod capture;
 pub mod config;
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 pub mod connection;
 pub mod control;
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 mod engine;
 pub mod framing;
 #[cfg(unix)]
 pub mod linux;
 #[cfg(unix)]
 mod linux_network;
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 mod network;
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 mod path_probe;
 #[cfg(unix)]
 pub use linux as unix;
 pub mod natpmp;
 pub mod packet;
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 mod platform;
 pub mod routing;
 pub mod session;
@@ -35,7 +35,12 @@ pub mod tls;
 pub mod transport;
 #[cfg(unix)]
 mod tun_device;
+#[cfg(windows)]
+#[path = "windows/tun.rs"]
+mod tun_device;
 pub mod virtual_policy;
+#[cfg(windows)]
+pub mod windows;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {

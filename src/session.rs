@@ -113,7 +113,7 @@ impl Session {
         }
         Self::output(self.tunnel.format_handshake_initiation(output, false))
     }
-    #[cfg(unix)]
+    #[cfg(any(unix, windows))]
     pub(crate) fn initiate_forced(&mut self, output: &mut [u8]) -> Result<Output> {
         if output.len() < 148 {
             return Err(Error::Invalid("handshake output capacity"));

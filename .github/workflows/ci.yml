@@ -48,6 +48,22 @@ jobs:
         run: |
           cargo run --locked --features bindgen --bin uniffi-bindgen -- generate --library target/release/libprotun_next.dylib --language swift --language kotlin --config uniffi.toml --out-dir target/generated --no-format
           swiftc -typecheck target/generated/ProtunNext.swift -I target/generated -Xcc -fmodule-map-file=target/generated/ProtunNextFFI.modulemap
+      - name: Call Windows native initialization through generated bindings
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          cargo run --locked --features bindgen --bin uniffi-bindgen -- generate --library target/release/protun_next.dll --language python --out-dir target/windows-bindings --no-format
+          cp target/release/protun_next.dll target/windows-bindings/
+          python tests/windows_ffi_contract.py target/windows-bindings
+      - name: Package verified Wintun driver without loading or installing it
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/package-windows.ps1
+      - uses: actions/upload-artifact@v4
+        if: runner.os == 'Windows'
+        with:
+          name: windows-development-package
+          path: target/windows-package/
   android-native:
     runs-on: ubuntu-24.04
     steps:

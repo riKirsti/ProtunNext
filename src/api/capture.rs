@@ -52,7 +52,13 @@ impl CaptureController {
                     // SAFETY: duplicates the raw input fd; only the fresh fd is owned here.
                     let copy = unsafe { libc::fcntl(*fd, libc::F_DUPFD_CLOEXEC, 3) };
                     if copy < 0 {
-                        return Err(std::io::Error::last_os_error().into());
+                        let error = std::io::Error::last_os_error();
+                        // SAFETY: this API transfers the original descriptor
+                        // even when adopting it fails. Preserve the first error.
+                        unsafe {
+                            libc::close(*fd);
+                        }
+                        return Err(error.into());
                     }
                     // SAFETY: successful fcntl returned a new owned descriptor.
                     let file = unsafe { File::from_raw_fd(copy) };
