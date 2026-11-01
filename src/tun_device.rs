@@ -6,10 +6,18 @@ use std::{
     io::{self, Read, Write},
     os::fd::{AsRawFd, RawFd},
 };
-pub(crate) struct TunDevice(pub File);
+pub(crate) struct TunDevice {
+    file: File,
+    #[cfg(target_os = "linux")]
+    offload: io::Result<Option<crate::tun_offload::Offload>>,
+}
 impl TunDevice {
     pub(crate) fn new(file: File) -> Self {
-        Self(file)
+        Self {
+            #[cfg(target_os = "linux")]
+            offload: crate::tun_offload::Offload::for_file(&file),
+            file,
+        }
     }
     pub(crate) fn register(
         &self,
@@ -33,14 +41,20 @@ impl TunDevice {
 }
 impl AsRawFd for TunDevice {
     fn as_raw_fd(&self) -> RawFd {
-        self.0.as_raw_fd()
+        self.file.as_raw_fd()
     }
 }
 impl Read for TunDevice {
     fn read(&mut self, bytes: &mut [u8]) -> io::Result<usize> {
+        #[cfg(target_os = "linux")]
+        match &mut self.offload {
+            Ok(Some(offload)) => return offload.read(&self.file, bytes),
+            Err(e) => return Err(io::Error::new(e.kind(), e.to_string())),
+            _ => {}
+        }
         #[cfg(not(target_vendor = "apple"))]
         {
-            self.0.read(bytes)
+            self.file.read(bytes)
         }
         #[cfg(target_vendor = "apple")]
         {
@@ -73,9 +87,15 @@ impl Read for TunDevice {
 }
 impl Write for TunDevice {
     fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        #[cfg(target_os = "linux")]
+        match &self.offload {
+            Ok(Some(offload)) => return offload.write(&self.file, bytes),
+            Err(e) => return Err(io::Error::new(e.kind(), e.to_string())),
+            _ => {}
+        }
         #[cfg(not(target_vendor = "apple"))]
         {
-            self.0.write(bytes)
+            self.file.write(bytes)
         }
         #[cfg(target_vendor = "apple")]
         {

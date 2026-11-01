@@ -11,6 +11,7 @@ pub struct Packet {
     bytes: Box<[u8]>,
     start: usize,
     end: usize,
+    high_water: usize,
 }
 impl Packet {
     fn allocate(capacity: usize) -> Self {
@@ -18,6 +19,7 @@ impl Packet {
             bytes: vec![0; capacity + HEADROOM].into_boxed_slice(),
             start: HEADROOM,
             end: HEADROOM,
+            high_water: HEADROOM,
         }
     }
     pub fn data(&self) -> &[u8] {
@@ -35,6 +37,7 @@ impl Packet {
         }
         self.start = HEADROOM;
         self.end = HEADROOM + len;
+        self.high_water = self.high_water.max(self.end);
         Ok(())
     }
     pub fn prepend(&mut self, bytes: &[u8]) -> Result<()> {
@@ -55,6 +58,24 @@ impl Packet {
     pub fn is_empty(&self) -> bool {
         self.start == self.end
     }
+    pub(crate) fn set_data_len(&mut self, length: usize) -> Result<()> {
+        if length > self.bytes.len() - self.start {
+            return Err(Error::Full);
+        }
+        self.end = self.start + length;
+        self.high_water = self.high_water.max(self.end);
+        Ok(())
+    }
+    #[cfg(feature = "in-place-crypto")]
+    pub(crate) fn wireguard_buffer(&mut self) -> Result<&mut [u8]> {
+        if self.start < 16 || self.bytes.len() - self.end < 16 {
+            return Err(Error::Full);
+        }
+        self.start -= 16;
+        self.end += 16;
+        self.high_water = self.high_water.max(self.end);
+        Ok(&mut self.bytes[self.start..])
+    }
 }
 impl Drop for Packet {
     fn drop(&mut self) {
@@ -64,7 +85,9 @@ impl Drop for Packet {
 
 pub struct PacketPool {
     free: Vec<Packet>,
+    large: Vec<Packet>,
     capacity: usize,
+    maximum: usize,
     limit: usize,
 }
 impl PacketPool {
@@ -74,26 +97,70 @@ impl PacketPool {
         }
         Ok(Self {
             free: (0..count).map(|_| Packet::allocate(capacity)).collect(),
+            large: Vec::new(),
             capacity,
+            maximum: capacity,
             limit: count,
         })
     }
     pub fn take(&mut self) -> Option<Packet> {
-        self.free.pop()
+        self.free.pop().or_else(|| self.large.pop())
+    }
+    /// Keep ordinary packets small while reserving complete-read scratch space.
+    /// The total number of owned buffers remains bounded by `count`.
+    pub fn compact(count: usize, capacity: usize, maximum: usize) -> Result<Self> {
+        if capacity > maximum || count < 4 {
+            return Err(Error::Invalid("compact pool bounds"));
+        }
+        let mut pool = Self::new(count, capacity)?;
+        if maximum > MAX_IP_PACKET + 32 {
+            return Err(Error::Invalid("compact packet capacity"));
+        }
+        pool.maximum = maximum;
+        for _ in 0..2 {
+            pool.free.pop();
+            pool.large.push(Packet::allocate(maximum));
+        }
+        Ok(pool)
+    }
+    pub fn take_sized(&mut self, size: usize) -> Option<Packet> {
+        if size <= self.capacity {
+            return self.take();
+        }
+        if size > self.maximum {
+            return None;
+        }
+        self.large.pop().or_else(|| {
+            // Promotion is only needed when unusually large packets are queued.
+            self.free.pop().map(|_| Packet::allocate(self.maximum))
+        })
     }
     pub fn recycle(&mut self, mut packet: Packet) -> Result<()> {
-        if packet.bytes.len() != self.capacity + HEADROOM || self.free.len() == self.limit {
+        let size = packet.bytes.len() - HEADROOM;
+        if (size != self.capacity && size != self.maximum) || self.available() == self.limit {
             return Err(Error::Invalid("foreign or excess packet"));
         }
         // Clear live data before making a plaintext packet reusable.
-        packet.bytes[..packet.end].zeroize();
+        packet.bytes[..packet.high_water].zeroize();
         packet.start = HEADROOM;
         packet.end = HEADROOM;
-        self.free.push(packet);
+        packet.high_water = HEADROOM;
+        if size == self.capacity {
+            self.free.push(packet);
+        } else {
+            self.large.push(packet);
+        }
         Ok(())
     }
     pub fn available(&self) -> usize {
-        self.free.len()
+        self.free.len() + self.large.len()
+    }
+    pub fn reserved_bytes(&self) -> usize {
+        self.free
+            .iter()
+            .chain(&self.large)
+            .map(|p| p.bytes.len())
+            .sum()
     }
 }
 
@@ -143,6 +210,32 @@ impl PacketQueue {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn shortened_packet_erases_the_entire_previous_live_region() {
+        let mut pool = PacketPool::new(1, 200).unwrap();
+        let mut p = pool.take().unwrap();
+        p.writable()[..150].fill(0xaa);
+        p.set_len(150).unwrap();
+        p.set_len(2).unwrap();
+        pool.recycle(p).unwrap();
+        assert!(
+            pool.take().unwrap().writable()[..150]
+                .iter()
+                .all(|b| *b == 0)
+        );
+    }
+    #[test]
+    fn compact_pool_keeps_full_packet_reads_and_bounded_ownership() {
+        let mut pool = PacketPool::compact(132, 2048, 65535).unwrap();
+        assert!(pool.reserved_bytes() < 500_000);
+        let mut jumbo = pool.take_sized(65535).unwrap();
+        assert_eq!(jumbo.writable().len(), 65535);
+        jumbo.writable()[65534] = 7;
+        jumbo.set_len(65535).unwrap();
+        pool.recycle(jumbo).unwrap();
+        assert_eq!(pool.available(), 132);
+        assert_eq!(pool.take().unwrap().writable().len(), 2048);
+    }
     #[test]
     fn moving_and_partial_writes_preserve_allocation() {
         let mut pool = PacketPool::new(2, 1500).unwrap();
