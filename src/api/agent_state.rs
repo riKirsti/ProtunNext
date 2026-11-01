@@ -19,6 +19,7 @@ impl AgentState {
         vec![
             Selector::InfoEstablished,
             Selector::InfoGroups,
+            Selector::InfoRemote,
             Selector::InfoRemoteReal,
             Selector::InfoRemoteRealLocation,
             Selector::InfoRemoteRealLocationCode,

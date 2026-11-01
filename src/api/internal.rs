@@ -17,12 +17,23 @@ use std::{
     pin::Pin,
     sync::{Arc, Mutex},
     task::{Context, Poll, Wake},
-    time::{Duration, Instant},
+    time::Duration,
 };
 
 const PRIVILEGED: [u16; 16] = [4, 6, 8, 10, 12, 14, 15, 16, 26, 28, 30, 32, 34, 36, 40, 60];
 // pvpnclient 4.4.1 conntrack.rs ENTRY_TIMEOUT, including idle customer TCP.
 const FLOW_TIMEOUT: Duration = Duration::from_secs(15 * 60);
+fn flow_now() -> Duration {
+    #[cfg(any(unix, windows))]
+    {
+        crate::platform::boottime().expect("supported continuous monotonic clock")
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        static ORIGIN: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+        ORIGIN.get_or_init(std::time::Instant::now).elapsed()
+    }
+}
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PacketDisposition {
     Private,
@@ -45,7 +56,7 @@ struct Flow {
 struct Mapping {
     flow: Flow,
     wire: u16,
-    expires: Option<Instant>,
+    expires: Option<Duration>,
 }
 #[derive(Default)]
 struct Flows {
@@ -188,6 +199,7 @@ impl InternalNetwork {
         if !reserved(parsed.destination_port) {
             return Ok(PacketDisposition::Untracked);
         }
+        let flow_time = flow_now();
         let mapping = {
             let mut mappings = self.flows.lock().unwrap_or_else(|e| e.into_inner());
             mappings
@@ -198,11 +210,11 @@ impl InternalNetwork {
                         && m.flow.protocol == parsed.protocol
                         && m.flow.remote == SocketAddr::new(parsed.source, parsed.source_port)
                         && m.flow.local.ip() == parsed.destination
-                        && m.expires.is_none_or(|e| e > Instant::now())
+                        && m.expires.is_none_or(|e| e > flow_time)
                 })
                 .map(|m| {
                     if m.expires.is_some() {
-                        m.expires = Some(Instant::now() + FLOW_TIMEOUT);
+                        m.expires = Some(flow_time + FLOW_TIMEOUT);
                     }
                     (m.flow.local.port(), m.flow.origin)
                 })
@@ -211,7 +223,7 @@ impl InternalNetwork {
             // pvpnclient conntrack.rs: a new Tunnel-origin flow belongs to the
             // private stack, not the customer. Only SYN without ACK creates TCP.
             if (parsed.protocol == 6 && packet[parsed.offset + 13] & 0x12 != 0x02)
-                || self.reserve_inbound(&parsed).is_err()
+                || self.reserve_inbound(&parsed, flow_time).is_err()
             {
                 self.fragments
                     .remember(packet, now, PacketDisposition::Drop);
@@ -235,11 +247,11 @@ impl InternalNetwork {
         self.deliver_private(packet, now);
         Ok(PacketDisposition::Private)
     }
-    fn reserve_inbound(&mut self, parsed: &Parsed) -> Result<()> {
+    fn reserve_inbound(&mut self, parsed: &Parsed, now: Duration) -> Result<()> {
         let mut flows = self.flows.lock().unwrap_or_else(|e| e.into_inner());
         flows
             .entries
-            .retain(|_, mapping| mapping.expires.is_none_or(|expiry| expiry > Instant::now()));
+            .retain(|_, mapping| mapping.expires.is_none_or(|expiry| expiry > now));
         if flows.entries.len() >= 4096 {
             return Err(Error::Full);
         }
@@ -254,7 +266,7 @@ impl InternalNetwork {
             Mapping {
                 flow,
                 wire: parsed.destination_port,
-                expires: Some(Instant::now() + FLOW_TIMEOUT),
+                expires: Some(now + FLOW_TIMEOUT),
             },
         );
         Ok(())
@@ -286,6 +298,7 @@ impl InternalNetwork {
         Ok(())
     }
     fn reserve_customer(&mut self, parsed: &Parsed, new_allowed: bool) -> Result<u16> {
+        let now = flow_now();
         let flow = Flow {
             origin: Origin::Customer,
             protocol: parsed.protocol,
@@ -293,11 +306,11 @@ impl InternalNetwork {
             remote: SocketAddr::new(parsed.destination, parsed.destination_port),
         };
         let mut flows = self.flows.lock().unwrap_or_else(|e| e.into_inner());
-        let expires = Some(Instant::now() + FLOW_TIMEOUT);
+        let expires = Some(now + FLOW_TIMEOUT);
         if let Some(mapping) = flows
             .entries
             .get_mut(&flow)
-            .filter(|mapping| mapping.expires.is_none_or(|expiry| expiry > Instant::now()))
+            .filter(|mapping| mapping.expires.is_none_or(|expiry| expiry > now))
         {
             mapping.expires = expires;
             return Ok(mapping.wire);
@@ -307,7 +320,7 @@ impl InternalNetwork {
         }
         flows
             .entries
-            .retain(|_, m| m.expires.is_none_or(|e| e > Instant::now()));
+            .retain(|_, m| m.expires.is_none_or(|e| e > now));
         if flows.entries.len() >= 4096 {
             return Err(Error::Full);
         }
@@ -366,7 +379,7 @@ impl Drop for Lease {
             .entries
             .get_mut(&self.flow)
         {
-            m.expires = Some(Instant::now() + FLOW_TIMEOUT);
+            m.expires = Some(flow_now() + FLOW_TIMEOUT);
         }
     }
 }
@@ -374,17 +387,26 @@ impl InternalConnector {
     pub fn addresses(&self) -> crate::addressing::Addresses {
         self.addresses
     }
-    fn lease(&self, protocol: u8, local: SocketAddr, remote: SocketAddr) -> io::Result<Lease> {
+    fn lease(
+        &self,
+        flows: &mut Flows,
+        protocol: u8,
+        local: SocketAddr,
+        remote: SocketAddr,
+    ) -> io::Result<Lease> {
+        let now = flow_now();
         let flow = Flow {
             origin: Origin::Control,
             protocol,
             local,
             remote,
         };
-        let mut flows = self.flows.lock().unwrap_or_else(|e| e.into_inner());
         flows
             .entries
-            .retain(|_, m| m.expires.is_none_or(|e| e > Instant::now()));
+            .retain(|_, m| m.expires.is_none_or(|e| e > now));
+        if flows.entries.len() >= 4096 {
+            return Err(io::ErrorKind::OutOfMemory.into());
+        }
         let wire = PRIVILEGED
             .into_iter()
             .chain(1000..=2000)
@@ -404,11 +426,18 @@ impl InternalConnector {
         })
     }
     pub async fn connect(&self, address: SocketAddr) -> io::Result<TrackedStream> {
-        let stream = self
-            .factory
-            .tcp_connect(address)
-            .map_err(io::Error::other)?;
-        let lease = self.lease(6, stream.local_addr(), address)?;
+        let (stream, lease) = {
+            // The SDK can emit SYN as soon as tcp_connect returns Pending.
+            // Install its mapping under the same lock the reader uses, before
+            // it can consume that first packet on another thread.
+            let mut flows = self.flows.lock().unwrap_or_else(|e| e.into_inner());
+            let stream = self
+                .factory
+                .tcp_connect(address)
+                .map_err(io::Error::other)?;
+            let lease = self.lease(&mut flows, 6, stream.local_addr(), address)?;
+            (stream, lease)
+        };
         let stream = AsyncTcpConnect::Pending(stream)
             .await
             .map_err(io::Error::other)?;
@@ -418,6 +447,7 @@ impl InternalConnector {
         })
     }
     pub fn udp(&self, address: SocketAddr) -> io::Result<TrackedDatagram> {
+        let mut flows = self.flows.lock().unwrap_or_else(|e| e.into_inner());
         let socket = self
             .factory
             .udp_bind(SocketAddr::new(
@@ -429,7 +459,7 @@ impl InternalConnector {
                 0,
             ))
             .map_err(io::Error::other)?;
-        let lease = self.lease(17, socket.local_addr(), address)?;
+        let lease = self.lease(&mut flows, 17, socket.local_addr(), address)?;
         Ok(TrackedDatagram {
             socket: socket.connect(address),
             _lease: lease,
@@ -571,5 +601,45 @@ fn address_is_local(p: &[u8], source: bool, addresses: crate::addressing::Addres
             p[at..at + 16] == addresses.v6(3).octets()
         }
         _ => false,
+    }
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    struct ForwardWake(std::task::Waker);
+    impl Wake for ForwardWake {
+        fn wake(self: Arc<Self>) {
+            self.0.wake_by_ref();
+        }
+    }
+    #[test]
+    fn only_syn_can_create_customer_tcp_mapping_but_established_ack_retains_it() {
+        let (_, mut router) = InternalNetwork::new(
+            Duration::ZERO,
+            ForwardWake(std::task::Waker::noop().clone()),
+        )
+        .unwrap();
+        let mut packet = [0; 40];
+        packet[0] = 0x45;
+        packet[2..4].copy_from_slice(&40u16.to_be_bytes());
+        packet[9] = 6;
+        packet[12..16].copy_from_slice(&[10, 2, 0, 2]);
+        packet[16..20].copy_from_slice(&[192, 0, 2, 1]);
+        packet[20..22].copy_from_slice(&1000u16.to_be_bytes());
+        packet[22..24].copy_from_slice(&443u16.to_be_bytes());
+        packet[32] = 0x50;
+        packet[33] = 0x10;
+        assert!(router.customer_outbound(&mut packet).is_err());
+        packet[33] = 0x12;
+        assert!(router.customer_outbound(&mut packet).is_err());
+        packet[33] = 0x02;
+        router.customer_outbound(&mut packet).unwrap();
+        packet[33] = 0x10;
+        router.customer_outbound(&mut packet).unwrap();
+        let mut entries = router.flows.lock().unwrap();
+        assert_eq!(entries.entries.len(), 1);
+        entries.entries.values_mut().next().unwrap().expires = Some(Duration::ZERO);
+        drop(entries);
+        assert!(router.customer_outbound(&mut packet).is_err());
     }
 }

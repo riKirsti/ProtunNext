@@ -119,6 +119,8 @@ impl Connection {
                     capture: Arc::new(CaptureState::default()),
                     #[cfg(feature = "local-agent")]
                     account: None,
+                    #[cfg(feature = "local-agent")]
+                    account_peer: None,
                     #[cfg(feature = "control-plane")]
                     control: None,
                     #[cfg(all(feature = "control-plane", not(feature = "local-agent")))]
@@ -247,6 +249,8 @@ struct Supervisor {
     capture: Arc<CaptureState>,
     #[cfg(feature = "local-agent")]
     account: Option<super::account::Service>,
+    #[cfg(feature = "local-agent")]
+    account_peer: Option<PeerInfo>,
     #[cfg(feature = "control-plane")]
     control: Option<Arc<crate::connection::ControlNetwork>>,
     #[cfg(all(feature = "control-plane", not(feature = "local-agent")))]
@@ -383,9 +387,7 @@ impl Supervisor {
             keepalive: Some(25),
         };
         #[cfg(feature = "local-agent")]
-        if let Some(account) = &self.account {
-            account.send(super::account::Command::Peer(candidate.peer.clone()));
-        }
+        self.update_account_peer(&candidate.peer);
         let worker = Worker::start_runtime(
             self.tun.as_ref().map(platform::clone_tun).transpose()?,
             Some((config, String::new(), transport)),
@@ -577,6 +579,12 @@ impl Supervisor {
                         self.retry_at = Instant::now();
                     } else {
                         self.active = retained;
+                        #[cfg(feature = "local-agent")]
+                        if let Some(peer) =
+                            self.active.as_ref().map(|candidate| candidate.peer.clone())
+                        {
+                            self.update_account_peer(&peer);
+                        }
                     }
                 }
                 if let Some(settings) = update.settings
@@ -619,7 +627,12 @@ impl Supervisor {
                     self.requested_stats = Some(worker.request_stats());
                 }
             }
-            Command::Debug => log::debug!("connection state: {:?}", self.state),
+            Command::Debug => {
+                log::debug!("connection state: {:?}", self.state);
+                if let Some(worker) = &self.worker {
+                    log::debug!("packet worker: {:?}", worker.snapshot());
+                }
+            }
             Command::InvalidateCertificate => {
                 self.cache.remove(CacheKey::Certificate);
                 #[cfg(feature = "local-agent")]
@@ -650,6 +663,20 @@ impl Supervisor {
             Command::Disconnect => {}
         }
         Ok(())
+    }
+    #[cfg(feature = "local-agent")]
+    fn update_account_peer(&mut self, peer: &PeerInfo) {
+        if self.account_peer.as_ref().is_none_or(|previous| {
+            previous.server_ip != peer.server_ip
+                || previous.server_public_key != peer.server_public_key
+                || previous.server_name != peer.server_name
+        }) {
+            self.agent_state = Default::default();
+        }
+        self.account_peer = Some(peer.clone());
+        if let Some(account) = &self.account {
+            account.send(super::account::Command::Peer(peer.clone()));
+        }
     }
     #[cfg(feature = "local-agent")]
     fn start_account(&mut self) -> Result<()> {

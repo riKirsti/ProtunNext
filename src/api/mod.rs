@@ -22,6 +22,8 @@ pub mod logger;
 #[cfg(any(unix, windows))]
 pub(crate) mod supervisor;
 pub mod types;
+#[cfg(feature = "test_utils")]
+pub mod test_utils;
 pub mod connection {
     #[cfg(any(unix, windows))]
     pub use super::supervisor::Connection;
