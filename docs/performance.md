@@ -86,6 +86,16 @@ A real loopback TLS/framing regression reproduces this at 63 queued ACKs before
 the fix, and transfers 4096 1280-byte packets after it. A separate TLS1.2/1.3
 regression checks writes preserve an already partially read plaintext record.
 
+The unbuffered writer also retains already available encrypted application records
+in its bounded output buffer instead of flushing between every record. Explicit
+flush, reads, protocol transitions and insufficient capacity still drive output;
+there is no timer or wait for future plaintext. Four maximum-sized records plus
+framing fit in the normal output allocation. A real TLS1.2/TLS1.3 regression
+checks exact plaintext and sparse flush delivery: 16 available records require
+four socket writes rather than the previous sixteen. This is a syscall-count
+result, not a router-throughput forecast. A single nonempty vectored slice can
+also be borrowed directly, avoiding the gather copy and its erasure.
+
 Instrumentation stays local to the packet worker and is published with existing
 coalesced snapshots. Counters include syscall/message batching, fallback,
 truncation, GSO/GRO, io_uring operations, queue high-water marks, reserved free
