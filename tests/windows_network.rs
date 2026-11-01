@@ -106,6 +106,7 @@ fn windows_native_udp_tcp_tls_and_stealth_exchange_real_noise_without_a_tun() {
             transport.with_performance(protun_next::performance::Options {
                 udp_backend: protun_next::performance::UdpBackend::Batch,
                 compact_pool: true,
+                in_place_crypto: cfg!(feature = "in-place-crypto"),
                 unbuffered_tls: mode == 4,
                 ..Default::default()
             })

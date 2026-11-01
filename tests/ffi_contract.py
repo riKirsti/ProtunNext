@@ -51,6 +51,12 @@ assert states.changed.wait(3), "state callback did not cross the FFI boundary"
 assert states.values[-1].connection_state.is_CONNECTING()
 assert cache.values, "identity persistence callback was not invoked"
 connection.update_unix_tun(api.TunStreamInfo.NO_TUN())
+options = api.Options(udp_backend=api.UdpBackend.BATCH, udp_batch_size=16,
+                      udp_offload=False, unbuffered_tls=True, compact_pool=True,
+                      in_place_crypto=False)
+assert connection.update_performance_options(options)
+options.udp_batch_size = 0
+assert not connection.update_performance_options(options)
 connection.disconnect_and_wait()
 connection.disconnect_and_wait()
 assert states.values[-1].connection_state.is_DISCONNECTED()

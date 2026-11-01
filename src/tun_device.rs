@@ -154,7 +154,7 @@ mod tests {
         let (device, peer) = UnixDatagram::pair().unwrap();
         peer.set_read_timeout(Some(Duration::from_secs(1))).unwrap();
         let owned: OwnedFd = device.into();
-        let mut device = TunDevice(File::from(owned));
+        let mut device = TunDevice::new(File::from(owned));
         for payload in [vec![0x45u8; 20], vec![0x60u8; 40]] {
             let mut expected = family_header(payload[0]).unwrap().to_vec();
             expected.extend_from_slice(&payload);

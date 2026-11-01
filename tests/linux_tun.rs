@@ -53,6 +53,15 @@ fn echo_ipv4(packet: &mut [u8], spoof: bool) {
 #[test]
 #[ignore = "requires a disposable network namespace and CAP_NET_ADMIN; never run on a router"]
 fn actual_udp_tcp_tls_engine_tun_roundtrips() {
+    tun_roundtrips(None);
+}
+#[test]
+#[ignore = "requires disposable namespace and CAP_NET_ADMIN; never run on a router"]
+fn actual_vnet_tun_headers_and_udp_gso_roundtrip() {
+    tun_roundtrips(Some(10));
+    tun_roundtrips(Some(12));
+}
+fn tun_roundtrips(vnet: Option<libc::c_int>) {
     assert_eq!(
         std::env::var("PROTUN_NEXT_NETNS_TEST").as_deref(),
         Ok("1"),
@@ -65,16 +74,40 @@ fn actual_udp_tcp_tls_engine_tun_roundtrips() {
         .unwrap();
     let mut request = [0u8; 40];
     request[..3].copy_from_slice(b"pn0");
-    request[16..18].copy_from_slice(&((libc::IFF_TUN | libc::IFF_NO_PI) as i16).to_ne_bytes());
+    let flags = libc::IFF_TUN
+        | libc::IFF_NO_PI
+        | if vnet.is_some() {
+            libc::IFF_VNET_HDR
+        } else {
+            0
+        };
+    request[16..18].copy_from_slice(&(flags as i16).to_ne_bytes());
     // SAFETY: valid TUN descriptor and 40-byte ifreq storage, private test namespace.
     let configured = unsafe { libc::ioctl(tun.as_raw_fd(), libc::TUNSETIFF, request.as_mut_ptr()) };
     assert_eq!(configured, 0);
+    if let Some(size) = vnet {
+        assert_eq!(
+            // SAFETY: host-owned TUN in a disposable namespace; explicit header ABI.
+            unsafe { libc::ioctl(tun.as_raw_fd(), libc::TUNSETVNETHDRSZ, &size) },
+            0
+        );
+        let flags = libc::TUN_F_CSUM
+            | libc::TUN_F_TSO4
+            | libc::TUN_F_TSO6
+            | libc::TUN_F_USO4
+            | libc::TUN_F_USO6;
+        assert_eq!(
+            // SAFETY: scalar offload negotiation on the test's own TUN descriptor.
+            unsafe { libc::ioctl(tun.as_raw_fd(), libc::TUNSETOFFLOAD, flags) },
+            0
+        );
+    }
     ip(&["link", "set", "lo", "up"]);
     ip(&["addr", "add", "10.2.0.2/32", "dev", "pn0"]);
     ip(&["link", "set", "pn0", "mtu", "1500", "up"]);
     ip(&["route", "add", "10.2.0.3/32", "dev", "pn0"]);
-    for mode in 0..15 {
-        let udp_mode = matches!(mode, 0 | 8 | 9 | 10 | 13);
+    for mode in 0..16 {
+        let udp_mode = matches!(mode, 0 | 8 | 9 | 10 | 13 | 15);
         let peer = UdpSocket::bind("127.0.0.1:0").unwrap();
         peer.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -121,6 +154,7 @@ fn actual_udp_tcp_tls_engine_tun_roundtrips() {
             let mut wire = pool.take().unwrap();
             let mut out = [0; 65535];
             let mut reply = [0; 65535];
+            let mut echoes = if mode == 15 { 3 } else { 1 };
             loop {
                 transport.receive(&mut wire);
                 let result = match session.decrypt(wire.data(), &mut out) {
@@ -142,6 +176,10 @@ fn actual_udp_tcp_tls_engine_tun_roundtrips() {
                             panic!("echo encrypt")
                         };
                         transport.send(&reply[..n], &mut pool);
+                        echoes -= 1;
+                        if echoes > 0 {
+                            continue;
+                        }
                         if mode == 7 {
                             return;
                         }
@@ -170,7 +208,7 @@ fn actual_udp_tcp_tls_engine_tun_roundtrips() {
             config.allowed_ips = vec!["10.2.0.4/32".into()];
         }
         let transport = match mode {
-            0 | 8 | 9 | 10 | 13 => linux::Transport::Udp,
+            0 | 8 | 9 | 10 | 13 | 15 => linux::Transport::Udp,
             1 | 7 | 14 => linux::Transport::Tcp,
             12 => linux::Transport::UnbufferedTls(Box::new(
                 tls::unbuffered_client_with_roots("localhost", common::roots()).unwrap(),
@@ -189,9 +227,10 @@ fn actual_udp_tcp_tls_engine_tun_roundtrips() {
                 } else {
                     protun_next::performance::UdpBackend::Batch
                 },
-                udp_offload: mode == 9,
+                udp_offload: mode == 9 || mode == 15,
                 unbuffered_tls: mode == 11,
                 compact_pool: true,
+                in_place_crypto: cfg!(feature = "in-place-crypto"),
                 ..Default::default()
             })
         } else {
@@ -233,9 +272,37 @@ fn actual_udp_tcp_tls_engine_tun_roundtrips() {
         // The caller-owned interface MTU exceeds the worker's initial 1280.
         // A full 1500-byte IP packet must survive without a truncated tail.
         let payload = [0x5a; 1472];
+        if mode == 15 {
+            let segment_size: libc::c_int = 500;
+            assert_eq!(
+                // SAFETY: scalar setting on an owned socket in a disposable namespace.
+                unsafe {
+                    libc::setsockopt(
+                        app.as_raw_fd(),
+                        libc::SOL_UDP,
+                        libc::UDP_SEGMENT,
+                        (&segment_size as *const libc::c_int).cast(),
+                        size_of::<libc::c_int>() as _,
+                    )
+                },
+                0
+            );
+        }
         app.send_to(&payload, "10.2.0.3:9000").unwrap();
         let mut response = [0; 1500];
         let received = app.recv_from(&mut response);
+        if mode == 15 {
+            let (n, from) = received.as_ref().unwrap();
+            assert_eq!(*n, 500);
+            assert_eq!(&response[..*n], &payload[..500]);
+            assert_eq!(*from, "10.2.0.3:9000".parse().unwrap());
+            for count in [500, 472] {
+                let (n, from) = app.recv_from(&mut response).unwrap();
+                assert_eq!(n, count);
+                assert_eq!(&response[..n], &payload[..count]);
+                assert_eq!(from, "10.2.0.3:9000".parse().unwrap());
+            }
+        }
         if mode == 7 {
             let (n, _) = received.unwrap();
             assert_eq!(
@@ -310,7 +377,11 @@ fn actual_udp_tcp_tls_engine_tun_roundtrips() {
             continue;
         }
         let (n, source) = received.unwrap();
-        assert_eq!(&response[..n], payload);
+        if mode == 15 {
+            assert_eq!(n, 500);
+        } else {
+            assert_eq!(&response[..n], payload);
+        }
         assert_eq!(source, "10.2.0.3:9000".parse().unwrap());
         assert!(counters.decrypted_packets >= 1);
         assert!(counters.tun_reads >= 1);
@@ -604,6 +675,15 @@ fn local_http_exists_offline_and_its_tcp_session_survives_worker_replacement() {
     };
     wait(true);
     finish(open());
+    let survives_tuning = open();
+    assert!(
+        connection.update_performance_options(protun_next::performance::Options {
+            compact_pool: true,
+            unbuffered_tls: true,
+            ..Default::default()
+        })
+    );
+    finish(survives_tuning);
     let persistent_tcp = open();
     connection.update_peers(vec![PeerInfo {
         peer_id: "unreachable TCP in namespace".into(),
