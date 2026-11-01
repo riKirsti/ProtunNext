@@ -286,6 +286,99 @@ impl Write for Pressured {
         Ok(())
     }
 }
+
+struct WriteGate {
+    socket: TcpStream,
+    blocked: Arc<std::sync::atomic::AtomicBool>,
+}
+impl Read for WriteGate {
+    fn read(&mut self, output: &mut [u8]) -> std::io::Result<usize> {
+        self.socket.read(output)
+    }
+}
+impl Write for WriteGate {
+    fn write(&mut self, input: &[u8]) -> std::io::Result<usize> {
+        if self.blocked.load(std::sync::atomic::Ordering::Acquire) {
+            return Err(std::io::ErrorKind::WouldBlock.into());
+        }
+        self.socket.write(input)
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.socket.flush()
+    }
+}
+#[test]
+fn unbuffered_tls_reads_progress_while_ciphertext_writes_are_blocked() {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let (ready, wait_ready) = std::sync::mpsc::channel();
+    let (release, wait_release) = std::sync::mpsc::channel();
+    let handle = thread::spawn(move || {
+        let (tcp, _) = listener.accept().unwrap();
+        let mut stream = StreamOwned::new(
+            ServerConnection::new(server_version(&[&rustls::version::TLS13])).unwrap(),
+            bound_socket(tcp),
+        );
+        let mut hello = [0; 5];
+        stream.read_exact(&mut hello).unwrap();
+        assert_eq!(&hello, b"hello");
+        stream.conn.refresh_traffic_keys().unwrap();
+        stream.write_all(b"inbound").unwrap();
+        stream.flush().unwrap();
+        ready.send(()).unwrap();
+        wait_release.recv_timeout(Duration::from_secs(5)).unwrap();
+        let mut pending = [0; 7];
+        stream.read_exact(&mut pending).unwrap();
+        assert_eq!(&pending, b"pending");
+        let mut next = [0; 4];
+        stream.read_exact(&mut next).unwrap();
+        assert_eq!(&next, b"next");
+    });
+    let blocked = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let tcp = bound_socket(TcpStream::connect(address).unwrap());
+    let mut stream = protun_next::tls_unbuffered::UnbufferedTlsIo::new(
+        WriteGate {
+            socket: tcp,
+            blocked: blocked.clone(),
+        },
+        tls::unbuffered_client_with_roots("localhost", roots()).unwrap(),
+    );
+    stream.write_all(b"hello").unwrap();
+    stream.flush().unwrap();
+    wait_ready.recv_timeout(Duration::from_secs(3)).unwrap();
+    stream.socket_mut().socket.set_nonblocking(true).unwrap();
+    blocked.store(true, std::sync::atomic::Ordering::Release);
+    assert_eq!(stream.write(b"pending").unwrap(), 7);
+    let mut incoming = [0; 64];
+    let mut received = 0;
+    let deadline = std::time::Instant::now() + Duration::from_secs(1);
+    while std::time::Instant::now() < deadline {
+        match stream.read(&mut incoming) {
+            Ok(n) => {
+                received = n;
+                break;
+            }
+            Err(e)
+                if matches!(
+                    e.kind(),
+                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::Interrupted
+                ) => {}
+            Err(e) => panic!("read: {e}"),
+        }
+        thread::sleep(Duration::from_millis(1));
+    }
+    blocked.store(false, std::sync::atomic::Ordering::Release);
+    stream.flush().unwrap();
+    stream.write_all(b"next").unwrap();
+    stream.flush().unwrap();
+    release.send(()).unwrap();
+    handle.join().unwrap();
+    assert_eq!(
+        &incoming[..received],
+        b"inbound",
+        "outgoing backpressure must not block independent TLS reception"
+    );
+}
 #[test]
 fn vectored_tls_retains_accepted_bytes_across_full_buffers_and_short_socket_writes() {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
