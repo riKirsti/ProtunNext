@@ -1,0 +1,7 @@
+[bindings.kotlin]
+package_name = "io.github.rikirsti.protunnext.generated"
+cdylib_name = "protun_next"
+
+[bindings.swift]
+module_name = "ProtunNext"
+ffi_module_name = "ProtunNextFFI"
