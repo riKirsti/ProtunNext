@@ -396,8 +396,9 @@ async fn run(
             Some(event) = agent_events.recv() => {
                 match &event {
                     ManagedLocalAgentEvent::ClientError(proton_vpn_local_agent::managed::UnrecoverableError::UnusableCertificate(_)) => {
-                        cache.remove(CacheKey::Certificate); invalidated = true; refresher.refresh_now();
-                        let _ = notices.send(Notice::CertificateUnavailable); continue;
+                        // pvpnclient supervisor/localagent.rs regenerates the
+                        // identity here; retrying this key's cert is insufficient.
+                        let _ = notices.send(Notice::Rekey); break;
                     }
                     ManagedLocalAgentEvent::NewCertificateNeeded(_) => { invalidated = true; refresher.refresh_now(); },
                     ManagedLocalAgentEvent::NewKeyNeeded(_) => { let _ = notices.send(Notice::Rekey); break; },
