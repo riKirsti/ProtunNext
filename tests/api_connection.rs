@@ -84,6 +84,7 @@ fn compatibility_supervisor_handshakes_without_tun_retains_peer_and_recovers_net
         },
         max_bytes: None,
     };
+    let started = Instant::now();
     let connection = Connection::unix_connect(
         InitialConnectionConfig {
             peers: vec![peer.clone()],
@@ -128,7 +129,18 @@ fn compatibility_supervisor_handshakes_without_tun_retains_peer_and_recovers_net
         "metadata update must retain socket/session"
     );
     connection.request_stats();
-    wait_for(&event_rx, |e| matches!(e, Event::ConnectionStats { .. }));
+    let Event::ConnectionStats {
+        mono_timestamp_ms: first_timestamp,
+        ..
+    } = wait_for(&event_rx, |e| matches!(e, Event::ConnectionStats { .. }))
+    else {
+        unreachable!()
+    };
+    assert!(
+        first_timestamp >= 0 && first_timestamp as u128 <= started.elapsed().as_millis() + 100,
+        "API timestamp must be relative to the connection, not OS uptime"
+    );
+    thread::sleep(Duration::from_millis(80));
     connection.on_connectivity_change(ConnectivityEvent::Down);
     wait_for(
         &state_rx,
@@ -139,6 +151,19 @@ fn compatibility_supervisor_handshakes_without_tun_retains_peer_and_recovers_net
         matches!(s.connection_state, ConnectionState::Connected { .. })
     });
     assert_eq!(protected.load(Ordering::Relaxed), 2);
+    connection.request_stats();
+    let Event::ConnectionStats {
+        mono_timestamp_ms: second_timestamp,
+        ..
+    } = wait_for(&event_rx, |e| matches!(e, Event::ConnectionStats { .. }))
+    else {
+        unreachable!()
+    };
+    assert!(
+        second_timestamp >= first_timestamp + 80,
+        "recreated worker must retain the connection's timestamp origin"
+    );
+    assert!(second_timestamp as u128 <= started.elapsed().as_millis() + 100);
     assert!(
         std::fs::metadata(&path).unwrap().len() > first_size,
         "failover must preserve rather than truncate capture"

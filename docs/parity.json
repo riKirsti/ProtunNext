@@ -108,11 +108,11 @@
     "id": "tun-replacement",
     "requirement": "Live TUN replacement and interface errors",
     "source": "https://github.com/ProtonVPN/protun/blob/a498c38ae6ffb0e68e7190b2831ef985d73fa6da/src/api/connection_unix.rs",
-    "status": "partially-implemented",
+    "status": "needs-live-verification",
     "evidence": [
       "src/connection.rs and src/linux.rs: wakeable replacement, optional TUN, detach on interface I/O errors; platform coverage pending"
     ],
-    "code_status": "partial"
+    "code_status": "complete"
   },
   {
     "id": "socket-protection",
@@ -131,7 +131,8 @@
     "source": "https://github.com/ProtonVPN/protun/blob/a498c38ae6ffb0e68e7190b2831ef985d73fa6da/src/api/events.rs",
     "status": "partially-implemented",
     "evidence": [
-      "src/api/supervisor.rs: generation-tagged worker statistics converted to compatibility callback events"
+      "src/api/supervisor.rs: generation-tagged worker statistics converted to compatibility callback events",
+      "src/api/supervisor.rs: event clock is relative to high-level connection creation and retains its origin across worker recreation; tests/api_connection.rs checks the origin and continuity"
     ],
     "code_status": "partial"
   },
@@ -139,12 +140,12 @@
     "id": "packet-capture-controls",
     "requirement": "Start/stop, file paths/descriptors, append/overwrite, disconnect and size events",
     "source": "https://github.com/ProtonVPN/protun/blob/a498c38ae6ffb0e68e7190b2831ef985d73fa6da/src/api/connection.rs",
-    "status": "partially-implemented",
+    "status": "implemented-local",
     "evidence": [
       "src/api/capture.rs, src/connection.rs: file modes, bounds, events and failover-persistent sink",
       "tests/capture_controls.rs: Unix owned write-only files preserve offset, nonseekable streams, file limits, symlink rejection; tests/api_connection.rs: failover capture continuity"
     ],
-    "code_status": "partial"
+    "code_status": "complete"
   },
   {
     "id": "persistent-cache",
@@ -194,7 +195,8 @@
     "status": "partially-implemented",
     "evidence": [
       "src/api/account.rs: RCRL issuance/renewal, duration, invalidation, expiry disconnection and key rejection; offline service fixtures pending",
-      "tests/account_api.rs: real Muon/RCRL request JSON, public test credentials, rejected-session events; no Proton service contacted"
+      "tests/account_api.rs: real Muon/RCRL request JSON, public test credentials, rejected-session events; no Proton service contacted",
+      "tests/account_api.rs: successful private fixture issuance, matching public-test Ed25519 identity, legacy certificate persistence and explicit replacement request; local test passed; not live mTLS/Proton acceptance"
     ],
     "code_status": "partial"
   },
@@ -314,11 +316,11 @@
     "id": "unix-bindings",
     "requirement": "Unix/Linux constructor, descriptor lifecycle and API bindings",
     "source": "https://github.com/ProtonVPN/protun/blob/a498c38ae6ffb0e68e7190b2831ef985d73fa6da/src/api/connection_unix.rs",
-    "status": "partially-implemented",
+    "status": "needs-live-verification",
     "evidence": [
       "src/api/supervisor.rs: native Unix compatibility API and descriptor ownership; generated Python calls actual native constructor/cache/state/shutdown in CI 41251229331; full platform policy tracked separately"
     ],
-    "code_status": "partial"
+    "code_status": "complete"
   },
   {
     "id": "apple-adapter",
@@ -345,8 +347,9 @@
     "source": "https://github.com/ProtonVPN/protun/blob/a498c38ae6ffb0e68e7190b2831ef985d73fa6da/vpn-core-android/vpn-core",
     "status": "partially-implemented",
     "evidence": [
-      "CI 41248700583: AArch64 Android API25 native library and Kotlin bindings built",
-      "Native Linux/Android TUN_NO_PI plus VpnService socket callback are wired; high-level Android service library remains missing"
+      "android/: executable service/core/manager, interface/DNS/routes/IPv6/per-app configuration, physical socket protection, network events, per-user cipher/cache, account/capture/stat controls and process/always-on callbacks",
+      "CI 41268188099 at fd340cc: actual Android API25 ELF, generated Kotlin, service and unit tests compile; inspected AAR contains JNI library, service/core/manager and generated native Connection; physical device acceptance deferred",
+      "android/README.md documents fresh API migration, remaining device verification, pre-API31 network selection and unverified additional ABI builds"
     ],
     "code_status": "partial"
   },
@@ -378,7 +381,8 @@
       "src/virtual_policy.rs: fixed-address isolation, local-service exclusion and subnet blackholes",
       "src/api/internal.rs: control/customer NAT collision handling; tests/internal_network.rs uses three actual IP stacks",
       "src/api/local_http.rs: bounded local HTTP endpoint; src/api/fragments.rs: bounded ten-second first-fragment ownership, real-stack fragmented UDP fixture; dynamic Windows subnet parity remains incomplete",
-      "Pinned pvpnclient net/packet.rs and firewall.rs pass non-TCP/UDP (including ICMP/IPv6 extensions) unchanged; related-ICMP NAT is not an upstream requirement"
+      "Pinned pvpnclient net/packet.rs and firewall.rs pass non-TCP/UDP (including ICMP/IPv6 extensions) unchanged; related-ICMP NAT is not an upstream requirement",
+      "CI 41252701484: real-stack fragmented private UDP reassembly passed with the bounded first-fragment ownership table"
     ],
     "code_status": "partial"
   },
@@ -386,8 +390,8 @@
     "id": "connectivity-probes",
     "requirement": "Initial data-path verification, 500 unanswered-packet trigger, bounded probe retries and failover",
     "source": "https://rust-registry.proton.me/index/pv/pn/pvpnclient",
-    "status": "partially-implemented",
-    "code_status": "partial",
+    "status": "implemented-local",
+    "code_status": "complete",
     "evidence": [
       "src/path_probe.rs and src/engine.rs: published ICMP wire marker, 500/1000/2000/4000ms retries, authenticated decrypted data confirms path",
       "tests/api_connection.rs: handshake-only peer must fail over to a peer answering encrypted probes; passed CI 41251229331"
