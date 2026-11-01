@@ -119,6 +119,12 @@ impl Connection {
                     capture: Arc::new(CaptureState::default()),
                     #[cfg(feature = "local-agent")]
                     account: None,
+                    #[cfg(feature = "control-plane")]
+                    control: None,
+                    #[cfg(all(feature = "control-plane", not(feature = "local-agent")))]
+                    local_http: None,
+                    #[cfg(feature = "local-agent")]
+                    connector: None,
                     #[cfg(feature = "local-agent")]
                     agent_state: Default::default(),
                     #[cfg(feature = "local-agent")]
@@ -241,6 +247,12 @@ struct Supervisor {
     capture: Arc<CaptureState>,
     #[cfg(feature = "local-agent")]
     account: Option<super::account::Service>,
+    #[cfg(feature = "control-plane")]
+    control: Option<Arc<crate::connection::ControlNetwork>>,
+    #[cfg(all(feature = "control-plane", not(feature = "local-agent")))]
+    local_http: Option<super::local_http::Service>,
+    #[cfg(feature = "local-agent")]
+    connector: Option<super::internal::InternalConnector>,
     #[cfg(feature = "local-agent")]
     agent_state: super::agent_state::AgentState,
     #[cfg(feature = "local-agent")]
@@ -267,6 +279,21 @@ impl Supervisor {
             self.capture.start(info)?;
         }
         self.rebuild();
+        #[cfg(feature = "control-plane")]
+        {
+            let (control, connector) =
+                crate::connection::ControlNetwork::create(platform::addresses(self.tun.as_ref()))?;
+            self.control = Some(control);
+            #[cfg(feature = "local-agent")]
+            {
+                self.connector = Some(connector);
+                self.start_account()?;
+            }
+            #[cfg(not(feature = "local-agent"))]
+            {
+                self.local_http = Some(super::local_http::Service::start(connector)?);
+            }
+        }
         Ok(())
     }
     fn rebuild(&mut self) {
@@ -319,11 +346,6 @@ impl Supervisor {
         });
     }
     fn stop_worker(&mut self) {
-        #[cfg(feature = "local-agent")]
-        {
-            self.account = None;
-            self.agent_state = Default::default();
-        }
         if let Some(mut worker) = self.worker.take() {
             let _ = worker.disconnect_and_wait();
             for event in worker.take_events() {
@@ -360,17 +382,35 @@ impl Supervisor {
             mtu: 1420,
             keepalive: Some(25),
         };
-        let worker = Worker::start_owned(
+        #[cfg(feature = "local-agent")]
+        if let Some(account) = &self.account {
+            account.send(super::account::Command::Peer(candidate.peer.clone()));
+        }
+        let worker = Worker::start_runtime(
             self.tun.as_ref().map(platform::clone_tun).transpose()?,
-            config,
-            String::new(),
-            transport,
+            Some((config, String::new(), transport)),
             self.protector.clone(),
-            Some(self.capture.clone()),
+            self.runtime_services(),
         )?;
         self.worker = Some(worker);
         self.active = Some(candidate);
         self.attempt_at = Instant::now();
+        Ok(())
+    }
+    fn runtime_services(&self) -> crate::connection::RuntimeServices {
+        crate::connection::RuntimeServices {
+            capture: Some(self.capture.clone()),
+            #[cfg(feature = "control-plane")]
+            control: self.control.clone(),
+        }
+    }
+    fn start_offline(&mut self) -> Result<()> {
+        self.worker = Some(Worker::start_runtime(
+            self.tun.as_ref().map(platform::clone_tun).transpose()?,
+            None,
+            self.protector.clone(),
+            self.runtime_services(),
+        )?);
         Ok(())
     }
     fn run(&mut self, receiver: mpsc::Receiver<Command>) {
@@ -384,27 +424,34 @@ impl Supervisor {
                 }
                 Err(mpsc::RecvTimeoutError::Timeout) => {}
             }
-            if !self.config.network_available {
-                self.publish(ConnectionState::Connecting {
-                    peers: Vec::new(),
-                    wait_reasons: vec![PeerConnectionWaitReason::WaitingForNetwork],
-                });
-                continue;
+            #[cfg(feature = "local-agent")]
+            if let Err(error) = self.poll_account() {
+                log::error!("cannot maintain control path: {error}");
+                self.fatal = true;
             }
             if self.fatal {
                 break;
             }
-            if self.worker.is_none()
-                && Instant::now() >= self.retry_at
-                && let Err(error) = self.start_next()
-            {
-                log::warn!("candidate start failed: {error}");
-                self.schedule_retry();
-            }
-            let snapshot = self.worker.as_ref().map(Worker::snapshot);
             for event in self.capture.take_events() {
                 self.event_callback.on_event(event);
             }
+            let ready = self.config.network_available
+                && !self.plan.is_empty()
+                && Instant::now() >= self.retry_at;
+            if self.active.is_none() && ready {
+                self.stop_worker();
+                if let Err(error) = self.start_next() {
+                    log::warn!("candidate start failed: {error}");
+                    self.schedule_retry();
+                }
+            }
+            if self.worker.is_none()
+                && let Err(error) = self.start_offline()
+            {
+                self.disconnected(Some(error.to_string()));
+                break;
+            }
+            let snapshot = self.worker.as_ref().map(Worker::snapshot);
             if let Some(snapshot) = &snapshot
                 && self
                     .requested_stats
@@ -429,20 +476,28 @@ impl Supervisor {
                     });
                 }
             }
+            if self.active.is_none() {
+                if let Some(WorkerState::Failed(error)) =
+                    self.worker.as_ref().map(|w| w.snapshot().state)
+                {
+                    log::error!("local packet worker failed: {error}");
+                    self.fatal = true;
+                    continue;
+                }
+                self.publish(ConnectionState::Connecting {
+                    peers: Vec::new(),
+                    wait_reasons: if self.config.network_available {
+                        Vec::new()
+                    } else {
+                        vec![PeerConnectionWaitReason::WaitingForNetwork]
+                    },
+                });
+                continue;
+            }
             match snapshot {
                 Some(snapshot) if snapshot.state == WorkerState::TunnelEstablished => {
                     self.attempts = 0;
                     let peer = self.active.as_ref().expect("active worker").info();
-                    #[cfg(feature = "local-agent")]
-                    {
-                        if let Err(error) = self.poll_account() {
-                            log::error!("cannot start control path: {error}");
-                            self.fatal = true;
-                        }
-                        if self.active.is_none() {
-                            continue;
-                        }
-                    }
                     match self.config.connection_mode {
                         ConnectionMode::NoLocalAgent { .. } => {
                             self.publish(ConnectionState::Connected {
@@ -476,6 +531,19 @@ impl Supervisor {
             }
         }
         self.stop_worker();
+        #[cfg(feature = "local-agent")]
+        {
+            self.account = None;
+            self.connector = None;
+        }
+        #[cfg(all(feature = "control-plane", not(feature = "local-agent")))]
+        {
+            self.local_http = None;
+        }
+        #[cfg(feature = "control-plane")]
+        {
+            self.control = None;
+        }
         let _ = self.capture.stop(true);
         for event in self.capture.take_events() {
             self.event_callback.on_event(event);
@@ -584,19 +652,15 @@ impl Supervisor {
         Ok(())
     }
     #[cfg(feature = "local-agent")]
-    fn poll_account(&mut self) -> Result<()> {
-        use super::account::{Command as AccountCommand, Notice, Service};
-        use proton_vpn_local_agent::managed::ManagedLocalAgentEvent as AgentEvent;
+    fn start_account(&mut self) -> Result<()> {
+        use super::account::{Command as AccountCommand, Service};
         if self.account.is_none() {
-            let network = self
-                .worker
-                .as_ref()
-                .expect("active worker")
-                .create_control_network()?;
-            let account = Service::start(
-                network,
+            let account = Service::start_waiting(
+                self.connector
+                    .as_ref()
+                    .expect("initialized control network")
+                    .clone(),
                 self.config.connection_mode.clone(),
-                self.active.as_ref().expect("active peer").peer.clone(),
                 self.cache.clone(),
             )?;
             if let Some(info) = self.pending_fork.take() {
@@ -604,6 +668,12 @@ impl Supervisor {
             }
             self.account = Some(account);
         }
+        Ok(())
+    }
+    #[cfg(feature = "local-agent")]
+    fn poll_account(&mut self) -> Result<()> {
+        use super::account::{Notice, Service};
+        use proton_vpn_local_agent::managed::ManagedLocalAgentEvent as AgentEvent;
         // Each pass is bounded; a noisy server cannot starve connectivity commands.
         for _ in 0..64 {
             let notice = self.account.as_ref().and_then(Service::try_recv);
@@ -625,6 +695,9 @@ impl Supervisor {
                         Identity::load_or_generate(self.cache.as_ref())?.wireguard_key(),
                     );
                     self.stop_worker();
+                    self.account = None;
+                    self.agent_state = Default::default();
+                    self.start_account()?;
                     self.retry_at = Instant::now();
                     break;
                 }

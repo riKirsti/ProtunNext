@@ -397,7 +397,9 @@ fn tracked_customer_reply_outside_virtual_subnet_survives_the_real_tun_pipeline(
                     Output::Network(n) => {
                         socket.send_to(&output[..n], remote).unwrap();
                     }
-                    Output::Tunnel(n) if n >= 28 => {
+                    // The kernel can also emit IPv6 router solicitation on a
+                    // newly created TUN. This reference only echoes IPv4 traffic.
+                    Output::Tunnel(n) if n >= 28 && output[0] >> 4 == 4 => {
                         if output[9] == 1 {
                             assert_eq!(output[20], 8);
                             for index in 0..4 {
@@ -489,4 +491,101 @@ fn tracked_customer_reply_outside_virtual_subnet_survives_the_real_tun_pipeline(
     connection.disconnect_and_wait();
     stop.store(true, Ordering::Relaxed);
     peer.join().unwrap();
+}
+
+#[cfg(feature = "control-plane")]
+#[test]
+#[ignore = "requires a disposable network namespace and CAP_NET_ADMIN; never run on a router"]
+fn local_http_exists_offline_and_its_tcp_session_survives_worker_replacement() {
+    use protun_next::api::{cache::MemoryCache, connection::*};
+    use std::{os::fd::IntoRawFd, sync::mpsc};
+    assert_eq!(std::env::var("PROTUN_NEXT_NETNS_TEST").as_deref(), Ok("1"));
+    let tun = File::options()
+        .read(true)
+        .write(true)
+        .open("/dev/net/tun")
+        .unwrap();
+    let mut request = [0u8; 40];
+    request[..5].copy_from_slice(b"pnweb");
+    request[16..18].copy_from_slice(&((libc::IFF_TUN | libc::IFF_NO_PI) as i16).to_ne_bytes());
+    // SAFETY: complete ifreq buffer and owned TUN descriptor in disposable namespace.
+    let result = unsafe { libc::ioctl(tun.as_raw_fd(), libc::TUNSETIFF, request.as_mut_ptr()) };
+    assert_eq!(result, 0);
+    ip(&["addr", "add", "10.2.0.2/32", "dev", "pnweb"]);
+    ip(&["link", "set", "pnweb", "up"]);
+    ip(&["route", "add", "10.2.0.3/32", "dev", "pnweb"]);
+    let (states, receiver) = mpsc::channel();
+    let connection = protun_next::api::connection::Connection::unix_connect(
+        InitialConnectionConfig {
+            peers: vec![],
+            connection_mode: ConnectionMode::NoLocalAgent {
+                wg_private_key: Some(WgClientPrivateKey([7; 32])),
+            },
+            network_available: false,
+            pcap_file: None,
+            sni_strategy: SniStrategy::Random,
+        },
+        Some(tun.into_raw_fd()),
+        Box::new(move |state| {
+            let _ = states.send(state);
+        }),
+        Box::new(|_| {}),
+        None,
+        Box::new(MemoryCache::default()),
+    );
+    let wait = |offline: bool| {
+        let deadline = std::time::Instant::now() + Duration::from_secs(4);
+        loop {
+            let state: VpnState = receiver
+                .recv_timeout(deadline.saturating_duration_since(std::time::Instant::now()))
+                .unwrap();
+            if let ConnectionState::Connecting { wait_reasons, .. } = state.connection_state
+                && wait_reasons.contains(&PeerConnectionWaitReason::WaitingForNetwork) == offline
+            {
+                break;
+            }
+        }
+    };
+    let open = || {
+        let deadline = std::time::Instant::now() + Duration::from_secs(3);
+        loop {
+            match TcpStream::connect_timeout(
+                &"10.2.0.3:80".parse().unwrap(),
+                Duration::from_millis(100),
+            ) {
+                Ok(stream) => {
+                    stream
+                        .set_read_timeout(Some(Duration::from_secs(3)))
+                        .unwrap();
+                    stream
+                        .set_write_timeout(Some(Duration::from_secs(3)))
+                        .unwrap();
+                    break stream;
+                }
+                Err(error) => assert!(
+                    std::time::Instant::now() < deadline,
+                    "local service startup: {error}"
+                ),
+            }
+        }
+    };
+    let finish = |mut stream: TcpStream| {
+        stream
+            .write_all(b"GET / HTTP/1.1\r\nHost: local\r\n\r\n")
+            .unwrap();
+        let mut reply = Vec::new();
+        stream.read_to_end(&mut reply).unwrap();
+        assert!(reply.starts_with(b"HTTP/1.1 200 OK\r\n"));
+        assert!(reply.ends_with(b"Hello World"));
+    };
+    wait(true);
+    finish(open());
+    let persistent_tcp = open();
+    connection.on_connectivity_change(ConnectivityEvent::Up);
+    wait(false);
+    finish(persistent_tcp);
+    connection.on_connectivity_change(ConnectivityEvent::Down);
+    wait(true);
+    finish(open());
+    connection.disconnect_and_wait();
 }

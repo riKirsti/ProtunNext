@@ -67,10 +67,70 @@ struct Shared {
     tun_update: Mutex<Option<Option<TunHandle>>>,
     protector: Option<Arc<dyn SocketProtector>>,
     waker: Mutex<Option<Arc<mio::Waker>>>,
-    #[cfg(feature = "local-agent")]
-    internal: Mutex<Option<crate::api::internal::InternalNetwork>>,
-    #[cfg(feature = "local-agent")]
-    internal_enabled: AtomicBool,
+    #[cfg(feature = "control-plane")]
+    internal: Arc<ControlNetwork>,
+}
+/// Owned by the high-level connection, independently of a transport worker.
+/// TCP state, NAT ownership and the local HTTP listener survive socket changes.
+#[cfg(feature = "control-plane")]
+#[derive(Default)]
+pub(crate) struct ControlNetwork {
+    network: Mutex<Option<crate::api::internal::InternalNetwork>>,
+    enabled: AtomicBool,
+    waker: Mutex<Option<std::sync::Weak<mio::Waker>>>,
+}
+#[cfg(feature = "control-plane")]
+impl ControlNetwork {
+    pub(crate) fn create(
+        addresses: crate::addressing::Addresses,
+    ) -> Result<(Arc<Self>, crate::api::internal::InternalConnector)> {
+        let control = Arc::new(Self::default());
+        let connector = control.initialize(addresses)?;
+        Ok((control, connector))
+    }
+    fn initialize(
+        self: &Arc<Self>,
+        addresses: crate::addressing::Addresses,
+    ) -> Result<crate::api::internal::InternalConnector> {
+        struct WakeControl(std::sync::Weak<ControlNetwork>);
+        impl std::task::Wake for WakeControl {
+            fn wake(self: Arc<Self>) {
+                if let Some(control) = self.0.upgrade() {
+                    control.wake();
+                }
+            }
+        }
+        let mut slot = self.network.lock().unwrap_or_else(|e| e.into_inner());
+        if slot.is_some() {
+            return Err(Error::Invalid("control network already initialized"));
+        }
+        let (connector, network) = crate::api::internal::InternalNetwork::with_addresses(
+            platform::boottime()?,
+            WakeControl(Arc::downgrade(self)),
+            addresses,
+        )?;
+        *slot = Some(network);
+        self.enabled.store(true, Ordering::Relaxed);
+        self.wake();
+        Ok(connector)
+    }
+    fn wake(&self) {
+        if let Some(waker) = self
+            .waker
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_ref()
+            .and_then(std::sync::Weak::upgrade)
+        {
+            let _ = waker.wake();
+        }
+    }
+}
+#[derive(Default)]
+pub(crate) struct RuntimeServices {
+    pub(crate) capture: Option<Arc<CaptureState>>,
+    #[cfg(feature = "control-plane")]
+    pub(crate) control: Option<Arc<ControlNetwork>>,
 }
 /// A supervisor retains one sink across peer/socket replacement, so failover
 /// neither truncates capture files nor repeats descriptor ownership transfer.
@@ -137,16 +197,26 @@ impl Observer {
         self.shared.compatibility_policy
     }
     pub(crate) fn set_waker(&self, waker: Arc<mio::Waker>) {
+        #[cfg(feature = "control-plane")]
+        {
+            *self
+                .shared
+                .internal
+                .waker
+                .lock()
+                .unwrap_or_else(|e| e.into_inner()) = Some(Arc::downgrade(&waker));
+        }
         *self.shared.waker.lock().unwrap_or_else(|e| e.into_inner()) = Some(waker);
     }
-    #[cfg(feature = "local-agent")]
+    #[cfg(feature = "control-plane")]
     pub(crate) fn internal_read(&self, output: &mut [u8], now: Duration) -> Result<Option<usize>> {
-        if !self.shared.internal_enabled.load(Ordering::Relaxed) {
+        if !self.shared.internal.enabled.load(Ordering::Relaxed) {
             return Ok(None);
         }
         match self
             .shared
             .internal
+            .network
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .as_mut()
@@ -155,13 +225,13 @@ impl Observer {
             None => Ok(None),
         }
     }
-    #[cfg(feature = "local-agent")]
+    #[cfg(feature = "control-plane")]
     pub(crate) fn internal_receive(
         &self,
         bytes: &mut [u8],
         now: Duration,
     ) -> Result<crate::api::internal::PacketDisposition> {
-        if !self.shared.internal_enabled.load(Ordering::Relaxed)
+        if !self.shared.internal.enabled.load(Ordering::Relaxed)
             || !crate::api::internal::InternalNetwork::might_receive(bytes)
         {
             return Ok(crate::api::internal::PacketDisposition::Untracked);
@@ -169,6 +239,7 @@ impl Observer {
         match self
             .shared
             .internal
+            .network
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .as_mut()
@@ -177,10 +248,10 @@ impl Observer {
             None => Ok(crate::api::internal::PacketDisposition::Untracked),
         }
     }
-    #[cfg(feature = "local-agent")]
+    #[cfg(feature = "control-plane")]
     pub(crate) fn customer_outbound(&self, bytes: &mut [u8]) -> Result<()> {
         if !self.shared.compatibility_policy
-            || !self.shared.internal_enabled.load(Ordering::Relaxed)
+            || !self.shared.internal.enabled.load(Ordering::Relaxed)
             || !crate::api::internal::InternalNetwork::might_send(bytes)
         {
             return Ok(());
@@ -188,6 +259,7 @@ impl Observer {
         if let Some(network) = self
             .shared
             .internal
+            .network
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .as_mut()
@@ -196,9 +268,9 @@ impl Observer {
         }
         Ok(())
     }
-    #[cfg(feature = "local-agent")]
+    #[cfg(feature = "control-plane")]
     pub(crate) fn internal_local(&self, bytes: &[u8], now: Duration) -> Result<bool> {
-        if !self.shared.internal_enabled.load(Ordering::Relaxed)
+        if !self.shared.internal.enabled.load(Ordering::Relaxed)
             || !crate::api::internal::local_service_destination_with(bytes, self.shared.addresses)
         {
             return Ok(false);
@@ -206,6 +278,7 @@ impl Observer {
         match self
             .shared
             .internal
+            .network
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .as_mut()
@@ -214,13 +287,14 @@ impl Observer {
             None => Ok(false),
         }
     }
-    #[cfg(feature = "local-agent")]
+    #[cfg(feature = "control-plane")]
     pub(crate) fn internal_wakeup(&self, now: Duration) -> Option<Duration> {
-        if !self.shared.internal_enabled.load(Ordering::Relaxed) {
+        if !self.shared.internal.enabled.load(Ordering::Relaxed) {
             return None;
         }
         self.shared
             .internal
+            .network
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .as_ref()
@@ -358,6 +432,37 @@ impl Observer {
         snapshot.sequence = snapshot.sequence.saturating_add(1);
         self.shared.changed.notify_all();
     }
+    pub(crate) fn observe_offline(&self, counters: &Counters, now: Duration) {
+        let request = self.shared.stats_requested.load(Ordering::Relaxed);
+        let ms = now.as_millis().min(u64::MAX as u128) as u64;
+        if request == self.shared.stats_observed.load(Ordering::Relaxed)
+            && ms < self.shared.next_sample_ms.load(Ordering::Relaxed)
+        {
+            return;
+        }
+        self.shared
+            .next_sample_ms
+            .store(ms.saturating_add(1000), Ordering::Relaxed);
+        let mut snapshot = self
+            .shared
+            .snapshot
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        snapshot.elapsed = now.saturating_sub(self.start);
+        snapshot.mono_timestamp = now;
+        snapshot.statistics = Some(Statistics {
+            handshake_age: None,
+            sent_bytes: 0,
+            received_bytes: 0,
+            estimated_loss: 0.0,
+            handshake_rtt: None,
+        });
+        snapshot.stats_generation = request;
+        snapshot.counters = counters.clone();
+        snapshot.sequence = snapshot.sequence.saturating_add(1);
+        self.shared.stats_observed.store(request, Ordering::Relaxed);
+        self.shared.changed.notify_all();
+    }
     fn finish(&self, result: &Result<Counters>) {
         if self.shared.owns_capture {
             let _ = self.shared.capture.stop(true);
@@ -430,6 +535,23 @@ impl Connection {
         protector: Option<Arc<dyn SocketProtector>>,
         capture: Option<Arc<CaptureState>>,
     ) -> Result<Self> {
+        Self::start_runtime(
+            owned_tun,
+            Some((config, uplink, transport)),
+            protector,
+            RuntimeServices {
+                capture,
+                ..Default::default()
+            },
+        )
+    }
+    pub(crate) fn start_runtime(
+        owned_tun: Option<TunHandle>,
+        tunnel: Option<(WireguardConfig, String, Transport)>,
+        protector: Option<Arc<dyn SocketProtector>>,
+        services: RuntimeServices,
+    ) -> Result<Self> {
+        let capture = services.capture;
         let start = platform::boottime()?;
         let shared = Arc::new(Shared {
             addresses: platform::addresses(owned_tun.as_ref()),
@@ -457,10 +579,8 @@ impl Connection {
             tun_update: Mutex::new(None),
             protector,
             waker: Mutex::new(None),
-            #[cfg(feature = "local-agent")]
-            internal: Mutex::new(None),
-            #[cfg(feature = "local-agent")]
-            internal_enabled: AtomicBool::new(false),
+            #[cfg(feature = "control-plane")]
+            internal: services.control.unwrap_or_default(),
         });
         let observer = Observer {
             shared: shared.clone(),
@@ -469,14 +589,17 @@ impl Connection {
         let worker = thread::Builder::new()
             .name("protun-next-packets".into())
             .spawn(move || {
-                let result = platform::run_owned(
-                    owned_tun,
-                    &config,
-                    &uplink,
-                    transport,
-                    &observer.shared.stop,
-                    Some(&observer),
-                );
+                let result = match tunnel {
+                    Some((config, uplink, transport)) => platform::run_owned(
+                        owned_tun,
+                        &config,
+                        &uplink,
+                        transport,
+                        &observer.shared.stop,
+                        Some(&observer),
+                    ),
+                    None => crate::engine::run_offline(owned_tun, &observer.shared.stop, &observer),
+                };
                 let result = match result {
                     Err(Error::Io(e))
                         if observer.shared.stop.load(Ordering::Relaxed)
@@ -528,35 +651,9 @@ impl Connection {
             let _ = waker.wake();
         }
     }
-    #[cfg(feature = "local-agent")]
+    #[cfg(feature = "control-plane")]
     pub fn create_control_network(&self) -> Result<crate::api::internal::InternalConnector> {
-        struct WakeControl(std::sync::Weak<Shared>);
-        impl std::task::Wake for WakeControl {
-            fn wake(self: Arc<Self>) {
-                if let Some(shared) = self.0.upgrade()
-                    && let Some(waker) = shared
-                        .waker
-                        .lock()
-                        .unwrap_or_else(|e| e.into_inner())
-                        .as_ref()
-                {
-                    let _ = waker.wake();
-                }
-            }
-        }
-        let (connector, network) = crate::api::internal::InternalNetwork::with_addresses(
-            platform::boottime()?,
-            WakeControl(Arc::downgrade(&self.shared)),
-            self.shared.addresses,
-        )?;
-        *self
-            .shared
-            .internal
-            .lock()
-            .unwrap_or_else(|e| e.into_inner()) = Some(network);
-        self.shared.internal_enabled.store(true, Ordering::Relaxed);
-        self.wake();
-        Ok(connector)
+        self.shared.internal.initialize(self.shared.addresses)
     }
     pub fn start_packet_capture(&self, info: PcapFileInfo) -> Result<()> {
         self.shared.capture.start(info)
