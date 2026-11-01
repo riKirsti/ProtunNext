@@ -8,7 +8,7 @@ use crate::{
 #[cfg(unix)]
 use mio::unix::SourceFd;
 use mio::{Interest, Token};
-use std::io::{self, Read, Write};
+use std::io::{self, IoSlice, Read, Write};
 
 #[cfg(windows)]
 use mio::net::{TcpStream, UdpSocket};
@@ -152,7 +152,82 @@ impl WireSocket for TcpStream {
         self.as_raw_fd()
     }
 }
-impl WireSocket for TlsIo<TcpStream> {
+/// A nonblocking SYN is completed by the packet reactor rather than a setup
+/// wait loop. The TUN and local service continue making progress meanwhile.
+pub(crate) struct ConnectingTcp {
+    socket: TcpStream,
+    connected: bool,
+}
+impl ConnectingTcp {
+    pub(crate) fn new(socket: TcpStream) -> Self {
+        Self {
+            socket,
+            connected: false,
+        }
+    }
+    fn ready(&mut self) -> io::Result<()> {
+        if self.connected {
+            return Ok(());
+        }
+        if let Some(error) = self.socket.take_error()? {
+            return Err(error);
+        }
+        match self.socket.peer_addr() {
+            Ok(_) => {
+                self.connected = true;
+                Ok(())
+            }
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    io::ErrorKind::NotConnected | io::ErrorKind::WouldBlock
+                ) =>
+            {
+                Err(io::ErrorKind::WouldBlock.into())
+            }
+            Err(error) => Err(error),
+        }
+    }
+}
+impl Read for ConnectingTcp {
+    fn read(&mut self, bytes: &mut [u8]) -> io::Result<usize> {
+        self.ready()?;
+        self.socket.read(bytes)
+    }
+}
+impl Write for ConnectingTcp {
+    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        self.ready()?;
+        self.socket.write(bytes)
+    }
+    fn write_vectored(&mut self, bytes: &[IoSlice<'_>]) -> io::Result<usize> {
+        self.ready()?;
+        self.socket.write_vectored(bytes)
+    }
+    fn flush(&mut self) -> io::Result<()> {
+        self.ready()?;
+        self.socket.flush()
+    }
+}
+impl WireSocket for ConnectingTcp {
+    fn register(&mut self, r: &mio::Registry, t: Token, i: Interest) -> io::Result<()> {
+        WireSocket::register(&mut self.socket, r, t, i)
+    }
+    fn reregister(&mut self, r: &mio::Registry, t: Token, i: Interest) -> io::Result<()> {
+        WireSocket::reregister(&mut self.socket, r, t, i)
+    }
+    #[cfg(unix)]
+    fn fd(&self) -> i32 {
+        self.socket.as_raw_fd()
+    }
+    fn wants_write(&self) -> bool {
+        !self.connected
+    }
+    fn handshaking(&self) -> bool {
+        !self.connected
+    }
+}
+impl<S: WireSocket> WireSocket for TlsIo<S> {
     fn register(&mut self, r: &mio::Registry, t: Token, i: Interest) -> io::Result<()> {
         WireSocket::register(self.socket_mut(), r, t, i)
     }
@@ -162,13 +237,13 @@ impl WireSocket for TlsIo<TcpStream> {
 
     #[cfg(unix)]
     fn fd(&self) -> i32 {
-        self.socket().as_raw_fd()
+        self.socket().fd()
     }
     fn wants_write(&self) -> bool {
-        self.wants_write()
+        self.wants_write() || self.socket().wants_write()
     }
     fn handshaking(&self) -> bool {
-        self.is_handshaking()
+        self.is_handshaking() || self.socket().handshaking()
     }
 }
 pub(crate) struct Stream<S>(pub FramedIo<S>);

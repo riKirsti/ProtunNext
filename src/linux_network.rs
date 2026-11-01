@@ -1,12 +1,9 @@
 //! Unix socket setup; packet I/O and backpressure are shared across platforms.
 use crate::{Error, Result};
-use mio::{Events, Interest, Poll, Token, unix::SourceFd};
 use std::{
     io,
     net::{SocketAddr, TcpStream},
     os::fd::AsRawFd,
-    sync::atomic::{AtomicBool, Ordering},
-    time::{Duration, Instant},
 };
 pub(crate) fn bind_device(fd: i32, device: &str, ipv6: bool) -> Result<()> {
     if device.is_empty() || device.len() >= libc::IFNAMSIZ || device.as_bytes().contains(&0) {
@@ -63,9 +60,8 @@ pub(crate) fn bind_device(fd: i32, device: &str, ipv6: bool) -> Result<()> {
 pub(crate) fn connect_tcp(
     endpoint: SocketAddr,
     device: &str,
-    stop: &AtomicBool,
     protector: Option<&dyn crate::api::types::SocketProtector>,
-) -> Result<TcpStream> {
+) -> Result<crate::network::ConnectingTcp> {
     let socket = socket2::Socket::new(
         socket2::Domain::for_address(endpoint),
         socket2::Type::STREAM,
@@ -81,47 +77,12 @@ pub(crate) fn connect_tcp(
     {
         return Err(io::Error::from(io::ErrorKind::PermissionDenied).into());
     }
-    let connecting = match socket.connect(&endpoint.into()) {
-        Ok(()) => false,
-        Err(error) if error.raw_os_error() == Some(libc::EINPROGRESS) => true,
+    match socket.connect(&endpoint.into()) {
+        Ok(()) => {}
+        Err(error) if error.raw_os_error() == Some(libc::EINPROGRESS) => {}
         Err(error) => return Err(error.into()),
-    };
-    let socket: TcpStream = socket.into();
-    if connecting {
-        let mut poll = Poll::new()?;
-        poll.registry()
-            .register(&mut SourceFd(&fd), Token(0), Interest::WRITABLE)?;
-        let mut events = Events::with_capacity(4);
-        let deadline = Instant::now() + Duration::from_secs(10);
-        loop {
-            if stop.load(Ordering::Relaxed) {
-                return Err(io::Error::from(io::ErrorKind::Interrupted).into());
-            }
-            if Instant::now() >= deadline {
-                return Err(io::Error::from(io::ErrorKind::TimedOut).into());
-            }
-            match poll.poll(&mut events, Some(Duration::from_millis(100))) {
-                Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
-                result => result?,
-            }
-            if events.is_empty() {
-                continue;
-            }
-            if let Some(error) = socket.take_error()? {
-                return Err(error.into());
-            }
-            match socket.peer_addr() {
-                Ok(_) => break,
-                Err(e)
-                    if e.kind() == io::ErrorKind::NotConnected
-                        || e.raw_os_error() == Some(libc::EINPROGRESS) =>
-                {
-                    continue;
-                }
-                Err(e) => return Err(e.into()),
-            }
-        }
     }
+    let socket: TcpStream = socket.into();
     socket.set_nodelay(true)?;
-    Ok(socket)
+    Ok(crate::network::ConnectingTcp::new(socket))
 }
