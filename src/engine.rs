@@ -682,6 +682,14 @@ pub(crate) fn run<N: Network>(
             .to_network_high_water
             .max((to_net.len() + network.pending()) as u64);
         counters.to_tun_high_water = counters.to_tun_high_water.max(to_tun.len() as u64);
+        #[cfg(feature = "debug-counters")]
+        {
+            counters.to_network_bytes_high_water = counters
+                .to_network_bytes_high_water
+                .max(to_net.queued_bytes());
+            counters.to_tun_bytes_high_water =
+                counters.to_tun_bytes_high_water.max(to_tun.queued_bytes());
+        }
         if pool.available() < 2 {
             counters.pool_pressure += 1;
         }
@@ -740,6 +748,11 @@ pub(crate) fn run<N: Network>(
             }
         }
         counters.io = network.diagnostics();
+        #[cfg(feature = "debug-counters")]
+        {
+            counters.successful_crypto_copy_bytes = session.successful_crypto_copy_bytes();
+            counters.pool_recycle_wipe_bytes = pool.recycled_wipe_bytes();
+        }
         counters.to_network_high_water = counters
             .to_network_high_water
             .max((to_net.len() + network.pending()) as u64);

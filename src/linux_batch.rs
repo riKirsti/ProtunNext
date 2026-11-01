@@ -144,6 +144,9 @@ impl Batch {
             }
         };
         let error = (received < 0).then(io::Error::last_os_error);
+        if let Some(error) = &error {
+            self.counters.socket_error(error, false);
+        }
         let received = received.max(0) as usize;
         self.counters.max_receive_batch = self.counters.max_receive_batch.max(received as u64);
         for (i, mut packet) in self.slots.drain(..).enumerate() {
@@ -278,6 +281,7 @@ impl Batch {
             };
             if sent < 0 {
                 let error = io::Error::last_os_error();
+                self.counters.socket_error(&error, true);
                 match error.raw_os_error() {
                     Some(libc::ENOSYS | libc::EOPNOTSUPP) if self.mmsg => {
                         self.mmsg = false;
@@ -384,6 +388,7 @@ impl Batch {
         };
         if n < 0 {
             let error = io::Error::last_os_error();
+            self.counters.socket_error(&error, true);
             match error.raw_os_error() {
                 Some(
                     libc::EINVAL

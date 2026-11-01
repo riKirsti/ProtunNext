@@ -89,6 +89,8 @@ pub struct PacketPool {
     capacity: usize,
     maximum: usize,
     limit: usize,
+    #[cfg(feature = "debug-counters")]
+    recycled_wipe_bytes: u64,
 }
 impl PacketPool {
     pub fn new(count: usize, capacity: usize) -> Result<Self> {
@@ -101,6 +103,8 @@ impl PacketPool {
             capacity,
             maximum: capacity,
             limit: count,
+            #[cfg(feature = "debug-counters")]
+            recycled_wipe_bytes: 0,
         })
     }
     pub fn take(&mut self) -> Option<Packet> {
@@ -142,6 +146,12 @@ impl PacketPool {
         }
         // Clear live data before making a plaintext packet reusable.
         packet.bytes[..packet.high_water].zeroize();
+        #[cfg(feature = "debug-counters")]
+        {
+            self.recycled_wipe_bytes = self
+                .recycled_wipe_bytes
+                .saturating_add(packet.high_water as u64);
+        }
         packet.start = HEADROOM;
         packet.end = HEADROOM;
         packet.high_water = HEADROOM;
@@ -161,6 +171,10 @@ impl PacketPool {
             .chain(&self.large)
             .map(|p| p.bytes.len())
             .sum()
+    }
+    #[cfg(feature = "debug-counters")]
+    pub(crate) fn recycled_wipe_bytes(&self) -> u64 {
+        self.recycled_wipe_bytes
     }
 }
 
@@ -205,6 +219,10 @@ impl PacketQueue {
     pub fn iter(&self) -> impl Iterator<Item = &Packet> {
         self.packets.iter()
     }
+    #[cfg(feature = "debug-counters")]
+    pub(crate) fn queued_bytes(&self) -> u64 {
+        self.packets.iter().map(|p| p.data().len() as u64).sum()
+    }
 }
 
 #[cfg(test)]
@@ -218,6 +236,8 @@ mod tests {
         p.set_len(150).unwrap();
         p.set_len(2).unwrap();
         pool.recycle(p).unwrap();
+        #[cfg(feature = "debug-counters")]
+        assert_eq!(pool.recycled_wipe_bytes(), (HEADROOM + 150) as u64);
         assert!(
             pool.take().unwrap().writable()[..150]
                 .iter()
@@ -248,6 +268,8 @@ mod tests {
         assert_eq!(q.front().unwrap().data().as_ptr(), address);
         q.front_mut().unwrap().consume(1).unwrap();
         assert_eq!(q.front().unwrap().data(), b"bc");
+        #[cfg(feature = "debug-counters")]
+        assert_eq!(q.queued_bytes(), 2);
         pool.recycle(q.pop().unwrap()).unwrap();
         assert_eq!(pool.available(), 2);
     }

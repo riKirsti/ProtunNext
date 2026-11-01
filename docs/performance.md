@@ -87,6 +87,17 @@ Pool capacity is not RSS or total process memory. io_uring buffers and vnet
 scratch storage add memory beyond that pool statistic. No packet contents or
 per-packet timestamp logging is added.
 
+The optional `debug-counters` build feature adds packet-queue byte high-water
+marks, pool recycle wipe bytes and successful data-message crypto copy bytes.
+Without it these fields remain zero and their accounting is compiled out.
+Copy accounting covers the original AEAD boundary on successful nonempty data
+messages (receive includes the tag); it excludes failed opens, handshake queues,
+TLS/framing copies and kernel copies. Wipe accounting covers pool recycling,
+including tracked stale tails, rather than every destructor or dependency wipe.
+Queue byte marks cover the engine's queues before flushing, excluding storage
+already accepted into stream/TLS internals. These are scoped counters, not total
+memory bandwidth. Collect them separately from an uninstrumented timing run.
+
 The initial Travel startup/TLS EOF failures have not been attributed to a cause.
 New deterministic regressions exercise the surrounding ownership/lifecycle paths;
 passing them does not prove a fix for those unexplained live failures.
