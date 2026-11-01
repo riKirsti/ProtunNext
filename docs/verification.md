@@ -26,7 +26,7 @@ configuration before networking. No real login, password or 2FA was used.
 Windows and AArch64-musl all-target/all-feature Clippy pass with warnings denied.
 The no-account native build also passes Clippy. An optimized AArch64-musl full
 runtime cross-build has passed; that establishes linking, not router execution.
-The final source revision needs its own final build/check record below.
+The exact final source revision and workflow are recorded below.
 
 `verify-code-parity` now passes for 39 functional implementation requirements;
 the performance-evidence row is explicitly outside that software gate.
@@ -37,6 +37,23 @@ The established-session allocation fixture passes 1,024 1,280-byte
 encrypt/frame/decode/decrypt cycles with zero allocator calls on its measured
 thread after warm-up. It excludes initialization, rekey, TLS, OS I/O and account
 work. Host framing timings are not VPN throughput measurements.
+
+## Final coverage checkpoint
+
+[Run 41308673272](https://github.com/riKirsti/ProtunNext/actions/runs/41308673272),
+code commit `609e2c4d124104bbdd2dab6db81f00254740a526`, passed **all five jobs**. Windows/Linux/macOS
+tests, formatting, full/no-account Clippy, implementation-coverage checks,
+expected rejection of unverified release readiness, optimized runtime builds,
+generated native Python/Swift contracts, Android API25 Kotlin/service/unit/AAR
+and verified Windows driver packaging all succeeded. The isolated Linux job
+also passed the real TUN, tracked LAN reply and offline/pending-SYN HTTP tests,
+including the no-account build.
+
+The matching local Windows run passed 53 tests. The optimized AArch64-musl CLI
+was cross-built from this code revision; SHA256 is
+`197cbfa7d74af40ec7dba7be3d72d2b44f22f745a2e06694ae10723a9fa76e27`.
+It was not run on a router. This document's later evidence-only commit does
+not change the verified runtime code or claim physical/live acceptance.
 
 ## Recorded CI evidence
 
@@ -61,9 +78,8 @@ host jobs stopped at a module-order formatting difference, now corrected.
 Superseded lifecycle runs were cancelled when newer commits were pushed;
 a successful individual job is not represented as a successful complete run.
 
-The final workflow for the current coverage commit is recorded after completion;
-until then, consult the exact source revision and checks on
-[PR1](https://github.com/riKirsti/ProtunNext/pull/1).
+The implementation and subsequent evidence-only documentation changes are available
+on [PR1](https://github.com/riKirsti/ProtunNext/pull/1).
 
 ## Deferred acceptance
 
