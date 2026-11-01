@@ -320,6 +320,10 @@ mod tests {
             receiver.submissions < 64,
             "must use genuine multishot requests"
         );
+        eprintln!(
+            "actual multishot: {} datagrams, {} submissions",
+            counters.received_datagrams, receiver.submissions
+        );
         let start = std::time::Instant::now();
         drop(receiver);
         assert!(

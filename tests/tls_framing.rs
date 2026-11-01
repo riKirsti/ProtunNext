@@ -216,6 +216,42 @@ fn wrong_server_name_is_rejected() {
     drop(stream);
     handle.join().unwrap();
 }
+#[test]
+fn unbuffered_rejects_wrong_names_and_untrusted_certificates() {
+    for trusted in [true, false] {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let handle = thread::spawn(move || {
+            let (tcp, _) = listener.accept().unwrap();
+            let mut server =
+                StreamOwned::new(ServerConnection::new(server()).unwrap(), bound_socket(tcp));
+            assert!(
+                server.read(&mut [0; 1]).is_err(),
+                "unverified plaintext must not reach peer"
+            );
+        });
+        let tcp = bound_socket(TcpStream::connect(address).unwrap());
+        let mut client = protun_next::tls_unbuffered::UnbufferedTlsIo::new(
+            tcp,
+            tls::unbuffered_client_with_roots(
+                if trusted {
+                    "wrong.invalid"
+                } else {
+                    "localhost"
+                },
+                if trusted {
+                    roots()
+                } else {
+                    RootCertStore::empty()
+                },
+            )
+            .unwrap(),
+        );
+        assert!(client.write_all(b"must not be sent").is_err());
+        drop(client);
+        handle.join().unwrap();
+    }
+}
 
 // Real TCP/TLS with forced short writes and intermittent backpressure. This
 // tests accepted-byte ownership across rustls's bounded plaintext/TLS buffers.

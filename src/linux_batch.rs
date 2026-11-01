@@ -225,7 +225,29 @@ impl Batch {
             let mut vectors: [libc::iovec; MAX_BATCH] = unsafe { std::mem::zeroed() };
             // SAFETY: zero is a valid empty mmsghdr, including null pointer fields.
             let mut messages: [libc::mmsghdr; MAX_BATCH] = unsafe { std::mem::zeroed() };
-            let count = queue.len().min(usize::from(self.options.udp_batch_size));
+            let mut count = queue.len().min(usize::from(self.options.udp_batch_size));
+            if self.gso {
+                // Do not let an isolated control/empty packet make sendmmsg
+                // swallow a following GSO-eligible group. Preserve wire order.
+                let mut lengths = queue
+                    .iter()
+                    .take(count)
+                    .map(|p| p.data().len())
+                    .enumerate()
+                    .peekable();
+                while let Some((index, size)) = lengths.next() {
+                    if index > 0
+                        && size > 0
+                        && let Some((_, next)) = lengths.peek()
+                        && *next > 0
+                        && *next <= size
+                        && size + next <= 65_487
+                    {
+                        count = index;
+                        break;
+                    }
+                }
+            }
             for (i, packet) in queue.iter().take(count).enumerate() {
                 vectors[i].iov_base = packet.data().as_ptr().cast_mut().cast();
                 vectors[i].iov_len = packet.data().len();
