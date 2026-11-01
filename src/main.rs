@@ -6,7 +6,22 @@ fn main() {
     }
 }
 fn run() -> protun_next::Result<()> {
-    let args: Vec<String> = std::env::args().collect();
+    let mut args: Vec<String> = std::env::args().collect();
+    let options = if let Some(index) = args.iter().position(|a| a.starts_with("--performance=")) {
+        let flag = args.remove(index);
+        if !args.get(1).is_some_and(|a| a.starts_with("run-"))
+            || args.iter().any(|a| a.starts_with("--performance="))
+        {
+            return Err(protun_next::Error::Invalid(
+                "one performance flag is allowed with run commands",
+            ));
+        }
+        protun_next::performance::Options::parse(
+            flag.strip_prefix("--performance=").expect("checked prefix"),
+        )?
+    } else {
+        Default::default()
+    };
     match args.get(1).map(String::as_str) {
         Some("status") => {
             println!("{}", include_str!("../docs/parity.json"));
@@ -33,9 +48,10 @@ fn run() -> protun_next::Result<()> {
                     .parse()
                     .map_err(|_| protun_next::Error::Invalid("TUN descriptor"))?;
                 let stop = std::sync::atomic::AtomicBool::new(false);
-                let counters = match command {
-                    "run-udp" => protun_next::linux::run_udp(fd, &config, &args[4], &stop),
-                    "run-tcp" => protun_next::linux::run_tcp(fd, &config, &args[4], &stop),
+                use protun_next::transport::Transport;
+                let transport = match command {
+                    "run-udp" => Transport::Udp,
+                    "run-tcp" => Transport::Tcp,
                     "run-stealth" => {
                         let sni = match args.get(5).map(String::as_str) {
                             None | Some("random") => protun_next::stealth::SniStrategy::Random,
@@ -44,16 +60,16 @@ fn run() -> protun_next::Result<()> {
                                 protun_next::stealth::SniStrategy::Explicit(name.to_owned())
                             }
                         };
-                        protun_next::linux::run_stealth(fd, &config, &args[4], &sni, &stop)
+                        Transport::Stealth(sni)
                     }
-                    _ => protun_next::linux::run_tls(
-                        fd,
-                        &config,
-                        &args[4],
-                        protun_next::tls::client(&args[5])?,
-                        &stop,
-                    ),
-                }?;
+                    _ if options.unbuffered_tls => Transport::UnbufferedTls(Box::new(
+                        protun_next::tls::unbuffered_client(&args[5])?,
+                    )),
+                    _ => Transport::Tls(Box::new(protun_next::tls::client(&args[5])?)),
+                };
+                let counters = protun_next::linux::run_with_options(
+                    fd, &config, &args[4], transport, options, &stop,
+                )?;
                 println!(
                     "{}",
                     serde_json::to_string(&counters)
@@ -63,13 +79,13 @@ fn run() -> protun_next::Result<()> {
             }
             #[cfg(not(target_os = "linux"))]
             {
-                let _ = command;
+                let _ = (command, options);
                 Err(protun_next::Error::Unsupported("Linux TUN adapter"))
             }
         }
         _ => {
             eprintln!(
-                "usage: protun-next-cli status | verify-parity | verify-code-parity | check-config FILE | run-udp FILE TUN_FD UPLINK_DEVICE | run-tcp FILE TUN_FD UPLINK_DEVICE | run-tls FILE TUN_FD UPLINK_DEVICE SERVER_NAME | run-stealth FILE TUN_FD UPLINK_DEVICE [random|top|DNS_SNI]"
+                "usage: protun-next-cli status | verify-parity | verify-code-parity | check-config FILE | run-udp FILE TUN_FD UPLINK_DEVICE | run-tcp FILE TUN_FD UPLINK_DEVICE | run-tls FILE TUN_FD UPLINK_DEVICE SERVER_NAME | run-stealth FILE TUN_FD UPLINK_DEVICE [random|top|DNS_SNI] [--performance=portable|batch|uring,offload,compact,in-place,unbuffered]"
             );
             Err(protun_next::Error::Invalid("command"))
         }

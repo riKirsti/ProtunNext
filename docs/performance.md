@@ -12,6 +12,13 @@ certificate, Local Agent, capture and private-network services. Invalid options
 return false without changing state. A true return means queued, not connected.
 Existing configuration records and constructors retain their fields/signatures.
 
+The Linux CLI also accepts one additive `--performance=` argument with its run
+commands. For example, `--performance=batch,offload,compact,in-place` or
+`--performance=unbuffered,compact`. Positional arguments retain their previous
+meaning. Build `--features io-uring,in-place-crypto` to include both optional
+engines; compiling them does not change the default options.
+`batch-size=8`, `batch-size=16` and `batch-size=32` select the syscall budget.
+
 | Option | Default | Implementation / fallback |
 |---|---|---|
 | udp_backend | Portable | Batch uses Linux recvmmsg/sendmmsg; other platforms use portable sockets |
@@ -35,6 +42,8 @@ requires bounded synchronous cancellation support. Shutdown cancels outstanding
 operations before freeing buffers; a kernel refusing cancellation quarantines
 the bounded payload/ring mapping rather than risking use-after-free. Such a
 failure is a reason not to promote the experimental backend.
+After such a failure, new rings are disabled for the process to prevent repeated
+quarantines; subsequent requested connections use the batched fallback.
 
 TUN offloads are selected by the embedding host supplying an `IFF_VNET_HDR`
 descriptor. The engine reads its metadata, software-segments TCPv4/TCPv6 and UDP
@@ -61,11 +70,15 @@ decoder. The pinned rustls implementation still allocates received-record chunks
 internally: `src/conn/unbuffered.rs::ReadTraffic::next_record`. This is not a
 zero-copy or allocation-free TLS claim. Standard certificate/name verification
 and Proton's explicit inner-WireGuard Stealth policy remain separate.
+The borrowed-record framing path also omits the unused generic read scratch
+allocation. Consumed scratch/plaintext regions are erased before reuse.
 
 Instrumentation stays local to the packet worker and is published with existing
 coalesced snapshots. Counters include syscall/message batching, fallback,
 truncation, GSO/GRO, io_uring operations, queue high-water marks, reserved free
 pool storage at startup, authentication failures and outer I/O/EOF failures.
+TCP/TLS counters are collected at the socket boundary, including ciphertext and
+handshake I/O; they are distinct from delivered inner/application byte counts.
 Pool capacity is not RSS or total process memory. io_uring buffers and vnet
 scratch storage add memory beyond that pool statistic. No packet contents or
 per-packet timestamp logging is added.
@@ -90,7 +103,10 @@ cookie, rate-limiting, timers, session selection, queued-packet and IP validatio
 semantics stay in the original implementation. There is no mutable/immutable
 buffer aliasing. Disabled builds retain the copy API. Root tests cover mixed
 copy/in-place interoperability, bad tags, replay and large packets. These tests
-do not constitute an independent cryptographic audit.
+do not constitute an independent cryptographic audit. `changes.patch` contains
+the exact three-file extension diff against the checksum-verified archive.
+The standalone vendored unit suite additionally checks byte-identical output
+between copy/in-place APIs and retains the original timer/rekey regressions.
 
 Run formatting with `cargo fmt --package protun-next --check`: preserving the
 upstream vendor text avoids unrelated formatter changes in the provenance diff.

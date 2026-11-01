@@ -149,6 +149,7 @@ impl Batch {
         for (i, mut packet) in self.slots.drain(..).enumerate() {
             if i < received {
                 let n = messages[i].msg_len as usize;
+                self.counters.received_bytes += n.min(65535) as u64;
                 if messages[i].msg_hdr.msg_flags & (libc::MSG_TRUNC | libc::MSG_CTRUNC) != 0 {
                     packet.set_len(n.min(65535))?;
                     self.counters.truncated_datagrams += 1;
@@ -317,6 +318,7 @@ impl Batch {
                 return Err(Error::Invalid("partial UDP datagram"));
             }
             self.counters.sent_datagrams += 1;
+            self.counters.sent_bytes += message.msg_len as u64;
         }
         Ok(())
     }
@@ -417,6 +419,7 @@ impl Batch {
             pool.recycle(queue.pop().expect("validated group"))?;
         }
         self.counters.sent_datagrams += count as u64;
+        self.counters.sent_bytes += total as u64;
         self.counters.gso_datagrams += count as u64;
         self.counters.max_send_batch = self.counters.max_send_batch.max(count as u64);
         Ok(Some(false))
@@ -435,7 +438,8 @@ fn gro_size(msg: &libc::msghdr) -> Result<usize> {
         let end = offset
             .checked_add(value.cmsg_len as usize)
             .ok_or(Error::Invalid("UDP control overflow"))?;
-        if (value.cmsg_len as usize) < base || end > msg.msg_controllen as usize {
+        // msg_controllen is usize on glibc and socklen_t on musl.
+        if (value.cmsg_len as usize) < base || end as u64 > msg.msg_controllen as u64 {
             return Err(Error::Invalid("UDP control length"));
         }
         if value.cmsg_level == libc::SOL_UDP && value.cmsg_type == libc::UDP_GRO {

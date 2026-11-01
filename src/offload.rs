@@ -104,6 +104,12 @@ pub fn segment(
                 return Err(Error::Invalid("partial checksum bounds"));
             }
             let value = finish(sum(0, &output[start..packet.len()]));
+            // A computed zero UDP checksum is transmitted as all ones (RFC 768).
+            let value = if header.checksum_offset == 6 && value == 0 {
+                0xffff
+            } else {
+                value
+            };
             output[field..field + 2].copy_from_slice(&value.to_be_bytes());
         }
         return Ok((packet.len(), None));

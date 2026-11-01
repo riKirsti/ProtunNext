@@ -164,11 +164,13 @@ impl<S: Read + Write> UnbufferedTlsIo<S> {
                                 Err(e) => Err(io::Error::other(e)),
                             }
                         }
-                        ControlMessage::KeyUpdate => {
-                            traffic.refresh_traffic_keys().map_err(io::Error::other)?;
-                            self.drive_write = true;
-                            Ok(Step::Written(0))
-                        }
+                        ControlMessage::KeyUpdate => traffic
+                            .refresh_traffic_keys()
+                            .map_err(io::Error::other)
+                            .map(|()| {
+                                self.drive_write = true;
+                                Step::Written(0)
+                            }),
                     }
                 } else if let Some(input) = input {
                     match traffic.encrypt(input, &mut self.outgoing) {
@@ -210,6 +212,7 @@ impl<S: Read + Write> UnbufferedTlsIo<S> {
         if discard > self.end - self.first {
             return Err(io::ErrorKind::InvalidData.into());
         }
+        self.incoming[self.first..self.first + discard].zeroize();
         self.first += discard;
         if self.first == self.end {
             self.first = 0;
@@ -228,6 +231,7 @@ impl<S: Read + Write> UnbufferedTlsIo<S> {
             if n > self.pending_end - self.pending_first {
                 return Err(io::ErrorKind::InvalidData.into());
             }
+            self.pending[self.pending_first..self.pending_first + n].zeroize();
             self.pending_first += n;
             return Ok(n);
         }
@@ -269,6 +273,11 @@ impl<S: Read + Write> UnbufferedTlsIo<S> {
                     received = data.len();
                     Ok(data.len())
                 })? {
+                    Step::Written(0) if !input.is_empty() => {
+                        if self.write_closed {
+                            return Err(io::ErrorKind::BrokenPipe.into());
+                        }
+                    }
                     Step::Written(n) => return Ok(n), // Never flush after accepting input.
                     Step::Read(_) => return Err(io::ErrorKind::WouldBlock.into()),
                     Step::NeedRead => self.receive_tls()?,
@@ -294,8 +303,21 @@ impl<S: Read + Write> UnbufferedTlsIo<S> {
     }
     /// Request a TLS 1.3 key update through rustls, preserving its key/record limits.
     pub fn refresh_traffic_keys(&mut self) -> io::Result<()> {
+        if self.write_closed {
+            return Err(io::ErrorKind::BrokenPipe.into());
+        }
+        if self.connection.is_handshaking() {
+            return Err(io::ErrorKind::WouldBlock.into());
+        }
+        if self.connection.protocol_version() != Some(rustls::ProtocolVersion::TLSv1_3) {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "key update requires TLS 1.3",
+            ));
+        }
         self.control = Some(ControlMessage::KeyUpdate);
-        self.write_record(&[]).map(|_| ())
+        self.drive_write = true;
+        Ok(())
     }
 }
 impl<S: Read + Write> Read for UnbufferedTlsIo<S> {
@@ -310,6 +332,7 @@ impl<S: Read + Write> Read for UnbufferedTlsIo<S> {
         if first < end {
             let n = output.len().min(end - first);
             output[..n].copy_from_slice(&pending[first..first + n]);
+            pending[first..first + n].zeroize();
             self.pending = pending;
             self.pending_first += n;
             return Ok(n);
@@ -352,6 +375,7 @@ impl<S: Read + Write> Write for UnbufferedTlsIo<S> {
             }
         }
         let result = self.write(&gather[..n]);
+        gather[..n].zeroize();
         self.gather = gather;
         result
     }
@@ -372,7 +396,7 @@ impl<S: Read + Write> Write for UnbufferedTlsIo<S> {
                     received = data.len();
                     Ok(data.len())
                 })? {
-                    Step::Progress => {}
+                    Step::Progress | Step::Written(_) => {}
                     _ => return Ok(()),
                 }
             }

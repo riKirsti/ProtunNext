@@ -33,13 +33,19 @@ pub struct FramedIo<S> {
 }
 impl<S: Read + Write> FramedIo<S> {
     pub fn new(io: S, queue_limit: usize) -> Result<Self> {
+        Self::with_scratch(io, queue_limit, 16384)
+    }
+    pub(crate) fn borrowing(io: S, queue_limit: usize) -> Result<Self> {
+        Self::with_scratch(io, queue_limit, 0)
+    }
+    fn with_scratch(io: S, queue_limit: usize, scratch: usize) -> Result<Self> {
         Ok(Self {
             io,
             encoder: Encoder::default(),
             decoder: Decoder::new(65536)?,
             pending: PacketQueue::new(queue_limit)?,
             limit: queue_limit,
-            scratch: vec![0; 16384].into_boxed_slice(),
+            scratch: vec![0; scratch].into_boxed_slice(),
         })
     }
     pub fn queue(&mut self, mut packet: Packet) -> std::result::Result<(), Rejected> {

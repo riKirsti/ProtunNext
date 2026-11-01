@@ -74,6 +74,7 @@ impl Offload {
         if let Some(offset) = next {
             self.offset = offset;
         } else {
+            self.packet[..self.len].zeroize();
             self.len = 0;
         }
         Ok(n)

@@ -298,6 +298,40 @@ impl<LF: LockFactory> Session<LF> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(feature = "in-place")]
+    #[test]
+    fn copy_and_in_place_emit_identical_wire_bytes_and_commit_replay_only_after_authentication() {
+        use core::convert::TryInto;
+        type S = Session<proton_os_interface::lock::Loose>;
+        let copy_sender = S::new(7, 9, [1;32], [2;32]);
+        let inplace_sender = S::new(7, 9, [1;32], [2;32]);
+        let copy_receiver = S::new(9, 7, [2;32], [1;32]);
+        let inplace_receiver = S::new(9, 7, [2;32], [1;32]);
+        for size in [0,20,64,1280,1420,16_000,65_503] {
+            let body: Vec<u8> = (0..size).map(|n| (n%251) as u8).collect();
+            let mut copy = vec![0;size+32];
+            let mut inplace = vec![0;size+32];
+            inplace[16..16+size].copy_from_slice(&body);
+            copy_sender.format_packet_data(&body,&mut copy);
+            inplace_sender.format_packet_data_in_place(size,&mut inplace);
+            assert_eq!(copy,inplace,"wire bytes differ for {size}");
+            let counter = u64::from_le_bytes(copy[8..16].try_into().unwrap());
+            let packet = PacketData { receiver_idx:9, counter, encrypted_encapsulated_packet:&copy[16..] };
+            let mut plain = vec![0;size+16];
+            assert_eq!(copy_receiver.receive_packet_data(packet,&mut plain).unwrap(),body);
+            assert_eq!(inplace_receiver.receive_packet_data_in_place(9,counter,&mut inplace[16..]).unwrap(),body);
+        }
+        let mut valid=vec![0;96];valid[16..80].fill(7);
+        inplace_sender.format_packet_data_in_place(64,&mut valid);
+        let counter=u64::from_le_bytes(valid[8..16].try_into().unwrap());
+        let mut bad=valid.clone();bad[95]^=1;
+        let before=inplace_receiver.current_packet_cnt();
+        assert!(inplace_receiver.receive_packet_data_in_place(9,counter,&mut bad[16..]).is_err());
+        assert_eq!(before,inplace_receiver.current_packet_cnt());
+        let mut replay=valid.clone();
+        assert!(inplace_receiver.receive_packet_data_in_place(9,counter,&mut valid[16..]).is_ok());
+        assert!(inplace_receiver.receive_packet_data_in_place(9,counter,&mut replay[16..]).is_err());
+    }
     #[test]
     fn test_replay_counter() {
         let mut c: ReceivingKeyCounterValidator = Default::default();

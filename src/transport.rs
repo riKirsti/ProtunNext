@@ -12,6 +12,7 @@ pub struct Counters {
     pub tun_backpressure: u64,
     pub network_backpressure: u64,
     pub io: crate::performance::IoCounters,
+    /// Queue occupancy in packets, measured before flushing a work batch.
     pub to_network_high_water: u64,
     pub to_tun_high_water: u64,
     pub pool_reserved_bytes: u64,
