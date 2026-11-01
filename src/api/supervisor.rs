@@ -351,7 +351,10 @@ impl Supervisor {
             private_key: PrivateKey::from_bytes(*self.key)?,
             peer_key: candidate.peer.server_public_key.0,
             endpoint: std::net::SocketAddr::new(candidate.peer.server_ip.0, candidate.port),
-            addresses: vec!["10.2.0.2/32".into()],
+            addresses: vec![format!(
+                "{}/32",
+                platform::addresses(self.tun.as_ref()).v4(2)
+            )],
             allowed_ips: vec!["0.0.0.0/0".into(), "::/0".into()],
             dns: Vec::new(),
             mtu: 1420,

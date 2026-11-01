@@ -23,6 +23,13 @@ use std::{
 const PRIVILEGED: [u16; 16] = [4, 6, 8, 10, 12, 14, 15, 16, 26, 28, 30, 32, 34, 36, 40, 60];
 // pvpnclient 4.4.1 conntrack.rs ENTRY_TIMEOUT, including idle customer TCP.
 const FLOW_TIMEOUT: Duration = Duration::from_secs(15 * 60);
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PacketDisposition {
+    Private,
+    Customer,
+    Untracked,
+    Drop,
+}
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum Origin {
     Control,
@@ -46,6 +53,7 @@ struct Flows {
 }
 #[derive(Clone)]
 pub struct InternalConnector {
+    addresses: crate::addressing::Addresses,
     factory: TransportFactory,
     flows: Arc<Mutex<Flows>>,
 }
@@ -55,6 +63,7 @@ impl std::fmt::Debug for InternalConnector {
     }
 }
 pub struct InternalNetwork {
+    addresses: crate::addressing::Addresses,
     interface: NetworkInterface,
     flows: Arc<Mutex<Flows>>,
     fragments: super::fragments::FragmentRoutes,
@@ -81,21 +90,19 @@ impl InternalNetwork {
         now: Duration,
         wake: impl Wake + Send + Sync + 'static,
     ) -> Result<(InternalConnector, Self)> {
+        Self::with_addresses(now, wake, Default::default())
+    }
+    pub fn with_addresses(
+        now: Duration,
+        wake: impl Wake + Send + Sync + 'static,
+        addresses: crate::addressing::Addresses,
+    ) -> Result<(InternalConnector, Self)> {
         let mut seed = [0; 32];
         getrandom::fill(&mut seed).map_err(|e| Error::Protocol(e.to_string()))?;
-        let v4 = NetworkConfigV4::new(
-            Ipv4Addr::new(10, 2, 0, 2),
-            24,
-            Some(Ipv4Addr::new(10, 2, 0, 1)),
-        )
-        .with_second_addr(Ipv4Addr::new(10, 2, 0, 3), 24);
-        let client6: Ipv6Addr = "2a07:b944::2:2".parse().expect("constant");
-        let v6 = NetworkConfigV6::new(
-            client6,
-            112,
-            Some("2a07:b944::2:1".parse().expect("constant")),
-        )
-        .with_second_addr("2a07:b944::2:3".parse().expect("constant"), 112);
+        let v4 = NetworkConfigV4::new(addresses.v4(2), 24, Some(addresses.v4(1)))
+            .with_second_addr(addresses.v4(3), 24);
+        let v6 = NetworkConfigV6::new(addresses.v6(2), 112, Some(addresses.v6(1)))
+            .with_second_addr(addresses.v6(3), 112);
         let mut stack = NetworkStack::builder()
             .with_time(now.as_millis().min(i64::MAX as u128) as i64)
             .with_config(NetworkConfig::Both(v4, v6))
@@ -109,10 +116,12 @@ impl InternalNetwork {
         let flows = Arc::new(Mutex::new(Flows::default()));
         Ok((
             InternalConnector {
+                addresses,
                 factory,
                 flows: flows.clone(),
             },
             Self {
+                addresses,
                 interface,
                 flows,
                 fragments: Default::default(),
@@ -128,13 +137,13 @@ impl InternalNetwork {
             Err(DeviceReadError::WouldBlock) => return Ok(None),
             Err(_) => return Err(Error::Invalid("internal stack packet capacity")),
         };
-        if local_service_source(&output[..n]) {
+        if local_service_source_with(&output[..n], self.addresses) {
             return Ok(Some(n));
         }
         let Some(parsed) = transport(&output[..n]) else {
-            return Err(Error::Invalid(
-                "control stack generated unsupported IP packet",
-            ));
+            // The upstream drops locally generated non-TCP/UDP traffic. A
+            // private UDP port-unreachable must not terminate the whole VPN.
+            return Ok(None);
         };
         let flow = Flow {
             origin: Origin::Control,
@@ -157,17 +166,27 @@ impl InternalNetwork {
     }
     /// True means the packet belongs to a registered private socket, never TUN.
     pub fn receive(&mut self, packet: &mut [u8], now: Duration) -> Result<bool> {
-        if let Some(private) = self.fragments.lookup(packet, now) {
-            if private {
+        Ok(matches!(
+            self.receive_routed(packet, now)?,
+            PacketDisposition::Private | PacketDisposition::Drop
+        ))
+    }
+    pub fn receive_routed(
+        &mut self,
+        packet: &mut [u8],
+        now: Duration,
+    ) -> Result<PacketDisposition> {
+        if let Some(owner) = self.fragments.lookup(packet, now) {
+            if owner == PacketDisposition::Private {
                 self.deliver_private(packet, now);
             }
-            return Ok(private);
+            return Ok(owner);
         }
         let Some(parsed) = transport(packet) else {
-            return Ok(false);
+            return Ok(PacketDisposition::Untracked);
         };
         if !reserved(parsed.destination_port) {
-            return Ok(false);
+            return Ok(PacketDisposition::Untracked);
         }
         let mapping = {
             let mut mappings = self.flows.lock().unwrap_or_else(|e| e.into_inner());
@@ -182,33 +201,63 @@ impl InternalNetwork {
                         && m.expires.is_none_or(|e| e > Instant::now())
                 })
                 .map(|m| {
-                    if m.flow.origin == Origin::Customer {
+                    if m.expires.is_some() {
                         m.expires = Some(Instant::now() + FLOW_TIMEOUT);
                     }
                     (m.flow.local.port(), m.flow.origin)
                 })
         };
         let Some((original, origin)) = mapping else {
-            // Reserve an unsolicited inbound customer flow before a later
-            // control socket can choose the same reply tuple.
-            if let Err(error) = self.reserve_customer(&parsed, false) {
-                self.fragments.remember(packet, now, true);
-                return match error {
-                    Error::Full => Ok(true), // Drop this packet, retain the VPN session.
-                    other => Err(other),
-                };
+            // pvpnclient conntrack.rs: a new Tunnel-origin flow belongs to the
+            // private stack, not the customer. Only SYN without ACK creates TCP.
+            if (parsed.protocol == 6 && packet[parsed.offset + 13] & 0x12 != 0x02)
+                || self.reserve_inbound(&parsed).is_err()
+            {
+                self.fragments
+                    .remember(packet, now, PacketDisposition::Drop);
+                return Ok(PacketDisposition::Drop);
             }
-            self.fragments.remember(packet, now, false);
-            return Ok(false);
+            self.fragments
+                .remember(packet, now, PacketDisposition::Private);
+            self.deliver_private(packet, now);
+            return Ok(PacketDisposition::Private);
         };
-        self.fragments
-            .remember(packet, now, origin == Origin::Control);
+        let owner = if origin == Origin::Control {
+            PacketDisposition::Private
+        } else {
+            PacketDisposition::Customer
+        };
+        self.fragments.remember(packet, now, owner);
         rewrite_port(packet, parsed.offset, parsed.protocol, false, original);
         if origin == Origin::Customer {
-            return Ok(false);
+            return Ok(PacketDisposition::Customer);
         }
         self.deliver_private(packet, now);
-        Ok(true)
+        Ok(PacketDisposition::Private)
+    }
+    fn reserve_inbound(&mut self, parsed: &Parsed) -> Result<()> {
+        let mut flows = self.flows.lock().unwrap_or_else(|e| e.into_inner());
+        flows
+            .entries
+            .retain(|_, mapping| mapping.expires.is_none_or(|expiry| expiry > Instant::now()));
+        if flows.entries.len() >= 4096 {
+            return Err(Error::Full);
+        }
+        let flow = Flow {
+            origin: Origin::Control,
+            protocol: parsed.protocol,
+            local: SocketAddr::new(parsed.destination, parsed.destination_port),
+            remote: SocketAddr::new(parsed.source, parsed.source_port),
+        };
+        flows.entries.insert(
+            flow,
+            Mapping {
+                flow,
+                wire: parsed.destination_port,
+                expires: Some(Instant::now() + FLOW_TIMEOUT),
+            },
+        );
+        Ok(())
     }
     fn deliver_private(&mut self, packet: &[u8], now: Duration) {
         // This SDK method can only return WouldBlock. A full private receive
@@ -295,7 +344,7 @@ impl InternalNetwork {
         Ok(wire)
     }
     pub fn receive_local(&mut self, packet: &[u8], now: Duration) -> Result<bool> {
-        if !local_service_destination(packet) {
+        if !local_service_destination_with(packet, self.addresses) {
             return Ok(false);
         }
         self.deliver_private(packet, now);
@@ -323,6 +372,9 @@ impl Drop for Lease {
     }
 }
 impl InternalConnector {
+    pub fn addresses(&self) -> crate::addressing::Addresses {
+        self.addresses
+    }
     fn lease(&self, protocol: u8, local: SocketAddr, remote: SocketAddr) -> io::Result<Lease> {
         let flow = Flow {
             origin: Origin::Control,
@@ -371,9 +423,9 @@ impl InternalConnector {
             .factory
             .udp_bind(SocketAddr::new(
                 if address.is_ipv4() {
-                    IpAddr::V4(Ipv4Addr::new(10, 2, 0, 2))
+                    IpAddr::V4(self.addresses.v4(2))
                 } else {
-                    IpAddr::V6(Ipv6Addr::new(0x2a07, 0xb944, 0, 0, 0, 0, 2, 2))
+                    IpAddr::V6(self.addresses.v6(2))
                 },
                 0,
             ))
@@ -498,20 +550,26 @@ fn rewrite_port(p: &mut [u8], offset: usize, protocol: u8, source: bool, port: u
     p[check..check + 2].copy_from_slice(&adjusted.to_be_bytes());
 }
 pub fn local_service_source(p: &[u8]) -> bool {
-    address_is_local(p, true)
+    local_service_source_with(p, Default::default())
+}
+pub fn local_service_source_with(p: &[u8], addresses: crate::addressing::Addresses) -> bool {
+    address_is_local(p, true, addresses)
 }
 pub fn local_service_destination(p: &[u8]) -> bool {
-    address_is_local(p, false)
+    local_service_destination_with(p, Default::default())
 }
-fn address_is_local(p: &[u8], source: bool) -> bool {
+pub fn local_service_destination_with(p: &[u8], addresses: crate::addressing::Addresses) -> bool {
+    address_is_local(p, false, addresses)
+}
+fn address_is_local(p: &[u8], source: bool, addresses: crate::addressing::Addresses) -> bool {
     match p.first().map(|b| b >> 4) {
         Some(4) if p.len() >= 20 => {
             let at = if source { 12 } else { 16 };
-            p[at..at + 4] == [10, 2, 0, 3]
+            p[at..at + 4] == addresses.v4(3).octets()
         }
         Some(6) if p.len() >= 40 => {
             let at = if source { 8 } else { 24 };
-            p[at..at + 16] == Ipv6Addr::new(0x2a07, 0xb944, 0, 0, 0, 0, 2, 3).octets()
+            p[at..at + 16] == addresses.v6(3).octets()
         }
         _ => false,
     }

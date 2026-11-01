@@ -182,7 +182,11 @@ async fn run(
     mut commands: async_channel::UnboundedReceiver<Command>,
     notices: mpsc::SyncSender<Notice>,
 ) -> Result<()> {
-    tokio::task::spawn_local(super::local_http::run(network.factory().clone()));
+    let addresses = network.addresses();
+    tokio::task::spawn_local(super::local_http::run(
+        network.factory().clone(),
+        addresses.http(),
+    ));
     let ConnectionMode::LocalAgent {
         user_agent,
         app_version,
@@ -270,7 +274,7 @@ async fn run(
                     os.clone(),
                     &Executor,
                     certificate_der,
-                    "10.2.0.1".parse().expect("constant IP"),
+                    addresses.v4(1).into(),
                     server_name.clone(),
                     &super::agent_state::settings(&settings, label.clone()),
                 );

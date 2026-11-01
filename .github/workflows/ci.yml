@@ -120,4 +120,4 @@ jobs:
           set -euo pipefail
           sudo ip netns add protun-next-ci
           trap 'sudo ip netns del protun-next-ci' EXIT
-          sudo ip netns exec protun-next-ci env PROTUN_NEXT_NETNS_TEST=1 "$(cat test-binary.txt)" --ignored --nocapture
+          sudo ip netns exec protun-next-ci env PROTUN_NEXT_NETNS_TEST=1 "$(cat test-binary.txt)" --ignored --nocapture --test-threads=1

@@ -2,12 +2,8 @@
 use futures::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use proton_vpn_netstack::TransportFactory;
 use std::{io, time::Duration};
-pub(crate) async fn run(factory: TransportFactory) {
-    let Ok(mut listener) = factory.tcp_bind(
-        "10.2.0.3:80"
-            .parse::<std::net::SocketAddr>()
-            .expect("constant"),
-    ) else {
+pub(crate) async fn run(factory: TransportFactory, address: std::net::SocketAddr) {
+    let Ok(mut listener) = factory.tcp_bind(address) else {
         log::warn!("local connection-test listener could not bind");
         return;
     };

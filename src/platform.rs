@@ -1,4 +1,15 @@
 //! Platform ownership boundary; packet processing is shared.
+pub(crate) fn addresses(tun: Option<&TunHandle>) -> crate::addressing::Addresses {
+    #[cfg(unix)]
+    {
+        let _ = tun;
+        Default::default()
+    }
+    #[cfg(windows)]
+    {
+        tun.map_or_else(Default::default, |tun| tun.addresses)
+    }
+}
 pub(crate) fn send_pressure(error: &std::io::Error) -> bool {
     #[cfg(unix)]
     {

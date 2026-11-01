@@ -52,6 +52,7 @@ pub struct Snapshot {
     pub interface_error: Option<String>,
 }
 struct Shared {
+    addresses: crate::addressing::Addresses,
     snapshot: Mutex<Snapshot>,
     changed: Condvar,
     stop: AtomicBool,
@@ -126,6 +127,9 @@ pub(crate) struct Observer {
     start: Duration,
 }
 impl Observer {
+    pub(crate) fn addresses(&self) -> crate::addressing::Addresses {
+        self.shared.addresses
+    }
     pub(crate) fn confirm_path(&self) {
         self.shared.path_verified.store(true, Ordering::Relaxed);
     }
@@ -152,11 +156,15 @@ impl Observer {
         }
     }
     #[cfg(feature = "local-agent")]
-    pub(crate) fn internal_receive(&self, bytes: &mut [u8], now: Duration) -> Result<bool> {
+    pub(crate) fn internal_receive(
+        &self,
+        bytes: &mut [u8],
+        now: Duration,
+    ) -> Result<crate::api::internal::PacketDisposition> {
         if !self.shared.internal_enabled.load(Ordering::Relaxed)
             || !crate::api::internal::InternalNetwork::might_receive(bytes)
         {
-            return Ok(false);
+            return Ok(crate::api::internal::PacketDisposition::Untracked);
         }
         match self
             .shared
@@ -165,8 +173,8 @@ impl Observer {
             .unwrap_or_else(|e| e.into_inner())
             .as_mut()
         {
-            Some(network) => network.receive(bytes, now),
-            None => Ok(false),
+            Some(network) => network.receive_routed(bytes, now),
+            None => Ok(crate::api::internal::PacketDisposition::Untracked),
         }
     }
     #[cfg(feature = "local-agent")]
@@ -191,7 +199,7 @@ impl Observer {
     #[cfg(feature = "local-agent")]
     pub(crate) fn internal_local(&self, bytes: &[u8], now: Duration) -> Result<bool> {
         if !self.shared.internal_enabled.load(Ordering::Relaxed)
-            || !crate::api::internal::local_service_destination(bytes)
+            || !crate::api::internal::local_service_destination_with(bytes, self.shared.addresses)
         {
             return Ok(false);
         }
@@ -424,6 +432,7 @@ impl Connection {
     ) -> Result<Self> {
         let start = platform::boottime()?;
         let shared = Arc::new(Shared {
+            addresses: platform::addresses(owned_tun.as_ref()),
             snapshot: Mutex::new(Snapshot {
                 sequence: 1,
                 state: State::Starting,
@@ -535,9 +544,10 @@ impl Connection {
                 }
             }
         }
-        let (connector, network) = crate::api::internal::InternalNetwork::new(
+        let (connector, network) = crate::api::internal::InternalNetwork::with_addresses(
             platform::boottime()?,
             WakeControl(Arc::downgrade(&self.shared)),
+            self.shared.addresses,
         )?;
         *self
             .shared

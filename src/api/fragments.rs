@@ -1,6 +1,7 @@
 //! Route later IPv4 fragments using the first fragment's ownership decision.
 //! The pinned upstream uses a ten-second first-fragment verdict cache, not
 //! reassembly in its router. Reassembly remains in the destination IP stack.
+use super::internal::PacketDisposition;
 use std::{collections::HashMap, time::Duration};
 
 const TIMEOUT: Duration = Duration::from_secs(10);
@@ -45,14 +46,13 @@ fn parse(packet: &[u8]) -> Option<Fragment> {
 
 #[derive(Default)]
 pub(super) struct FragmentRoutes {
-    // true means consumed by the private stack (or dropped), false means TUN.
-    entries: HashMap<Key, (Duration, bool)>,
+    entries: HashMap<Key, (Duration, PacketDisposition)>,
 }
 impl FragmentRoutes {
     pub(super) fn later(packet: &[u8]) -> bool {
         parse(packet).is_some_and(|f| !f.first)
     }
-    pub(super) fn lookup(&mut self, packet: &[u8], now: Duration) -> Option<bool> {
+    pub(super) fn lookup(&mut self, packet: &[u8], now: Duration) -> Option<PacketDisposition> {
         let fragment = parse(packet)?;
         if fragment.first {
             return None;
@@ -64,14 +64,14 @@ impl FragmentRoutes {
         }?;
         (now.saturating_sub(entry.0) < TIMEOUT).then_some(entry.1)
     }
-    pub(super) fn remember(&mut self, packet: &[u8], now: Duration, private: bool) {
+    pub(super) fn remember(&mut self, packet: &[u8], now: Duration, owner: PacketDisposition) {
         let Some(fragment) = parse(packet).filter(|f| f.first && f.more) else {
             return;
         };
         self.entries
             .retain(|_, (at, _)| now.saturating_sub(*at) < TIMEOUT);
         if self.entries.len() < CAPACITY || self.entries.contains_key(&fragment.key) {
-            self.entries.insert(fragment.key, (now, private));
+            self.entries.insert(fragment.key, (now, owner));
         }
     }
 }
@@ -91,27 +91,43 @@ mod tests {
     #[test]
     fn expiry_protocol_isolation_and_terminal_fragment_release() {
         let mut routes = FragmentRoutes::default();
-        routes.remember(&packet(1, 17, 0x2000), Duration::ZERO, true);
+        routes.remember(
+            &packet(1, 17, 0x2000),
+            Duration::ZERO,
+            PacketDisposition::Private,
+        );
         assert_eq!(routes.lookup(&packet(1, 6, 1), Duration::ZERO), None);
         assert_eq!(
             routes.lookup(&packet(1, 17, 0x2001), Duration::from_secs(9)),
-            Some(true)
+            Some(PacketDisposition::Private)
         );
         assert_eq!(
             routes.lookup(&packet(1, 17, 1), Duration::from_secs(10)),
             None
         );
-        routes.remember(&packet(2, 17, 0x2000), Duration::ZERO, false);
+        routes.remember(
+            &packet(2, 17, 0x2000),
+            Duration::ZERO,
+            PacketDisposition::Customer,
+        );
         assert_eq!(
             routes.lookup(&packet(2, 17, 1), Duration::ZERO),
-            Some(false)
+            Some(PacketDisposition::Customer)
         );
         assert_eq!(routes.lookup(&packet(2, 17, 1), Duration::ZERO), None);
         for id in 0..=CAPACITY as u16 {
-            routes.remember(&packet(id, 17, 0x2000), Duration::ZERO, true);
+            routes.remember(
+                &packet(id, 17, 0x2000),
+                Duration::ZERO,
+                PacketDisposition::Private,
+            );
         }
         assert_eq!(routes.entries.len(), CAPACITY);
-        routes.remember(&packet(9000, 17, 0x2000), TIMEOUT, true);
+        routes.remember(
+            &packet(9000, 17, 0x2000),
+            TIMEOUT,
+            PacketDisposition::Private,
+        );
         assert_eq!(routes.entries.len(), 1);
     }
 }
