@@ -51,7 +51,7 @@ L4 GSO packets, and completes partial checksums. Raw TUN and Apple utun retain
 their existing formats. The library does not call TUNSETIFF or TUNSETOFFLOAD and
 does not change MTU, routes, DNS, packages or sysctls. The host controls offload
 negotiation. Supported vnet header sizes are 10 and 12 bytes, using native byte
-order. Legacy UFO, IPv6 routing/fragment GSO and oversized (>65535-byte) TUN
+order. Legacy UFO, IPv6 routing/fragment GSO and oversized (>65536-byte) TUN
 records are outside this new descriptor contract and fail explicitly. Ordinary
 raw-TUN packet processing continues to support its existing inputs.
 
