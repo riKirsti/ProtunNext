@@ -173,6 +173,89 @@ fn bound_socket(tcp: TcpStream) -> TcpStream {
     tcp
 }
 
+struct CountWrites {
+    socket: TcpStream,
+    writes: usize,
+}
+impl Read for CountWrites {
+    fn read(&mut self, bytes: &mut [u8]) -> std::io::Result<usize> {
+        self.socket.read(bytes)
+    }
+}
+impl Write for CountWrites {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        self.writes += 1;
+        self.socket.write(bytes)
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.socket.flush()
+    }
+}
+
+#[test]
+fn unbuffered_tls_batches_available_records_without_waiting_for_more_plaintext() {
+    for version in [&rustls::version::TLS12, &rustls::version::TLS13] {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let (ready, wait_ready) = std::sync::mpsc::channel();
+        let handle = thread::spawn(move || {
+            let (tcp, _) = listener.accept().unwrap();
+            let mut peer = StreamOwned::new(
+                ServerConnection::new(server_version(&[version])).unwrap(),
+                bound_socket(tcp),
+            );
+            let mut hello = [0; 5];
+            peer.read_exact(&mut hello).unwrap();
+            assert_eq!(&hello, b"start");
+            ready.send(()).unwrap();
+            let mut body = vec![0; 16 * 16384];
+            peer.read_exact(&mut body).unwrap();
+            assert!(body.iter().enumerate().all(|(n, b)| *b == (n % 251) as u8));
+            peer.write_all(b"OK").unwrap();
+            peer.flush().unwrap();
+            let mut sparse = [0; 1];
+            peer.read_exact(&mut sparse).unwrap();
+            assert_eq!(&sparse, b"X");
+        });
+        let mut client = protun_next::tls_unbuffered::UnbufferedTlsIo::new(
+            CountWrites {
+                socket: bound_socket(TcpStream::connect(address).unwrap()),
+                writes: 0,
+            },
+            tls::unbuffered_client_with_roots("localhost", roots()).unwrap(),
+        );
+        client.write_all(b"start").unwrap();
+        client.flush().unwrap();
+        wait_ready.recv_timeout(Duration::from_secs(3)).unwrap();
+        client.socket_mut().writes = 0;
+        let body: Vec<u8> = (0..16 * 16384).map(|n| (n % 251) as u8).collect();
+        for chunk in body.chunks(16384) {
+            client.write_all(chunk).unwrap();
+        }
+        client.flush().unwrap();
+        let calls = client.socket().writes;
+        let mut ack = [0; 2];
+        client.read_exact(&mut ack).unwrap();
+        assert_eq!(&ack, b"OK");
+        assert_eq!(
+            client
+                .write_vectored(&[std::io::IoSlice::new(b"X")])
+                .unwrap(),
+            1
+        );
+        client.flush().unwrap();
+        handle.join().unwrap();
+        eprintln!(
+            "TLS {:?}: 16 queued records used {calls} socket writes",
+            version.version
+        );
+        assert!(
+            calls <= 8,
+            "available TLS records should share socket writes, got {calls}"
+        );
+    }
+}
+
 #[test]
 fn unbuffered_tls_drains_full_ack_queue_while_download_records_remain_unread() {
     const PACKETS: usize = 4096;

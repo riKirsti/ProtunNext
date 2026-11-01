@@ -6,6 +6,10 @@ use zeroize::Zeroize;
 
 const TLS_BUFFER: usize = 65536;
 const RECORD: usize = 16384;
+// Room for four maximum plaintext records and their negotiated AEAD framing.
+// InsufficientSize remains authoritative if rustls needs more than this reserve.
+const RECORD_RESERVE: usize = 256;
+const TLS_OUTPUT: usize = TLS_BUFFER + 4 * RECORD_RESERVE;
 const MAX_PROTOCOL_OUTPUT: usize = 128 * 1024;
 
 fn encode_control<Data>(
@@ -40,6 +44,7 @@ enum Step {
     Written(usize),
     NeedRead,
     ReadBlocked,
+    NeedFlush,
     Closed,
     PeerClosed,
 }
@@ -74,7 +79,7 @@ impl<S: Read + Write> UnbufferedTlsIo<S> {
             incoming: vec![0; TLS_BUFFER].into_boxed_slice(),
             first: 0,
             end: 0,
-            outgoing: vec![0; TLS_BUFFER].into_boxed_slice(),
+            outgoing: vec![0; TLS_OUTPUT].into_boxed_slice(),
             sent: 0,
             encoded: 0,
             pending: vec![0; RECORD].into_boxed_slice(),
@@ -145,7 +150,17 @@ impl<S: Read + Write> UnbufferedTlsIo<S> {
         input: Option<&[u8]>,
         consume: &mut impl FnMut(&[u8]) -> io::Result<usize>,
     ) -> io::Result<Step> {
-        match self.flush_output() {
+        let append_application = input.is_some_and(|data| {
+            !self.connection.is_handshaking()
+                && !self.drive_write
+                && self.control.is_none()
+                && self.outgoing.len() - self.encoded >= data.len() + RECORD_RESERVE
+        });
+        match if append_application {
+            Ok(())
+        } else {
+            self.flush_output()
+        } {
             Ok(()) => {}
             // Readability is independent of writability. In particular both
             // directions can have full TCP send buffers at the same time.
@@ -238,10 +253,15 @@ impl<S: Read + Write> UnbufferedTlsIo<S> {
                             }),
                     }
                 } else if let Some(input) = input {
-                    match traffic.encrypt(input, &mut self.outgoing) {
+                    match traffic.encrypt(input, &mut self.outgoing[self.encoded..]) {
                         Ok(n) => {
-                            self.encoded = n;
+                            self.encoded += n;
                             Ok(Step::Written(input.len()))
+                        }
+                        Err(rustls::unbuffered::EncryptError::InsufficientSize(_))
+                            if self.encoded > 0 =>
+                        {
+                            Ok(Step::NeedFlush)
                         }
                         Err(e) => Err(io::Error::other(e)),
                     }
@@ -346,6 +366,7 @@ impl<S: Read + Write> UnbufferedTlsIo<S> {
                     Step::Read(_) => return Err(io::ErrorKind::WouldBlock.into()),
                     Step::ReadBlocked => return Err(io::ErrorKind::WouldBlock.into()),
                     Step::NeedRead => self.receive_tls()?,
+                    Step::NeedFlush => self.flush_output()?,
                     Step::Closed => return Err(io::ErrorKind::BrokenPipe.into()),
                     Step::PeerClosed => {}
                     Step::Progress => {}
@@ -434,6 +455,14 @@ impl<S: Read + Write> Write for UnbufferedTlsIo<S> {
         self.write_record(&input[..input.len().min(RECORD)])
     }
     fn write_vectored(&mut self, input: &[IoSlice<'_>]) -> io::Result<usize> {
+        // Sparse queues commonly contain one frame. Borrow it directly rather
+        // than copying and erasing it in the gather buffer before rustls copies it.
+        let mut nonempty = input.iter().filter(|slice| !slice.is_empty());
+        if let Some(first) = nonempty.next()
+            && (first.len() >= RECORD || nonempty.next().is_none())
+        {
+            return self.write(first);
+        }
         let mut gather = std::mem::replace(&mut self.gather, Box::new([]));
         let mut n = 0;
         for slice in input {
