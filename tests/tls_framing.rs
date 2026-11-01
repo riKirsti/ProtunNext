@@ -172,6 +172,108 @@ fn bound_socket(tcp: TcpStream) -> TcpStream {
     tcp.set_nodelay(true).unwrap();
     tcp
 }
+
+#[test]
+fn unbuffered_tls_drains_full_ack_queue_while_download_records_remain_unread() {
+    const PACKETS: usize = 4096;
+    const BURST: usize = 256;
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    let handle = thread::spawn(move || {
+        let (tcp, _) = listener.accept().unwrap();
+        let mut peer = FramedIo::new(
+            StreamOwned::new(ServerConnection::new(server()).unwrap(), bound_socket(tcp)),
+            64,
+        )
+        .unwrap();
+        let mut hello = [0; 5];
+        peer.io_mut().read_exact(&mut hello).unwrap();
+        assert_eq!(&hello, b"start");
+        let mut pool = PacketPool::new(2, 2048).unwrap();
+        let mut encoder = protun_next::framing::Encoder::default();
+        let mut wire = Vec::with_capacity(BURST * 1300);
+        for base in (0..PACKETS).step_by(BURST) {
+            wire.clear();
+            for sequence in base..base + BURST {
+                let mut packet = pool.take().unwrap();
+                packet.writable()[..1280].fill(0x37);
+                packet.writable()[..8].copy_from_slice(&[4, 0, 0, 0, 0, 0, 0, 0]);
+                packet.writable()[8..16].copy_from_slice(&(sequence as u64).to_le_bytes());
+                packet.set_len(1280).unwrap();
+                encoder.frame(&mut packet).unwrap();
+                wire.extend_from_slice(packet.data());
+                pool.recycle(packet).unwrap();
+            }
+            // Several TLS records are available while the client queues its ACKs.
+            peer.io_mut().write_all(&wire).unwrap();
+            peer.io_mut().flush().unwrap();
+            for sequence in base..base + BURST {
+                let mut ack = pool.take().unwrap();
+                assert_eq!(peer.receive(&mut ack).unwrap(), Receive::Packet);
+                assert_eq!(ack.data().len(), 32);
+                assert_eq!(&ack.data()[8..16], &(sequence as u64).to_le_bytes());
+                pool.recycle(ack).unwrap();
+            }
+        }
+    });
+    let tcp = bound_socket(TcpStream::connect(address).unwrap());
+    let mut tls = protun_next::tls_unbuffered::UnbufferedTlsIo::new(
+        tcp,
+        tls::unbuffered_client_with_roots("localhost", roots()).unwrap(),
+    );
+    tls.write_all(b"start").unwrap();
+    tls.flush().unwrap();
+    tls.socket_mut().set_nonblocking(true).unwrap();
+    let mut stream = FramedIo::new(tls, 64).unwrap();
+    let mut pool = PacketPool::new(132, 2048).unwrap();
+    let mut received = 0;
+    let deadline = std::time::Instant::now() + Duration::from_secs(4);
+    while received < PACKETS || stream.pending() != 0 || stream.io().wants_write() {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "download/ACK deadlock: {received} packets received, {} ACKs queued",
+            stream.pending()
+        );
+        // Same reserved-output budget used by the packet worker. Filling it must
+        // not make draining depend on consuming another incoming TLS record.
+        while received < PACKETS && stream.pending() < 63 {
+            let mut packet = pool.take().unwrap();
+            match stream.receive(&mut packet).unwrap() {
+                Receive::Packet => {
+                    assert_eq!(packet.data().len(), 1280);
+                    assert_eq!(&packet.data()[8..16], &(received as u64).to_le_bytes());
+                    assert!(packet.data()[16..].iter().all(|b| *b == 0x37));
+                    pool.recycle(packet).unwrap();
+                    let mut ack = pool.take().unwrap();
+                    ack.writable()[..32].fill(0);
+                    ack.writable()[0] = 4;
+                    ack.writable()[8..16].copy_from_slice(&(received as u64).to_le_bytes());
+                    ack.set_len(32).unwrap();
+                    assert!(stream.queue(ack).is_ok());
+                    received += 1;
+                }
+                Receive::WouldBlock | Receive::Yield => {
+                    pool.recycle(packet).unwrap();
+                    break;
+                }
+                Receive::Eof => panic!("download ended early"),
+            }
+        }
+        for _ in 0..64 {
+            if stream.flush(&mut pool).unwrap() != protun_next::stream::Flush::Progress {
+                break;
+            }
+        }
+        match stream.io_mut().flush() {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {}
+            Err(e) => panic!("TLS flush: {e}"),
+        }
+        thread::sleep(Duration::from_millis(1));
+    }
+    handle.join().unwrap();
+}
+
 #[test]
 fn framed_bytes_over_authenticated_tls() {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -208,6 +310,45 @@ fn framed_bytes_over_authenticated_tls() {
     assert_eq!(&reply.data()[..4], &[4, 0, 0, 0]);
     assert!(reply.data()[4..].iter().all(|b| *b == 0x5a));
     handle.join().unwrap();
+}
+
+#[test]
+fn unbuffered_tls_writes_preserve_a_partially_read_plaintext_record() {
+    for version in [&rustls::version::TLS12, &rustls::version::TLS13] {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let handle = thread::spawn(move || {
+            let (tcp, _) = listener.accept().unwrap();
+            let mut peer = StreamOwned::new(
+                ServerConnection::new(server_version(&[version])).unwrap(),
+                bound_socket(tcp),
+            );
+            let mut start = [0; 5];
+            peer.read_exact(&mut start).unwrap();
+            assert_eq!(&start, b"start");
+            let body: Vec<u8> = (0..1024).map(|n| (n % 251) as u8).collect();
+            peer.write_all(&body).unwrap();
+            peer.flush().unwrap();
+            let mut ack = [0; 3];
+            peer.read_exact(&mut ack).unwrap();
+            assert_eq!(&ack, b"ack");
+        });
+        let mut client = protun_next::tls_unbuffered::UnbufferedTlsIo::new(
+            bound_socket(TcpStream::connect(address).unwrap()),
+            tls::unbuffered_client_with_roots("localhost", roots()).unwrap(),
+        );
+        client.write_all(b"start").unwrap();
+        client.flush().unwrap();
+        let mut body = [0; 1024];
+        client.read_exact(&mut body[..1]).unwrap();
+        // The remaining 1023 plaintext bytes must neither block this ACK nor
+        // disappear when the writer temporarily borrows the pending buffer.
+        client.write_all(b"ack").unwrap();
+        client.flush().unwrap();
+        client.read_exact(&mut body[1..]).unwrap();
+        assert!(body.iter().enumerate().all(|(n, b)| *b == (n % 251) as u8));
+        handle.join().unwrap();
+    }
 }
 #[test]
 fn wrong_server_name_is_rejected() {
