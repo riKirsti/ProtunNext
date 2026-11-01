@@ -1,118 +1,76 @@
 # Verification status
 
-Development evidence, not a release acceptance record.
+This is development evidence, not live service or release acceptance.
+[Implementation coverage](parity-scope.md) and [the requirement ledger](parity.json)
+separate executable code from the physical-device/Proton Plus tests deferred by
+the user. No router was contacted or modified in this work.
 
-## Current compatibility work
+## Current local checks
 
-[Run 41252701484](https://github.com/riKirsti/ProtunNext/actions/runs/41252701484)
-at `f05409403c236f3e1245429bafceb582f5151578` passed all five jobs:
-Windows/Linux/macOS tests, formatting, Clippy and release builds; isolated Linux
-TUN tests; and AArch64 Android API25 native library/Kotlin generation.
-Linux also exercises generated Python constructor/cache/state/shutdown callbacks;
-macOS typechecks generated Swift and tests utun prefix I/O with real datagrams.
+Rust1.99.1/MSVC all-target/all-feature tests pass on Windows. They include actual
+Noise exchanges over UDP, TCP, authenticated TLS and Stealth, replay/tamper
+rejection, partial/vectored writes and bounded backpressure. Private-stack
+fixtures execute real TCP/UDP translation, customer collisions, peer-initiated
+reserved ports, fragmented private UDP reassembly and alternate-subnet DNS/HTTP.
 
-That checkpoint includes the shared worker, encrypted connectivity probes,
-reentrant shutdown checks, private IPv4 fragment ownership and account fixtures.
-The fixture executes published Muon/RCRL code over actual in-memory IP/TCP
-stacks with public test tokens. It verifies certificate JSON/settings/duration,
-rejected-auth cache clearing, a replacement fork GET, cookies and suppression of
-a consumed selector. It does not simulate a successful paid Proton connection.
-The latest CI link and source hash must be checked before treating a newer
-checkpoint as verified.
+The account fixture executes published Muon/RCRL code over actual private TCP/IP
+stacks with public test tokens and a test Ed25519 identity. It checks successful
+certificate issuance/persistence/replacement, request features/duration, session
+rejection, fork replacement, cookie delivery and consumed-selector suppression.
+It does not contact Proton or prove production LocalAgent trust.
 
-[Run 41268188099](https://github.com/riKirsti/ProtunNext/actions/runs/41268188099)
-at `fd340cc4799f185af360d25aec594c7f69d0a4a9` additionally passed the Android
-service/Kotlin compilation, unit tests and AAR assembly, and the enlarged Linux
-TUN cases. The inspected release AAR contains the arm64-v8a native library,
-generated native Connection, Android core, manager and VpnService classes.
-This checkpoint reads whole 1,500-byte TUN packets even when the worker's initial
-MTU is 1,280. Physical Android device execution remains deferred.
+The optional development helpers have bounded INI-parser/error fixtures and real
+host-adapter loopback TCP checks. Their authentication test rejects invalid app
+configuration before networking. No real login, password or 2FA was used.
 
-The successful private certificate issuance/replacement fixture was then added
-at `f47e2c9` and passed locally. A subsequent source check corrected compatibility
-statistics timestamps to milliseconds since high-level connection creation,
-preserving the origin across worker recreation. New CI checks cover that change;
-the internal raw snapshot still retains the absolute continuous clock sample.
+Windows and AArch64-musl all-target/all-feature Clippy pass with warnings denied.
+The no-account native build also passes Clippy. An optimized AArch64-musl full
+runtime cross-build has passed; that establishes linking, not router execution.
+The final source revision needs its own final build/check record below.
 
-`verify-code-parity` reports missing/partial implementation independently from
-the release gate. The matched router benchmark is evidence-only for this code
-gate; live service and target acceptance remain deferred in `verify-parity`.
-Both gates currently fail intentionally: full code coverage is still unfinished.
+`verify-code-parity` now passes for 39 functional implementation requirements;
+the performance-evidence row is explicitly outside that software gate.
+`verify-parity` still exits unsuccessfully because live/device verification is
+incomplete. CI checks both outcomes; coverage cannot approve a production release.
 
-The CLI is named `protun-next-cli`; the separate name avoids an MSVC debug-symbol
-filename collision with the `protun_next` library. `cargo run` selects it by default.
+The established-session allocation fixture passes 1,024 1,280-byte
+encrypt/frame/decode/decrypt cycles with zero allocator calls on its measured
+thread after warm-up. It excludes initialization, rekey, TLS, OS I/O and account
+work. Host framing timings are not VPN throughput measurements.
 
-## Earlier implementation evidence
+## Recorded CI evidence
 
-## Executed locally on Windows x86-64
+The last complete five-job passing checkpoint before the latest lifecycle work
+is [41271451414](https://github.com/riKirsti/ProtunNext/actions/runs/41271451414),
+commit `104fec848a2b98c1e1dd59b30ede1f4754daafbb`. Windows/Linux/macOS tests,
+formatting, Clippy and optimized runtime builds passed. Generated Python invoked
+real Unix constructor/cache/state/shutdown and Windows initialization; generated
+Swift typechecked. Android built the API25 arm64 native library, generated Kotlin,
+compiled the service/unit tests and assembled the AAR. Windows packaging verified
+the official Wintun archive hash, signature and CPU architecture without loading
+or installing the driver.
 
-* Rust 1.99.1/MSVC, `cargo test --all-targets --all-features`.
-* Actual WireGuard Noise handshake and authenticated IP packet exchange.
-* Replay and tampered-tag rejection; clock regression and output bounds.
-* Real TCP and nonblocking TLS loopback carrying the WireGuard handshake and encrypted IP exchange.
-* Standard TLS certificate verification and wrong-server-name rejection.
-* An 80,000-byte real TLS exchange with vectored plaintext, a full bounded
-  pre-handshake buffer, forced 257-byte socket writes and repeated WouldBlock;
-  the accepted bytes arrive intact.
-* Framing fragmentation, prediction context and reset/error rules.
-* Partial writes/backpressure with exact output preservation.
-* Packet ownership/bounded queues, config parsing/redaction, PCAP limits,
-  NAT-PMP request/refusal, candidate selection and incomplete-parity rejection.
-* 1,024 established crypto/framing packet cycles with zero observed per-thread
-  allocator calls after warm-up. This excludes startup/rekey/TLS/kernel work.
+The Linux namespace job of
+[41275189414](https://github.com/riKirsti/ProtunNext/actions/runs/41275189414),
+commit `194ef1a21eb572037883a89fe9a35faa5b3918be`, passed three integration tests:
+eight TUN transport/filter/EOF scenarios, a tracked LAN reply through real TUN,
+and a local HTTP TCP session retained across worker replacement and an unanswered
+SYN. The last case also passed without account SDKs. All network changes were
+inside disposable namespaces removed by CI. **That workflow was not a full pass:**
+host jobs stopped at a module-order formatting difference, now corrected.
+Superseded lifecycle runs were cancelled when newer commits were pushed;
+a successful individual job is not represented as a successful complete run.
 
-## Executed in GitHub Actions
+The final workflow for the current coverage commit is recorded after completion;
+until then, consult the exact source revision and checks on
+[PR1](https://github.com/riKirsti/ProtunNext/pull/1).
 
-[Run 41220824642](https://github.com/riKirsti/ProtunNext/actions/runs/41220824642),
-commit `a4e8f75b139bdd8ba6e9de15ec76044a380dd31c`, passed on Windows,
-Linux and macOS: all-feature tests, formatting, Clippy, release build and the
-expected rejection of incomplete parity. Its isolated Linux network-namespace
-job passed the real kernel TUN -> WireGuard UDP -> reference peer -> TUN echo.
+## Deferred acceptance
 
-[Run 41221611485](https://github.com/riKirsti/ProtunNext/actions/runs/41221611485),
-commit `61cf2a758633c01770f34cc385b579e5a3e7b937`, passed on all three
-host platforms, plus real TUN round trips through UDP, framed TCP and standard
-certificate-verifying nonblocking TLS in the isolated Linux job.
+- Live Proton session/fork, production certificate trust/renewal and LocalAgent.
+- Applied Plus features, refusals, exits, jails and restrictions on a real account.
+- Physical Windows Wintun, Apple utun, Android handover/always-on/revoke and C# host integration.
+- Additional Android ABI builds beyond arm64-v8a.
+- OpenWrt execution and matched v3.0.5/kernel WireGuard performance measurements.
 
-[Run 41221982426](https://github.com/riKirsti/ProtunNext/actions/runs/41221982426),
-commit `71bfa70afd88ff7f1babb0072a156fb7b5a97e6a`, also passed all four jobs.
-Its Linux test adds the explicit Stealth outer policy (untrusted test CA and
-mismatched outer SNI, but valid inner WG peer) and checks that a wrong inner WG
-peer delivers no data. This is real local protocol I/O, not a live Proton server
-or paid subscription verification.
-
-The first managed-worker run (`41222476857`, commit `326e90e`) exposed an
-IPv6 TUN control packet reaching the IPv4-only reference peer. It was not a
-passing integration result. The following change enforces the configured
-AllowedIPs before outbound encryption and after authenticated inbound decryption.
-Its expanded test checks wrong inner identity, spoofed source, disallowed
-destination, requested statistics, repeated shutdown/join and a final TCP reply
-followed immediately by EOF. [Run 41222836845](https://github.com/riKirsti/ProtunNext/actions/runs/41222836845),
-commit `55fcaaa7dc05a8029d90f2124c94ab3cdff00cc6`, passed all four jobs.
-The isolated Linux test executes eight scenarios: UDP, TCP, standard TLS,
-Stealth, wrong WG identity, authenticated wrong IP source, disallowed outbound
-destination, and a valid final TCP reply immediately followed by EOF. It also
-checks fresh requested statistics, authenticated tunnel state, and repeated join.
-
-The following TLS batching refinement passes locally (22 all-feature tests);
-its own workflow must confirm the cross-platform result. It forwards all
-IoSlices to rustls's published vectored writer rather than inheriting the default
-single-slice fallback. This is an I/O behavior fix; no throughput speedup has
-been measured.
-
-## Cross compilation
-
-The development laptop successfully built the all-feature release executable for
-`aarch64-unknown-linux-musl`, including the optional official Local Agent adapter. This proves compilation/linking, not execution on
-Travel or any target throughput result.
-
-## Not yet verified
-* Complete Proton WireGuard TCP or Stealth client integration.
-* Real Proton server/account interoperability and all Plus capabilities.
-* Cross-platform connection lifecycle and platform bindings.
-* AArch64 router throughput, syscall counts or a speedup versus v3.0.5.
-
-`docs/parity.json` is the authoritative incomplete-feature ledger. Its statuses
-distinguish local implementation from live verification. Release readiness fails
-while any required item is missing; it must not be bypassed to label a prototype
-feature-complete.
+There is no measured router speedup and no production-readiness assertion.

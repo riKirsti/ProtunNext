@@ -5,7 +5,7 @@ and its published Muon 3.0.0, RCRL 2.0.0, LocalAgent 0.13.0 and
 netstack 0.8.1 dependencies. These are source-based compatibility decisions,
 not evidence of successful Proton service interoperability.
 
-The Linux supervisor owns peer/port selection, connectivity recovery, optional
+The shared supervisor owns peer/port selection, connectivity recovery, optional
 and replacement TUN descriptors, callbacks, requested statistics, captures and
 the account worker. Metadata-only peer updates retain the socket and WG session.
 An active capture sink survives peer/socket replacement; final disconnect closes
@@ -54,10 +54,10 @@ The local HTTP connection-test service is implemented, and the private control
 flow map now protects customer traffic with colliding source ports. Ordinary
 customer ports bypass that connection-tracking map.
 
-Still required before full source/API parity can be asserted: complete upstream
-virtual-router/NAT/firewall behavior (including dynamic Windows subnets), native
-Windows transports and management, remaining Android platform acceptance,
-and comprehensive offline account/protocol failure fixtures. NAT-PMP lease management is an extra
+The function implementations now include selected Windows subnets, native
+Windows management/transports and Android service integration. Physical platform
+acceptance and live Proton account/Plus verification remain deferred; see
+`parity-scope.md`. NAT-PMP lease management is an extra
 router capability, not a v3.0.5 parity requirement: upstream exposes LocalAgent
 port-forwarding enablement without implementing that lease manager.
 
@@ -83,3 +83,18 @@ the function mapping and remaining device verification. The successful private
 certificate fixture also exercises issuance, legacy persistence and explicit
 replacement with a matching public-test Ed25519 identity; it establishes no
 production LocalAgent trust.
+
+The private stack, NAT mappings and local listener belong to the high-level
+connection. Up/down/switch and peer socket recreation retain those resources.
+Offline operation runs a local-only packet worker, and pending TCP connects are
+polled alongside TUN rather than holding up the packet loop. An isolated Linux
+fixture keeps a real local HTTP TCP session open across worker replacement,
+including a deliberately unanswered SYN, in full and no-account builds.
+
+LocalAgent peer identity/server-name changes reconnect mTLS and clear the old
+server snapshot; label-only changes update settings. An unusable certificate
+reported by ManagedLocalAgent requests identity/WG rekey, matching the published
+pvpnclient event handler. Certificate rejection requiring renewal still uses
+RCRL's replacement path. Private flow expiry uses the continuous clock across
+suspend. Development-only SRP login/fork utilities are explicitly opt-in and
+independent of the private VPN account transport.

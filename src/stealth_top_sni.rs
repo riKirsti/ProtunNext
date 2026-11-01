@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Protocol compatibility data from Protun v3.0.5 src/connection/constants.rs,
 // commit a498c38ae6ffb0e68e7190b2831ef985d73fa6da.
-const TOP_SNI : &[&str] = &[
+const TOP_SNI: &[&str] = &[
     "accounts.google.com",
     "activity.windows.com",
     "analytics.apis.mcafee.com",

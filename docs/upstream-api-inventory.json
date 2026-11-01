@@ -513,6 +513,86 @@
         }
       ],
       "source": "https://github.com/ProtonVPN/protun/blob/a498c38ae6ffb0e68e7190b2831ef985d73fa6da/src/api/windows/state_changed_callback.rs"
+    },
+    {
+      "file": "src/api/test_utils/mod.rs",
+      "sha256": "3a19c169553de0ea95381f0a277a78ba47a3b915bd7b5e1a89fa3cb3a0ed0c53",
+      "symbols": [],
+      "source": "https://github.com/ProtonVPN/protun/blob/a498c38ae6ffb0e68e7190b2831ef985d73fa6da/src/api/test_utils/mod.rs"
+    },
+    {
+      "file": "src/api/test_utils/test_config_parser.rs",
+      "sha256": "d56c98858d1183e4bf0d4c463a86ef461369a536b8db9d78bad652016ed79d8b",
+      "symbols": [
+        {
+          "kind": "fn",
+          "name": "parse_ini_config",
+          "line": 52
+        },
+        {
+          "kind": "struct",
+          "name": "ParsedForkConfig",
+          "line": 178
+        },
+        {
+          "kind": "struct",
+          "name": "ParsedConfig",
+          "line": 186
+        }
+      ],
+      "source": "https://github.com/ProtonVPN/protun/blob/a498c38ae6ffb0e68e7190b2831ef985d73fa6da/src/api/test_utils/test_config_parser.rs"
+    },
+    {
+      "file": "src/api/test_utils/muon_test_auth.rs",
+      "sha256": "d886f81e3d62aebedf8c9f9ab7d9b7f4987c70bcde037634647da489a69bb42d",
+      "symbols": [
+        {
+          "kind": "struct",
+          "name": "TimeCapability",
+          "line": 36
+        },
+        {
+          "kind": "struct",
+          "name": "MyTcpConnector",
+          "line": 82
+        },
+        {
+          "kind": "struct",
+          "name": "MyResolver",
+          "line": 97
+        },
+        {
+          "kind": "struct",
+          "name": "MyOperatingSystem",
+          "line": 113
+        },
+        {
+          "kind": "struct",
+          "name": "MuonCookieStore",
+          "line": 138
+        },
+        {
+          "kind": "fn",
+          "name": "new",
+          "line": 143
+        },
+        {
+          "kind": "struct",
+          "name": "TokioExecutor",
+          "line": 163
+        },
+        {
+          "kind": "fn",
+          "name": "get_session_fork_selector",
+          "line": 176
+        },
+        {
+          "kind": "fn",
+          "name": "get_session_fork_selector_async",
+          "line": 190
+        }
+      ],
+      "source": "https://github.com/ProtonVPN/protun/blob/a498c38ae6ffb0e68e7190b2831ef985d73fa6da/src/api/test_utils/muon_test_auth.rs"
     }
   ],
   "note": "Public-symbol inventory; requirements below include semantic behavior not implied by a symbol match."

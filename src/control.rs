@@ -138,6 +138,7 @@ pub fn code_coverage_gate() -> Result<()> {
 }
 /// Release gate fails unless every required feature has verified implementation evidence.
 pub fn release_gate() -> Result<()> {
+    code_coverage_gate()?;
     let items = parity_manifest()?;
     if items.is_empty() {
         return Err(Error::Invalid("empty parity requirements"));
@@ -146,7 +147,9 @@ pub fn release_gate() -> Result<()> {
         .iter()
         .any(|i| i.status != Support::ImplementedLocal || i.evidence.is_empty())
     {
-        return Err(Error::Unsupported("v3.0.5 feature parity is incomplete"));
+        return Err(Error::Unsupported(
+            "v3.0.5 live/device verification is incomplete",
+        ));
     }
     Ok(())
 }
@@ -155,7 +158,7 @@ pub fn release_gate() -> Result<()> {
 mod tests {
     use super::*;
     #[test]
-    fn cannot_claim_parity_with_missing_server_and_platform_work() {
+    fn cannot_claim_release_readiness_before_live_service_and_device_verification() {
         assert!(release_gate().is_err());
     }
     #[test]

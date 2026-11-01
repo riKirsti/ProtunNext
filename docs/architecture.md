@@ -16,7 +16,7 @@ Single-peer `AllowedIPs` is enforced as destination routing on outbound IP
 and source ACL on authenticated inbound IP, following WireGuard's documented
 cryptokey-routing rules. CIDRs are parsed once; default v4/v6 routes have constant
 checks and no per-packet allocation. Malformed IP lengths are rejected. This is
-not a complete replacement for upstream virtual-router/NAT/firewall behavior.
+separate from the virtual-router/NAT/firewall implementation described below.
 Validated inbound packets are written to TUN before a terminal TCP/TLS read error
 is reported, so an immediately following FIN cannot discard the final reply.
 
@@ -56,7 +56,8 @@ UDP worker relabeled as kernel WireGuard.
   HTTP endpoint. Ordinary customer ports bypass it. The small reserved port
   range uses a bounded flow map to prevent control/customer reply collisions.
   IPv4 private-response fragments retain the first fragment's route for ten
-  seconds in a bounded table. Dynamic Windows subnet policy remains unfinished.
+  seconds in a bounded table. Selected Windows subnets are shared by all address
+  consumers, including the stack, DNS, probes, local service and virtual policy.
   Non-TCP/UDP traffic passes unchanged, as in the pinned upstream firewall;
   quoted-ICMP and IPv6 extension-header NAT are not upstream features.
 * **Ed25519 dalek / PKCS#8:** identity creation, PEM compatibility and the
@@ -127,8 +128,9 @@ UniFFI 0.31.0 exports the Unix compatibility object, records and callbacks.
 CI calls it through generated Python bindings, typechecks generated Swift, and
 builds an Android API25 library plus Kotlin bindings and the independent
 VpnService/manager AAR. The Windows object API is also exported and its generated
-Python initialization is exercised without constructing an adapter. Full
-source/API parity remains incomplete independently of deferred live acceptance.
+Python initialization is exercised without constructing an adapter. The
+function implementation mapping is recorded in `parity-scope.md`; live service
+and physical device acceptance remain deferred.
 
 ## Official reference material checked
 

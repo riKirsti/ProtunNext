@@ -5,10 +5,10 @@ The Windows library now exports `ProTun.initialize/delete_routes` and
 The returned compatibility connection uses the shared packet worker, account
 runtime, settings, failover, cache, capture, statistics and event contracts.
 
-This is executable platform code, not an API declaration-only layer. It remains
-a development checkpoint: alternate Windows subnet fallback and full virtual
-network behavior are unfinished, and no real Wintun adapter has been activated
-in verification. Full v3.0.5 code parity must not yet be asserted.
+This is executable platform code, including alternate subnet selection and the
+shared virtual-network policy. No real Wintun adapter has been activated in
+verification. Implementation coverage and deferred device acceptance are
+tracked separately in [the source comparison](parity-scope.md).
 
 ## Packet and socket path
 
@@ -25,10 +25,10 @@ route-plus-interface metric, and excludes the owned TUN. `IP_UNICAST_IF` or
 `IPV6_UNICAST_IF` is applied before connect, using the native-width SOCKET. No
 per-peer host-route insertion is needed to protect the VPN transport.
 
-TCP connect waits with bounded `WSAPoll` calls before registration with the
-packet reactor; a temporary IOCP registration would prevent associating the
-same socket with the worker's completion port. The transport then shares the
-same bounded framing/TLS/partial-write code as Unix.
+Pending TCP connects register with the packet reactor once, with no temporary
+readiness registration. TUN and local HTTP keep making progress during the SYN
+wait. TCP connect and TLS negotiation have a bounded continuous-clock deadline.
+The transport shares bounded framing/TLS/partial-write code with Unix.
 
 Interface addresses, split default routes, MTU/metric and DNS use native IP Helper
 calls. IP-interface and route-change callbacks only signal a coalescing control
@@ -75,10 +75,10 @@ actual native initialization and checks Windows records/methods without calling
 the adapter constructor. Host tests and all-target/all-feature Clippy pass, and
 the Unix path also passes AArch64-musl Clippy after the shared-boundary refactor.
 
-The code currently configures the standard `10.2.0.*`/`2a07:b944::2:*` subnet.
-Upstream's Windows helper tries subsequent subnets after address setup failure;
-that fallback must be wired consistently through the private stack, probes,
-policy, API/DNS and reported adapter details before closing this code gap.
+The code tries subnets2..255 after IPv4 address setup failures. Its selected
+addresses are shared by the adapter, private stack, gateway/DNS, probes, policy,
+local HTTP listener and reported details. Unit fixtures exercise fallback
+selection and actual private DNS/HTTP exchanges on subnet37.
 Native adapter/DNS/routes/network-event execution, teardown during real network
 changes, packaged C# host integration and live Proton Plus acceptance remain
 deferred verification. Loopback tests prove neither those behaviors nor target

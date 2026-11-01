@@ -1,6 +1,6 @@
-//! Linux worker ownership and observation, independent of account/control I/O.
-//! This implements start/stop/join and real session statistics. Peer updates,
-//! failover, live TUN replacement and account lifecycle are separate work items.
+//! Native worker ownership and observation, independent of account/control I/O.
+//! The supervisor retains control services and capture across worker changes;
+//! this layer owns packet-thread stop/join, interface updates and statistics.
 use crate::api::{
     capture::CaptureController,
     types::{Event, PcapFileInfo, SocketProtector},
