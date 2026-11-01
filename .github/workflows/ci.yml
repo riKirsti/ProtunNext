@@ -64,12 +64,26 @@ jobs:
         shell: bash
         run: |
           cargo run --locked --features bindgen --bin uniffi-bindgen -- generate --library target/aarch64-linux-android/release/libprotun_next.so --language kotlin --config uniffi.toml --out-dir target/android-bindings --no-format
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.14.3'
+      - name: Compile Android service, bindings, unit tests and AAR
+        shell: bash
+        run: |
+          mkdir -p target/android-jni/arm64-v8a
+          cp target/aarch64-linux-android/release/libprotun_next.so target/android-jni/arm64-v8a/
+          gradle -p android --no-daemon testDebugUnitTest assembleRelease
       - uses: actions/upload-artifact@v4
         with:
           name: android-development-library-and-bindings
           path: |
             target/aarch64-linux-android/release/libprotun_next.so
             target/android-bindings/
+            android/build/outputs/aar/
   linux-tun:
     runs-on: ubuntu-latest
     steps:

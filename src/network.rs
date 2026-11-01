@@ -19,6 +19,9 @@ use std::{
 };
 
 pub(crate) trait Network {
+    fn max_ip_packet(&self) -> usize {
+        65_503 // 65,535-byte WG datagram minus data header and AEAD tag.
+    }
     #[cfg(unix)]
     fn fd(&self) -> i32;
     #[cfg(unix)]
@@ -170,6 +173,9 @@ impl WireSocket for TlsIo<TcpStream> {
 }
 pub(crate) struct Stream<S>(pub FramedIo<S>);
 impl<S: WireSocket> Network for Stream<S> {
+    fn max_ip_packet(&self) -> usize {
+        0x3fff - 32 // Must also fit a normal, uncompressed TunSafe frame.
+    }
     fn register(&mut self, r: &mio::Registry, t: Token, i: Interest) -> io::Result<()> {
         WireSocket::register(self.0.io_mut(), r, t, i)
     }

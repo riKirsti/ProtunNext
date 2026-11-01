@@ -71,7 +71,7 @@ fn actual_udp_tcp_tls_engine_tun_roundtrips() {
     assert_eq!(configured, 0);
     ip(&["link", "set", "lo", "up"]);
     ip(&["addr", "add", "10.2.0.2/32", "dev", "pn0"]);
-    ip(&["link", "set", "pn0", "mtu", "1280", "up"]);
+    ip(&["link", "set", "pn0", "mtu", "1500", "up"]);
     ip(&["route", "add", "10.2.0.3/32", "dev", "pn0"]);
     for mode in 0..8 {
         let peer = UdpSocket::bind("127.0.0.1:0").unwrap();
@@ -211,15 +211,17 @@ fn actual_udp_tcp_tls_engine_tun_roundtrips() {
             Duration::from_secs(8)
         }))
         .unwrap();
-        app.send_to(b"real kernel TUN and UDP", "10.2.0.3:9000")
-            .unwrap();
-        let mut response = [0; 128];
+        // The caller-owned interface MTU exceeds the worker's initial 1280.
+        // A full 1500-byte IP packet must survive without a truncated tail.
+        let payload = [0x5a; 1472];
+        app.send_to(&payload, "10.2.0.3:9000").unwrap();
+        let mut response = [0; 1500];
         let received = app.recv_from(&mut response);
         if mode == 7 {
             let (n, _) = received.unwrap();
             assert_eq!(
                 &response[..n],
-                b"real kernel TUN and UDP",
+                payload,
                 "final validated reply must precede FIN failure"
             );
             let deadline = std::time::Instant::now() + Duration::from_secs(2);

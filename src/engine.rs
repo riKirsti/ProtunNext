@@ -197,7 +197,11 @@ pub(crate) fn run<N: Network>(
                 pool.recycle(input)?;
                 break;
             };
-            match device.read(&mut input.writable()[..config.mtu as usize]) {
+            // The embedding host can replace/reconfigure TUN independently of
+            // this worker's initial config. Read a whole packet rather than
+            // silently truncating it to a stale MTU (a TUN read discards the
+            // unread tail). Apply transport wire bounds after the read.
+            match device.read(input.writable()) {
                 Ok(0) => {
                     pool.recycle(input)?;
                     detach_tun(&mut tun, &poll, observer, Error::Invalid("TUN EOF"))?;
@@ -208,6 +212,11 @@ pub(crate) fn run<N: Network>(
                 Ok(n) => {
                     counters.tun_reads += 1;
                     input.set_len(n)?;
+                    if n > network.max_ip_packet() {
+                        counters.outbound_filtered += 1;
+                        pool.recycle(input)?;
+                        continue;
+                    }
                     if compatibility_policy
                         && crate::virtual_policy::outbound(input.data())
                             == crate::virtual_policy::Route::Drop
