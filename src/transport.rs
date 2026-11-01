@@ -20,6 +20,11 @@ pub struct Counters {
     pub outer_io_errors: u64,
     pub in_place_encryptions: u64,
     pub in_place_decryptions: u64,
+    /// Byte accounting is populated only by debug-counters builds.
+    pub successful_crypto_copy_bytes: u64,
+    pub pool_recycle_wipe_bytes: u64,
+    pub to_network_bytes_high_water: u64,
+    pub to_tun_bytes_high_water: u64,
 }
 pub enum Transport {
     Udp,

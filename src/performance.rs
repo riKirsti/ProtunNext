@@ -118,4 +118,20 @@ pub struct IoCounters {
     pub io_uring_submissions: u64,
     pub received_bytes: u64,
     pub sent_bytes: u64,
+    pub receive_would_block: u64,
+    pub send_would_block: u64,
+    pub receive_interrupted: u64,
+    pub send_interrupted: u64,
+}
+impl IoCounters {
+    pub(crate) fn socket_error(&mut self, error: &std::io::Error, sending: bool) {
+        let counter = match (error.kind(), sending) {
+            (std::io::ErrorKind::WouldBlock, false) => &mut self.receive_would_block,
+            (std::io::ErrorKind::WouldBlock, true) => &mut self.send_would_block,
+            (std::io::ErrorKind::Interrupted, false) => &mut self.receive_interrupted,
+            (std::io::ErrorKind::Interrupted, true) => &mut self.send_interrupted,
+            _ => return,
+        };
+        *counter = counter.saturating_add(1);
+    }
 }

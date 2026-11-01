@@ -212,7 +212,11 @@ impl Network for Datagram {
         }
         let _ = pool;
         self.counters.receive_calls += 1;
-        match self.socket.recv(packet.writable()) {
+        let result = self.socket.recv(packet.writable());
+        if let Err(error) = &result {
+            self.counters.socket_error(error, false);
+        }
+        match result {
             Ok(n) => {
                 packet.set_len(n)?;
                 self.counters.received_datagrams += 1;
@@ -239,7 +243,11 @@ impl Network for Datagram {
                 return Ok(false);
             };
             self.counters.send_calls += 1;
-            match self.socket.send(packet.data()) {
+            let result = self.socket.send(packet.data());
+            if let Err(error) = &result {
+                self.counters.socket_error(error, true);
+            }
+            match result {
                 Ok(n) if n == packet.data().len() => {
                     pool.recycle(queue.pop().expect("front exists"))?;
                     self.counters.sent_datagrams += 1;
@@ -354,6 +362,9 @@ impl Read for ConnectingTcp {
         self.ready()?;
         self.counters.receive_calls += 1;
         let result = self.socket.read(bytes);
+        if let Err(error) = &result {
+            self.counters.socket_error(error, false);
+        }
         if let Ok(n) = result {
             self.counters.received_bytes += n as u64;
         }
@@ -365,6 +376,9 @@ impl Write for ConnectingTcp {
         self.ready()?;
         self.counters.send_calls += 1;
         let result = self.socket.write(bytes);
+        if let Err(error) = &result {
+            self.counters.socket_error(error, true);
+        }
         if let Ok(n) = result {
             self.counters.sent_bytes += n as u64;
         }
@@ -374,6 +388,9 @@ impl Write for ConnectingTcp {
         self.ready()?;
         self.counters.send_calls += 1;
         let result = self.socket.write_vectored(bytes);
+        if let Err(error) = &result {
+            self.counters.socket_error(error, true);
+        }
         if let Ok(n) = result {
             self.counters.sent_bytes += n as u64;
         }
