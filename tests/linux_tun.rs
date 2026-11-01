@@ -28,6 +28,26 @@ fn echo_ipv4(packet: &mut [u8], spoof: bool) {
     let header = (packet[0] & 15) as usize * 4;
     assert!(header >= 20 && packet.len() >= header + 8);
     assert_eq!(packet[9], 17);
+    let sum = |bytes: &[u8], seed: u32| {
+        let mut value = seed;
+        for pair in bytes.chunks(2) {
+            value += u16::from_be_bytes([pair[0], *pair.get(1).unwrap_or(&0)]) as u32;
+        }
+        while value > 0xffff {
+            value = (value & 0xffff) + (value >> 16);
+        }
+        value
+    };
+    assert_eq!(sum(&packet[..header], 0), 0xffff, "outbound IPv4 checksum");
+    if packet[header + 6..header + 8] != [0, 0] {
+        // Independent RFC 768 pseudoheader check at the receiving peer.
+        let pseudo = sum(&packet[12..20], 17 + (packet.len() - header) as u32);
+        assert_eq!(
+            sum(&packet[header..], pseudo),
+            0xffff,
+            "outbound UDP checksum"
+        );
+    }
     for n in 0..4 {
         packet.swap(12 + n, 16 + n);
     }
@@ -106,7 +126,14 @@ fn tun_roundtrips(vnet: Option<libc::c_int>) {
     ip(&["addr", "add", "10.2.0.2/32", "dev", "pn0"]);
     ip(&["link", "set", "pn0", "mtu", "1500", "up"]);
     ip(&["route", "add", "10.2.0.3/32", "dev", "pn0"]);
-    for mode in 0..16 {
+    for mode in 0..20 {
+        let scenario = match mode {
+            16 => 4,
+            17 => 5,
+            18 => 6,
+            19 => 7,
+            _ => mode,
+        };
         let udp_mode = matches!(mode, 0 | 8 | 9 | 10 | 13 | 15);
         let peer = UdpSocket::bind("127.0.0.1:0").unwrap();
         peer.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
@@ -159,7 +186,7 @@ fn tun_roundtrips(vnet: Option<libc::c_int>) {
                 transport.receive(&mut wire);
                 let result = match session.decrypt(wire.data(), &mut out) {
                     Ok(result) => result,
-                    Err(_) if mode == 4 => {
+                    Err(_) if scenario == 4 => {
                         // The TLS peer has no trusted certificate/name, but the
                         // wrong configured WG key must prevent authentication.
                         wait_release.recv_timeout(Duration::from_secs(10)).unwrap();
@@ -170,7 +197,7 @@ fn tun_roundtrips(vnet: Option<libc::c_int>) {
                 match result {
                     Output::Network(n) => transport.send(&out[..n], &mut pool),
                     Output::Tunnel(n) => {
-                        echo_ipv4(&mut out[..n], mode == 5);
+                        echo_ipv4(&mut out[..n], scenario == 5);
                         let Output::Network(n) = session.encrypt(&out[..n], &mut reply).unwrap()
                         else {
                             panic!("echo encrypt")
@@ -180,13 +207,13 @@ fn tun_roundtrips(vnet: Option<libc::c_int>) {
                         if echoes > 0 {
                             continue;
                         }
-                        if mode == 7 {
+                        if scenario == 7 {
                             return;
                         }
                         wait_release.recv_timeout(Duration::from_secs(10)).unwrap();
                         return;
                     }
-                    Output::None if mode == 6 => {
+                    Output::None if scenario == 6 => {
                         wait_release.recv_timeout(Duration::from_secs(10)).unwrap();
                         return;
                     }
@@ -197,14 +224,14 @@ fn tun_roundtrips(vnet: Option<libc::c_int>) {
         let text = format!(
             "[Interface]\nPrivateKey={}\nAddress=10.2.0.2/32\nMTU=1280\n[Peer]\nPublicKey={}\nEndpoint={endpoint}\nAllowedIPs=10.2.0.3/32\n",
             STANDARD.encode([7; 32]),
-            STANDARD.encode(Session::public_key(if mode == 4 {
+            STANDARD.encode(Session::public_key(if scenario == 4 {
                 [11; 32]
             } else {
                 [9; 32]
             }))
         );
         let mut config = WireguardConfig::parse(&text).unwrap();
-        if mode == 6 {
+        if scenario == 6 {
             config.allowed_ips = vec!["10.2.0.4/32".into()];
         }
         let transport = match mode {
@@ -228,7 +255,7 @@ fn tun_roundtrips(vnet: Option<libc::c_int>) {
                     protun_next::performance::UdpBackend::Batch
                 },
                 udp_offload: mode == 9 || mode == 15,
-                unbuffered_tls: mode == 11,
+                unbuffered_tls: mode == 11 || mode >= 16,
                 compact_pool: true,
                 in_place_crypto: cfg!(feature = "in-place-crypto"),
                 ..Default::default()
@@ -263,7 +290,7 @@ fn tun_roundtrips(vnet: Option<libc::c_int>) {
             );
         }
         let app = UdpSocket::bind("10.2.0.2:0").unwrap();
-        app.set_read_timeout(Some(if (4..=6).contains(&mode) {
+        app.set_read_timeout(Some(if (4..=6).contains(&scenario) {
             Duration::from_millis(500)
         } else {
             Duration::from_secs(8)
@@ -303,7 +330,7 @@ fn tun_roundtrips(vnet: Option<libc::c_int>) {
                 assert_eq!(from, "10.2.0.3:9000".parse().unwrap());
             }
         }
-        if mode == 7 {
+        if scenario == 7 {
             let (n, _) = received.unwrap();
             assert_eq!(
                 &response[..n],
@@ -332,14 +359,14 @@ fn tun_roundtrips(vnet: Option<libc::c_int>) {
             .statistics
             .as_ref()
             .expect("real session statistics");
-        if mode == 4 {
+        if scenario == 4 {
             assert_ne!(snapshot.state, State::TunnelEstablished);
             assert!(statistics.handshake_age.is_none());
             assert_eq!(statistics.received_bytes, 0);
         } else {
             assert_eq!(snapshot.state, State::TunnelEstablished);
             assert!(statistics.handshake_age.is_some());
-            if mode == 6 {
+            if scenario == 6 {
                 assert_eq!(statistics.sent_bytes, 0);
             } else {
                 assert!(statistics.received_bytes > 0 && statistics.sent_bytes > 0);
@@ -354,13 +381,13 @@ fn tun_roundtrips(vnet: Option<libc::c_int>) {
         );
         release.send(()).unwrap();
         reference.join().unwrap();
-        if (4..=6).contains(&mode) {
+        if (4..=6).contains(&scenario) {
             let error = received.unwrap_err();
             assert!(matches!(
                 error.kind(),
                 std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
             ));
-            match mode {
+            match scenario {
                 4 => assert_eq!(
                     counters.decrypted_packets, 0,
                     "untrusted TLS cannot authenticate a WG peer"

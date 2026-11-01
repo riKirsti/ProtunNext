@@ -111,7 +111,7 @@ pub(crate) fn run_owned(
                     tun,
                     config,
                     Stream(
-                        FramedIo::new(
+                        FramedIo::borrowing(
                             crate::tls_unbuffered::UnbufferedTlsIo::new(socket, *connection),
                             64,
                         )?,
@@ -128,7 +128,7 @@ pub(crate) fn run_owned(
                             tun,
                             config,
                             Stream(
-                                FramedIo::new(
+                                FramedIo::borrowing(
                                     crate::tls_unbuffered::UnbufferedTlsIo::new(socket, connection),
                                     64,
                                 )?,

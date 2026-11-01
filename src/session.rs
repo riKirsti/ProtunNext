@@ -127,6 +127,7 @@ impl Session {
         Self::output(self.tunnel.decapsulate(None, packet, output))
     }
     #[cfg(feature = "in-place-crypto")]
+    /// Plaintext must occupy buffer[16..16 + plaintext_len]; reserves header/tag space.
     pub fn encrypt_in_place(&mut self, buffer: &mut [u8], plaintext_len: usize) -> Result<Output> {
         if plaintext_len > 65_503 || buffer.len() < (plaintext_len + 32).max(148) {
             return Err(Error::Invalid("in-place WireGuard capacity"));

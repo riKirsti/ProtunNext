@@ -14,9 +14,10 @@ use std::{
     net::UdpSocket,
     os::fd::{AsRawFd, FromRawFd},
     ptr::NonNull,
-    sync::atomic::{AtomicU16, Ordering},
+    sync::atomic::{AtomicBool, AtomicU16, Ordering},
 };
 const GROUP: u16 = 7;
+static SHUTDOWN_FAILED: AtomicBool = AtomicBool::new(false);
 struct RingMemory {
     pointer: NonNull<types::BufRingEntry>,
     bytes: usize,
@@ -70,6 +71,12 @@ pub(crate) struct Receiver {
 }
 impl Receiver {
     pub(crate) fn new(socket: &UdpSocket, count: u16) -> io::Result<Self> {
+        if SHUTDOWN_FAILED.load(Ordering::Acquire) {
+            return Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                "io_uring disabled after cancellation failure",
+            ));
+        }
         let ring = IoUring::builder().setup_cqsize(128).build(32)?;
         // Require safe bounded shutdown support *before* submitting buffer loans.
         match ring.submitter().register_sync_cancel(
@@ -215,13 +222,22 @@ impl Receiver {
                 self.buffers[id].set_len(0)?;
                 self.provide(id);
                 counters.received_datagrams += 1;
+                counters.received_bytes += result as u64;
                 counters.max_receive_batch = counters.max_receive_batch.max(1);
                 return Ok(Receive::Packet);
             }
             self.buffers[id].set_len(0)?;
             self.provide(id);
         }
-        if result >= 0 {
+        if result == 0 {
+            // A zero-length UDP message is a datagram, not TCP EOF. Some
+            // kernels can complete it without selecting a payload buffer.
+            output.set_len(0)?;
+            counters.received_datagrams += 1;
+            counters.max_receive_batch = counters.max_receive_batch.max(1);
+            return Ok(Receive::Packet);
+        }
+        if result > 0 {
             counters.truncated_datagrams += 1;
             return Ok(Receive::Yield);
         }
@@ -252,6 +268,10 @@ impl Drop for Receiver {
                 Err(_) => false,
             };
             if !stopped {
+                SHUTDOWN_FAILED.store(true, Ordering::Release);
+                log::warn!(
+                    "io_uring cancellation failed; quarantining receive buffers and disabling new rings"
+                );
                 // A kernel refusing cancellation must never be allowed to access freed
                 // userspace buffers. Quarantine these bounded allocations on this rare
                 // shutdown failure; closing the ring releases its kernel resources.
@@ -296,7 +316,14 @@ mod tests {
         for turn in 0..16 {
             // More than the eight registered buffers, checking wrap/reuse.
             for n in 0..4 {
-                a.send(&[turn, n, 9, 7]).unwrap();
+                let size = if n == 0 {
+                    0
+                } else if n == 1 {
+                    1280
+                } else {
+                    4
+                };
+                a.send(&vec![turn ^ n; size]).unwrap();
             }
             for n in 0..4 {
                 let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
@@ -312,7 +339,14 @@ mod tests {
                         Err(e) => panic!("receive: {e}"),
                     }
                 }
-                assert_eq!(output.data(), [turn, n, 9, 7]);
+                let size = if n == 0 {
+                    0
+                } else if n == 1 {
+                    1280
+                } else {
+                    4
+                };
+                assert_eq!(output.data(), vec![turn ^ n; size]);
             }
         }
         assert_eq!(counters.received_datagrams, 64);

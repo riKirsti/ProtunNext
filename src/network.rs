@@ -216,6 +216,7 @@ impl Network for Datagram {
             Ok(n) => {
                 packet.set_len(n)?;
                 self.counters.received_datagrams += 1;
+                self.counters.received_bytes += n as u64;
                 self.counters.max_receive_batch = self.counters.max_receive_batch.max(1);
                 Ok(Receive::Packet)
             }
@@ -242,6 +243,7 @@ impl Network for Datagram {
                 Ok(n) if n == packet.data().len() => {
                     pool.recycle(queue.pop().expect("front exists"))?;
                     self.counters.sent_datagrams += 1;
+                    self.counters.sent_bytes += n as u64;
                     self.counters.max_send_batch = 1;
                 }
                 Ok(_) => return Err(Error::Invalid("partial UDP send")),
@@ -260,6 +262,9 @@ impl Network for Datagram {
     }
 }
 pub(crate) trait WireSocket: Read + Write {
+    fn diagnostics(&self) -> crate::performance::IoCounters {
+        Default::default()
+    }
     fn receive_frame(stream: &mut FramedIo<Self>, packet: &mut Packet) -> Result<Receive>
     where
         Self: Sized,
@@ -310,12 +315,14 @@ impl WireSocket for TcpStream {
 pub(crate) struct ConnectingTcp {
     socket: TcpStream,
     connected: bool,
+    counters: crate::performance::IoCounters,
 }
 impl ConnectingTcp {
     pub(crate) fn new(socket: TcpStream) -> Self {
         Self {
             socket,
             connected: false,
+            counters: Default::default(),
         }
     }
     fn ready(&mut self) -> io::Result<()> {
@@ -345,17 +352,32 @@ impl ConnectingTcp {
 impl Read for ConnectingTcp {
     fn read(&mut self, bytes: &mut [u8]) -> io::Result<usize> {
         self.ready()?;
-        self.socket.read(bytes)
+        self.counters.receive_calls += 1;
+        let result = self.socket.read(bytes);
+        if let Ok(n) = result {
+            self.counters.received_bytes += n as u64;
+        }
+        result
     }
 }
 impl Write for ConnectingTcp {
     fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
         self.ready()?;
-        self.socket.write(bytes)
+        self.counters.send_calls += 1;
+        let result = self.socket.write(bytes);
+        if let Ok(n) = result {
+            self.counters.sent_bytes += n as u64;
+        }
+        result
     }
     fn write_vectored(&mut self, bytes: &[IoSlice<'_>]) -> io::Result<usize> {
         self.ready()?;
-        self.socket.write_vectored(bytes)
+        self.counters.send_calls += 1;
+        let result = self.socket.write_vectored(bytes);
+        if let Ok(n) = result {
+            self.counters.sent_bytes += n as u64;
+        }
+        result
     }
     fn flush(&mut self) -> io::Result<()> {
         self.ready()?;
@@ -363,6 +385,9 @@ impl Write for ConnectingTcp {
     }
 }
 impl WireSocket for ConnectingTcp {
+    fn diagnostics(&self) -> crate::performance::IoCounters {
+        self.counters
+    }
     fn register(&mut self, r: &mio::Registry, t: Token, i: Interest) -> io::Result<()> {
         WireSocket::register(&mut self.socket, r, t, i)
     }
@@ -381,6 +406,9 @@ impl WireSocket for ConnectingTcp {
     }
 }
 impl<S: WireSocket> WireSocket for TlsIo<S> {
+    fn diagnostics(&self) -> crate::performance::IoCounters {
+        self.socket().diagnostics()
+    }
     fn register(&mut self, r: &mio::Registry, t: Token, i: Interest) -> io::Result<()> {
         WireSocket::register(self.socket_mut(), r, t, i)
     }
@@ -400,6 +428,9 @@ impl<S: WireSocket> WireSocket for TlsIo<S> {
     }
 }
 impl<S: WireSocket> WireSocket for crate::tls_unbuffered::UnbufferedTlsIo<S> {
+    fn diagnostics(&self) -> crate::performance::IoCounters {
+        self.socket().diagnostics()
+    }
     fn receive_frame(stream: &mut FramedIo<Self>, packet: &mut Packet) -> Result<Receive> {
         stream.receive_using(packet, |io, decoder, _| {
             Ok(io.read_plaintext(|data| {
@@ -427,6 +458,9 @@ impl<S: WireSocket> WireSocket for crate::tls_unbuffered::UnbufferedTlsIo<S> {
 }
 pub(crate) struct Stream<S>(pub FramedIo<S>, pub crate::performance::Options);
 impl<S: WireSocket> Network for Stream<S> {
+    fn diagnostics(&self) -> crate::performance::IoCounters {
+        self.0.io().diagnostics()
+    }
     fn options(&self) -> crate::performance::Options {
         self.1
     }

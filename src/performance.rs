@@ -35,6 +35,41 @@ impl Default for Options {
     }
 }
 impl Options {
+    /// Strict opt-in CLI flags; no environment/global state changes.
+    pub fn parse(flags: &str) -> Result<Self> {
+        let mut options = Self::default();
+        let mut backend = false;
+        for flag in flags.split(',') {
+            match flag {
+                "portable" | "batch" | "uring" => {
+                    if backend {
+                        return Err(Error::Invalid("multiple UDP backends"));
+                    }
+                    backend = true;
+                    options.udp_backend = match flag {
+                        "batch" => UdpBackend::Batch,
+                        "uring" => UdpBackend::IoUring,
+                        _ => UdpBackend::Portable,
+                    };
+                }
+                "offload" => options.udp_offload = true,
+                "unbuffered" => options.unbuffered_tls = true,
+                "compact" => options.compact_pool = true,
+                "in-place" => options.in_place_crypto = true,
+                value if value.starts_with("batch-size=") => {
+                    options.udp_batch_size = value[11..]
+                        .parse()
+                        .map_err(|_| Error::Invalid("UDP batch size"))?;
+                }
+                _ => return Err(Error::Invalid("unknown performance option")),
+            }
+        }
+        if options.udp_offload && !backend {
+            options.udp_backend = UdpBackend::Batch;
+        }
+        options.validate()?;
+        Ok(options)
+    }
     pub fn validate(&self) -> Result<()> {
         if self.in_place_crypto && !cfg!(feature = "in-place-crypto") {
             return Err(Error::Unsupported("build requires in-place-crypto feature"));
@@ -46,6 +81,21 @@ impl Options {
             return Err(Error::Invalid("UDP offload requires a batched backend"));
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn opt_in_flags_are_strict_and_defaults_remain_portable() {
+        assert_eq!(Options::default().udp_backend, UdpBackend::Portable);
+        let options = Options::parse("offload,compact,unbuffered").unwrap();
+        assert_eq!(options.udp_backend, UdpBackend::Batch);
+        assert!(options.udp_offload && options.compact_pool && options.unbuffered_tls);
+        assert!(Options::parse("portable,offload").is_err());
+        assert!(Options::parse("batch,uring").is_err());
+        assert!(Options::parse("imaginary-acceleration").is_err());
     }
 }
 
@@ -66,4 +116,6 @@ pub struct IoCounters {
     pub enobufs: u64,
     pub io_uring_completions: u64,
     pub io_uring_submissions: u64,
+    pub received_bytes: u64,
+    pub sent_bytes: u64,
 }

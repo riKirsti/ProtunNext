@@ -108,6 +108,25 @@ pub fn run_udp(
         None,
     )
 }
+/// Existing descriptor contract with explicit per-run experimental options.
+pub fn run_with_options(
+    tun_fd: i32,
+    config: &WireguardConfig,
+    bind_device: &str,
+    transport: Transport,
+    options: crate::performance::Options,
+    stop: &AtomicBool,
+) -> Result<Counters> {
+    options.validate()?;
+    run_transport(
+        Some(tun_fd),
+        config,
+        bind_device,
+        transport.with_performance(options),
+        stop,
+        None,
+    )
+}
 pub fn run_tcp(
     tun_fd: i32,
     config: &WireguardConfig,
@@ -245,7 +264,7 @@ pub(crate) fn run_owned(
                     tun_file,
                     config,
                     Stream(
-                        FramedIo::new(
+                        FramedIo::borrowing(
                             crate::tls_unbuffered::UnbufferedTlsIo::new(socket, *connection),
                             64,
                         )?,
@@ -262,7 +281,7 @@ pub(crate) fn run_owned(
                             tun_file,
                             config,
                             Stream(
-                                FramedIo::new(
+                                FramedIo::borrowing(
                                     crate::tls_unbuffered::UnbufferedTlsIo::new(socket, connection),
                                     64,
                                 )?,

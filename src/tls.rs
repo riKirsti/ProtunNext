@@ -108,6 +108,10 @@ pub fn client(server_name: &str) -> Result<rustls::ClientConnection> {
     let roots = rustls::RootCertStore::from_iter(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
     client_with_roots(server_name, roots)
 }
+pub fn unbuffered_client(server_name: &str) -> Result<rustls::client::UnbufferedClientConnection> {
+    let roots = rustls::RootCertStore::from_iter(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+    unbuffered_client_with_roots(server_name, roots)
+}
 pub fn client_with_roots(
     server_name: &str,
     roots: rustls::RootCertStore,

@@ -74,6 +74,7 @@ fn unbuffered_tls12_and_tls13_preserve_bytes_with_short_writes_and_small_reads()
         let body: Vec<u8> = (0..80_000).map(|n| (n % 251) as u8).collect();
         let mut accepted = 0;
         let mut received = Vec::new();
+        let mut requested_update = false;
         let deadline = std::time::Instant::now() + Duration::from_secs(5);
         while received.len() < body.len() {
             assert!(
@@ -81,6 +82,13 @@ fn unbuffered_tls12_and_tls13_preserve_bytes_with_short_writes_and_small_reads()
                 "unbuffered TLS stalled: accepted {accepted}, received {}",
                 received.len()
             );
+            if version.version == rustls::ProtocolVersion::TLSv1_3
+                && accepted > 20_000
+                && !requested_update
+            {
+                stream.refresh_traffic_keys().unwrap();
+                requested_update = true;
+            }
             if accepted < body.len() {
                 let end = (accepted + 24_000).min(body.len());
                 let middle = (accepted + 900).min(end);
@@ -114,6 +122,11 @@ fn unbuffered_tls12_and_tls13_preserve_bytes_with_short_writes_and_small_reads()
         }
         assert_eq!(received, body);
         assert_eq!(accepted, body.len());
+        if version.version == rustls::ProtocolVersion::TLSv1_2 {
+            assert!(stream.refresh_traffic_keys().is_err());
+        } else {
+            assert!(requested_update);
+        }
         let mut byte = [0];
         loop {
             match stream.read(&mut byte) {
