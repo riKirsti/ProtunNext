@@ -15,12 +15,27 @@ enum Address {
     Unclaimed,
     Internet,
 }
-fn classify(bytes: &[u8]) -> Address {
+fn classify(bytes: &[u8], addresses: crate::addressing::Addresses) -> Address {
     let last = match bytes {
-        [10, 2, 0, last] => Some(*last as u16),
-        [0x2a, 0x07, 0xb9, 0x44, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, a, b] => {
-            Some(u16::from_be_bytes([*a, *b]))
-        }
+        [10, subnet, 0, last] if *subnet == addresses.subnet() => Some(*last as u16),
+        [
+            0x2a,
+            0x07,
+            0xb9,
+            0x44,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            subnet,
+            a,
+            b,
+        ] if *subnet == addresses.subnet() => Some(u16::from_be_bytes([*a, *b])),
         _ => None,
     };
     match last {
@@ -31,15 +46,24 @@ fn classify(bytes: &[u8]) -> Address {
         None => Address::Internet,
     }
 }
-fn addresses(packet: &[u8]) -> Option<(Address, Address)> {
+fn addresses(packet: &[u8], selected: crate::addressing::Addresses) -> Option<(Address, Address)> {
     match packet.first()? >> 4 {
-        4 if packet.len() >= 20 => Some((classify(&packet[12..16]), classify(&packet[16..20]))),
-        6 if packet.len() >= 40 => Some((classify(&packet[8..24]), classify(&packet[24..40]))),
+        4 if packet.len() >= 20 => Some((
+            classify(&packet[12..16], selected),
+            classify(&packet[16..20], selected),
+        )),
+        6 if packet.len() >= 40 => Some((
+            classify(&packet[8..24], selected),
+            classify(&packet[24..40], selected),
+        )),
         _ => None,
     }
 }
 pub fn outbound(packet: &[u8]) -> Route {
-    let Some((source, destination)) = addresses(packet) else {
+    outbound_with(packet, Default::default())
+}
+pub fn outbound_with(packet: &[u8], selected: crate::addressing::Addresses) -> Route {
+    let Some((source, destination)) = addresses(packet, selected) else {
         return Route::Drop;
     };
     if source == Address::Local {
@@ -52,7 +76,10 @@ pub fn outbound(packet: &[u8]) -> Route {
     }
 }
 pub fn inbound(packet: &[u8]) -> Route {
-    let Some((source, destination)) = addresses(packet) else {
+    inbound_with(packet, Default::default())
+}
+pub fn inbound_with(packet: &[u8], selected: crate::addressing::Addresses) -> Route {
+    let Some((source, destination)) = addresses(packet, selected) else {
         return Route::Drop;
     };
     if matches!(source, Address::Client | Address::Local)
@@ -62,11 +89,18 @@ pub fn inbound(packet: &[u8]) -> Route {
     }
     // A tunnel-originated packet may only be delivered to the customer; never
     // reflect it into the VPN or permit access to the local HTTP listener.
-    if destination == Address::Gateway {
-        Route::Drop
-    } else {
+    if destination == Address::Client {
         Route::Customer
+    } else {
+        // Upstream route.rs defaults to Tunnel, and router.rs drops any route
+        // back to its origin. An unrelated Internet destination cannot reach TUN.
+        Route::Drop
     }
+}
+pub fn inbound_allowed(packet: &[u8], selected: crate::addressing::Addresses) -> bool {
+    addresses(packet, selected).is_some_and(|(source, destination)| {
+        !matches!(source, Address::Client | Address::Local) && destination != Address::Local
+    })
 }
 #[cfg(test)]
 mod tests {
@@ -91,5 +125,19 @@ mod tests {
         assert_eq!(inbound(&v4([1, 1, 1, 1], [10, 2, 0, 3])), Route::Drop);
         assert_eq!(inbound(&v4([1, 1, 1, 1], [10, 2, 0, 2])), Route::Customer);
         assert_eq!(outbound(&v4([10, 2, 0, 2], [10, 2, 0, 1])), Route::Tunnel);
+        assert_eq!(inbound(&v4([1, 1, 1, 1], [8, 8, 8, 8])), Route::Drop);
+        let addresses = crate::addressing::Addresses::new(37).unwrap();
+        assert_eq!(
+            outbound_with(&v4([10, 37, 0, 2], [10, 37, 0, 3]), addresses),
+            Route::LocalService
+        );
+        assert_eq!(
+            inbound_with(&v4([1, 1, 1, 1], [10, 37, 0, 2]), addresses),
+            Route::Customer
+        );
+        assert_eq!(
+            inbound_with(&v4([1, 1, 1, 1], [10, 2, 0, 2]), addresses),
+            Route::Drop
+        );
     }
 }

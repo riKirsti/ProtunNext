@@ -58,6 +58,7 @@ pub(crate) fn run<N: Network>(
     let mut tun = tun_file.map(TunDevice::new);
     let allowed_ips = crate::routing::AllowedIps::new(&config.allowed_ips)?;
     let compatibility_policy = observer.is_some_and(|o| o.compatibility_policy());
+    let addresses = observer.map_or_else(Default::default, Observer::addresses);
     let handshake_deadline = boottime()? + Duration::from_secs(10);
     let mut poll = Poll::new()?;
     let waker = std::sync::Arc::new(mio::Waker::new(poll.registry(), CONTROL)?);
@@ -89,7 +90,7 @@ pub(crate) fn run<N: Network>(
     let mut to_tun = PacketQueue::new(64)?;
     let mut counters = Counters::default();
     let mut probe = if compatibility_policy {
-        Some(PathProbe::new(boottime()?)?)
+        Some(PathProbe::with_addresses(boottime()?, addresses)?)
     } else {
         None
     };
@@ -224,7 +225,7 @@ pub(crate) fn run<N: Network>(
                         continue;
                     }
                     if compatibility_policy
-                        && crate::virtual_policy::outbound(input.data())
+                        && crate::virtual_policy::outbound_with(input.data(), addresses)
                             == crate::virtual_policy::Route::Drop
                     {
                         counters.outbound_filtered += 1;
@@ -300,7 +301,7 @@ pub(crate) fn run<N: Network>(
                 break;
             };
             input.set_len(n)?;
-            if crate::api::internal::local_service_source(input.data()) {
+            if crate::api::internal::local_service_source_with(input.data(), addresses) {
                 if tun.is_some() && to_tun.len() < 63 {
                     enqueue(&mut pool, &mut to_tun, input)?;
                 } else {
@@ -362,17 +363,41 @@ pub(crate) fn run<N: Network>(
                                 continue;
                             }
                             if compatibility_policy
-                                && crate::virtual_policy::inbound(output.data())
-                                    == crate::virtual_policy::Route::Drop
+                                && !crate::virtual_policy::inbound_allowed(output.data(), addresses)
                             {
                                 counters.inbound_filtered += 1;
                                 pool.recycle(output)?;
                                 continue;
                             }
                             #[cfg(feature = "local-agent")]
-                            if let Some(observer) = observer
-                                && observer.internal_receive(output.data_mut(), boottime()?)?
+                            let disposition = if let Some(observer) = observer {
+                                observer.internal_receive(output.data_mut(), boottime()?)?
+                            } else {
+                                crate::api::internal::PacketDisposition::Untracked
+                            };
+                            #[cfg(feature = "local-agent")]
+                            if matches!(
+                                disposition,
+                                crate::api::internal::PacketDisposition::Private
+                                    | crate::api::internal::PacketDisposition::Drop
+                            ) {
+                                if disposition == crate::api::internal::PacketDisposition::Drop {
+                                    counters.inbound_filtered += 1;
+                                }
+                                pool.recycle(output)?;
+                                continue;
+                            }
+                            #[cfg(feature = "local-agent")]
+                            let customer_tracked =
+                                disposition == crate::api::internal::PacketDisposition::Customer;
+                            #[cfg(not(feature = "local-agent"))]
+                            let customer_tracked = false;
+                            if compatibility_policy
+                                && !customer_tracked
+                                && crate::virtual_policy::inbound_with(output.data(), addresses)
+                                    != crate::virtual_policy::Route::Customer
                             {
+                                counters.inbound_filtered += 1;
                                 pool.recycle(output)?;
                                 continue;
                             }

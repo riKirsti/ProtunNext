@@ -247,6 +247,202 @@ fn private_tcp_and_dns_datagrams_cross_real_ip_stack_with_port_translation() {
     });
 }
 
+#[test]
+fn alternate_subnet_private_dns_and_local_http_use_the_selected_network() {
+    use protun_next::api::{account::Service, cache::MemoryCache, types::*};
+    use protun_next::{addressing::Addresses, session::Session};
+    tokio::runtime::Builder::new_current_thread()
+        .enable_time()
+        .build()
+        .unwrap()
+        .block_on(async {
+            let addresses = Addresses::new(37).unwrap();
+            let (private, mut router) = InternalNetwork::with_addresses(
+                Duration::ZERO,
+                CountWake(Arc::new(AtomicUsize::new(0))),
+                addresses,
+            )
+            .unwrap();
+            let (customer, mut app_wire) = stack("10.37.0.2");
+            let (server, mut peer_wire) = stack("10.37.0.1");
+            let dns_address = std::net::SocketAddr::new(addresses.v4(1).into(), 53);
+            let dns = server.udp_bind(dns_address).unwrap();
+            let service = Service::start(
+                private.clone(),
+                ConnectionMode::NoLocalAgent {
+                    wg_private_key: Some(WgClientPrivateKey([7; 32])),
+                },
+                PeerInfo {
+                    peer_id: "private fixture".into(),
+                    server_ip: IpAddress(addresses.v4(1).into()),
+                    server_public_key: WgPeerPublicKey(Session::public_key([9; 32])),
+                    udp_ports: vec![],
+                    tcp_ports: vec![],
+                    tls_ports: vec![],
+                    priority: 0,
+                    exit_label: None,
+                    server_name: None,
+                },
+                Arc::new(MemoryCache::default()),
+            )
+            .unwrap();
+            let exchanges = async {
+                let query = async {
+                    let socket = private.udp(dns_address).unwrap();
+                    socket.send(b"selected private DNS").await.unwrap();
+                    let mut bytes = [0; 64];
+                    let n = socket.recv(&mut bytes).await.unwrap();
+                    assert_eq!(&bytes[..n], b"selected private DNS");
+                };
+                let response = async {
+                    let mut bytes = [0; 64];
+                    let (n, from) = dns.recv_from(&mut bytes).await.unwrap();
+                    assert_eq!(from.ip(), addresses.v4(2));
+                    dns.sendto(&bytes[..n], from.into()).await.unwrap();
+                };
+                let http = async {
+                    let deadline = Instant::now() + Duration::from_secs(3);
+                    // The service starts on its own thread; an early RST may precede
+                    // listener creation. Retry startup without assuming a sleep is readiness.
+                    let mut stream = loop {
+                        let pending = customer.tcp_connect(addresses.http()).unwrap();
+                        match proton_vpn_netstack::socket::AsyncTcpConnect::Pending(pending).await {
+                            Ok(stream) => break stream,
+                            Err(_) => {
+                                assert!(Instant::now() < deadline, "local HTTP listener startup");
+                                tokio::time::sleep(Duration::from_millis(1)).await;
+                            }
+                        }
+                    };
+                    stream
+                        .write_all(b"GET / HTTP/1.1\r\nHost: local\r\n\r\n")
+                        .await
+                        .unwrap();
+                    stream.flush().await.unwrap();
+                    let mut reply = Vec::new();
+                    stream.read_to_end(&mut reply).await.unwrap();
+                    assert!(reply.starts_with(b"HTTP/1.1 200 OK\r\n"));
+                    assert!(reply.ends_with(b"Hello World"));
+                };
+                futures::join!(query, response, http);
+            };
+            let pump = async {
+                let start = Instant::now();
+                let mut bytes = [0; 65535];
+                loop {
+                    let now = start.elapsed();
+                    let micros = now.as_micros() as i64;
+                    for _ in 0..64 {
+                        match app_wire.read_packet(&mut bytes, micros) {
+                            Ok(n) => assert!(router.receive_local(&bytes[..n], now).unwrap()),
+                            Err(DeviceReadError::WouldBlock) => break,
+                            Err(error) => panic!("customer: {error:?}"),
+                        }
+                    }
+                    for _ in 0..64 {
+                        let Some(n) = router.read_packet(&mut bytes, now).unwrap() else {
+                            break;
+                        };
+                        if protun_next::api::internal::local_service_source_with(
+                            &bytes[..n],
+                            addresses,
+                        ) {
+                            app_wire.write_packet(&bytes[..n], micros).unwrap();
+                        } else {
+                            assert_eq!(&bytes[12..16], &addresses.v4(2).octets());
+                            peer_wire.write_packet(&bytes[..n], micros).unwrap();
+                        }
+                    }
+                    for _ in 0..64 {
+                        match peer_wire.read_packet(&mut bytes, micros) {
+                            Ok(n) => assert!(router.receive(&mut bytes[..n], now).unwrap()),
+                            Err(DeviceReadError::WouldBlock) => break,
+                            Err(error) => panic!("peer: {error:?}"),
+                        }
+                    }
+                    assert!(
+                        now < Duration::from_secs(4),
+                        "alternate subnet exchange timed out"
+                    );
+                    tokio::time::sleep(Duration::from_millis(1)).await;
+                }
+            };
+            tokio::select! { _ = exchanges => {}, _ = pump => unreachable!() }
+            drop(service);
+        });
+}
+
+#[test]
+fn peer_initiated_reserved_port_is_private_and_its_reply_retains_the_wire_tuple() {
+    tokio::runtime::Builder::new_current_thread()
+        .enable_time()
+        .build()
+        .unwrap()
+        .block_on(async {
+            let (private, mut router) =
+                InternalNetwork::new(Duration::ZERO, CountWake(Arc::new(AtomicUsize::new(0))))
+                    .unwrap();
+            let (peer, mut peer_wire) = stack("10.2.0.1");
+            let listener = private
+                .factory()
+                .udp_bind("10.2.0.2:1000".parse::<std::net::SocketAddr>().unwrap())
+                .unwrap();
+            let client = peer
+                .udp_bind("10.2.0.1:7777".parse::<std::net::SocketAddr>().unwrap())
+                .unwrap()
+                .connect("10.2.0.2:1000".parse::<std::net::SocketAddr>().unwrap());
+            let exchanges = async {
+                let send = async {
+                    client.send(b"peer initiated").await.unwrap();
+                    let mut bytes = [0; 32];
+                    let n = client.recv(&mut bytes).await.unwrap();
+                    assert_eq!(&bytes[..n], b"peer initiated");
+                };
+                let echo = async {
+                    let mut bytes = [0; 32];
+                    let (n, from) = listener.recv_from(&mut bytes).await.unwrap();
+                    assert_eq!(
+                        from,
+                        "10.2.0.1:7777".parse::<std::net::SocketAddr>().unwrap()
+                    );
+                    listener.sendto(&bytes[..n], from.into()).await.unwrap();
+                };
+                futures::join!(send, echo);
+            };
+            let pump = async {
+                let start = Instant::now();
+                let mut bytes = [0; 65535];
+                loop {
+                    let now = start.elapsed();
+                    let micros = now.as_micros() as i64;
+                    for _ in 0..64 {
+                        match peer_wire.read_packet(&mut bytes, micros) {
+                            Ok(n) => assert_eq!(
+                                router.receive_routed(&mut bytes[..n], now).unwrap(),
+                                protun_next::api::internal::PacketDisposition::Private
+                            ),
+                            Err(DeviceReadError::WouldBlock) => break,
+                            Err(error) => panic!("peer: {error:?}"),
+                        }
+                    }
+                    for _ in 0..64 {
+                        let Some(n) = router.read_packet(&mut bytes, now).unwrap() else {
+                            break;
+                        };
+                        assert_eq!(&bytes[20..24], &[0x03, 0xe8, 0x1e, 0x61]); // 1000 -> 7777
+                        peer_wire.write_packet(&bytes[..n], micros).unwrap();
+                    }
+                    assert!(
+                        now < Duration::from_secs(3),
+                        "private inbound flow timed out"
+                    );
+                    tokio::time::sleep(Duration::from_millis(1)).await;
+                }
+            };
+            tokio::select! { _ = exchanges => {}, _ = pump => unreachable!() }
+        });
+}
+
 fn ipv4_fragments(packet: &[u8], payload_size: usize) -> Vec<Vec<u8>> {
     assert_eq!(packet[0], 0x45);
     assert_eq!(payload_size % 8, 0);

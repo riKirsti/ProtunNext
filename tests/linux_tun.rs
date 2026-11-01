@@ -340,3 +340,153 @@ impl Reference {
         }
     }
 }
+
+#[cfg(feature = "local-agent")]
+#[test]
+#[ignore = "requires a disposable network namespace and CAP_NET_ADMIN; never run on a router"]
+fn tracked_customer_reply_outside_virtual_subnet_survives_the_real_tun_pipeline() {
+    use protun_next::api::{cache::MemoryCache, connection as api};
+    use std::{
+        os::fd::IntoRawFd,
+        sync::{
+            Arc,
+            atomic::{AtomicBool, Ordering},
+            mpsc,
+        },
+    };
+    assert_eq!(std::env::var("PROTUN_NEXT_NETNS_TEST").as_deref(), Ok("1"));
+    let tun = File::options()
+        .read(true)
+        .write(true)
+        .open("/dev/net/tun")
+        .unwrap();
+    let mut request = [0u8; 40];
+    request[..7].copy_from_slice(b"pntrack");
+    request[16..18].copy_from_slice(&((libc::IFF_TUN | libc::IFF_NO_PI) as i16).to_ne_bytes());
+    assert_eq!(
+        // SAFETY: owned TUN file and complete ifreq buffer, only in private namespace.
+        unsafe { libc::ioctl(tun.as_raw_fd(), libc::TUNSETIFF, request.as_mut_ptr()) },
+        0
+    );
+    ip(&["link", "set", "lo", "up"]);
+    ip(&["addr", "add", "10.2.0.2/32", "dev", "pntrack"]);
+    ip(&["addr", "add", "192.0.2.2/32", "dev", "pntrack"]);
+    ip(&["link", "set", "pntrack", "mtu", "1420", "up"]);
+    ip(&["route", "add", "192.0.2.100/32", "dev", "pntrack"]);
+    let socket = UdpSocket::bind("127.0.0.1:0").unwrap();
+    socket
+        .set_read_timeout(Some(Duration::from_millis(40)))
+        .unwrap();
+    let endpoint = socket.local_addr().unwrap();
+    let stop = Arc::new(AtomicBool::new(false));
+    let stopped = stop.clone();
+    let peer = thread::spawn(move || {
+        let mut session = Session::new(
+            [9; 32],
+            Session::public_key([7; 32]),
+            None,
+            linux::boottime().unwrap(),
+            SystemTime::now().duration_since(UNIX_EPOCH).unwrap(),
+        )
+        .unwrap();
+        let mut input = [0; 65535];
+        let mut output = [0; 65535];
+        while !stopped.load(Ordering::Relaxed) {
+            match socket.recv_from(&mut input) {
+                Ok((n, remote)) => match session.decrypt(&input[..n], &mut output).unwrap() {
+                    Output::Network(n) => {
+                        socket.send_to(&output[..n], remote).unwrap();
+                    }
+                    Output::Tunnel(n) if n >= 28 => {
+                        if output[9] == 1 {
+                            assert_eq!(output[20], 8);
+                            for index in 0..4 {
+                                output.swap(12 + index, 16 + index);
+                            }
+                            output[20] = 0;
+                            output[22..24].fill(0);
+                            let (pairs, tail) = output[20..n].as_chunks::<2>();
+                            let mut sum: u32 = pairs
+                                .iter()
+                                .map(|p| u32::from(u16::from_be_bytes(*p)))
+                                .sum();
+                            if let Some(byte) = tail.first() {
+                                sum += u32::from(*byte) << 8;
+                            }
+                            while sum > 65535 {
+                                sum = (sum & 65535) + (sum >> 16);
+                            }
+                            output[22..24].copy_from_slice(&(!(sum as u16)).to_be_bytes());
+                        } else {
+                            echo_ipv4(&mut output[..n], false);
+                        }
+                        let Output::Network(n) = session.encrypt(&output[..n], &mut input).unwrap()
+                        else {
+                            panic!("echo encryption")
+                        };
+                        socket.send_to(&input[..n], remote).unwrap();
+                    }
+                    _ => {}
+                },
+                Err(error)
+                    if matches!(
+                        error.kind(),
+                        std::io::ErrorKind::TimedOut | std::io::ErrorKind::WouldBlock
+                    ) => {}
+                Err(error) => panic!("peer: {error}"),
+            }
+        }
+    });
+    let (sender, states) = mpsc::channel();
+    let connection = api::Connection::unix_connect(
+        api::InitialConnectionConfig {
+            peers: vec![api::PeerInfo {
+                peer_id: "tracked route".into(),
+                server_ip: api::IpAddress(endpoint.ip()),
+                server_public_key: api::WgPeerPublicKey(Session::public_key([9; 32])),
+                udp_ports: vec![endpoint.port()],
+                tcp_ports: vec![],
+                tls_ports: vec![],
+                priority: 0,
+                exit_label: None,
+                server_name: None,
+            }],
+            network_available: true,
+            pcap_file: None,
+            connection_mode: api::ConnectionMode::NoLocalAgent {
+                wg_private_key: Some(api::WgClientPrivateKey([7; 32])),
+            },
+            sni_strategy: api::SniStrategy::Random,
+        },
+        Some(tun.try_clone().unwrap().into_raw_fd()),
+        Box::new(move |state| {
+            let _ = sender.send(state);
+        }),
+        Box::new(|_| {}),
+        Some(Box::new(|_| true)),
+        Box::new(MemoryCache::default()),
+    );
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    loop {
+        let state = states
+            .recv_timeout(deadline.saturating_duration_since(std::time::Instant::now()))
+            .unwrap();
+        if matches!(
+            state.connection_state,
+            api::ConnectionState::Connected { .. }
+        ) {
+            break;
+        }
+    }
+    let app = UdpSocket::bind("192.0.2.2:1000").unwrap();
+    app.set_read_timeout(Some(Duration::from_secs(3))).unwrap();
+    app.send_to(b"tracked customer", "192.0.2.100:9000")
+        .unwrap();
+    let mut bytes = [0; 64];
+    let (n, from) = app.recv_from(&mut bytes).unwrap();
+    assert_eq!(&bytes[..n], b"tracked customer");
+    assert_eq!(from, "192.0.2.100:9000".parse().unwrap());
+    connection.disconnect_and_wait();
+    stop.store(true, Ordering::Relaxed);
+    peer.join().unwrap();
+}

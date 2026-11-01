@@ -142,10 +142,18 @@ impl WindowsConnection {
             // SAFETY: Value is the complete integer representation of this LUID.
             interface_luid: unsafe { self.tun.session.luid.Value },
             interface_index: self.tun.session.index,
-            client_ipv4_addr: "10.2.0.2".into(),
-            server_ipv4_addr: "10.2.0.1".into(),
-            client_ipv6_addr: if ipv6 { "2a07:b944::2:2" } else { "" }.into(),
-            server_ipv6_addr: if ipv6 { "2a07:b944::2:1" } else { "" }.into(),
+            client_ipv4_addr: self.tun.addresses.v4(2).to_string(),
+            server_ipv4_addr: self.tun.addresses.v4(1).to_string(),
+            client_ipv6_addr: if ipv6 {
+                self.tun.addresses.v6(2).to_string()
+            } else {
+                String::new()
+            },
+            server_ipv6_addr: if ipv6 {
+                self.tun.addresses.v6(1).to_string()
+            } else {
+                String::new()
+            },
         }
     }
     pub fn set_ipv6(&self, is_enabled: bool) -> Result<bool, ProTunFatalError> {

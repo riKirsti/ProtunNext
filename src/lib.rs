@@ -2,6 +2,7 @@
 //! See docs/parity.json for verified support, rather than inferring it from types.
 #[cfg(feature = "uniffi")]
 uniffi::setup_scaffolding!();
+pub mod addressing;
 #[cfg(feature = "local-agent")]
 pub mod agent;
 pub mod api;

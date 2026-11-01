@@ -138,7 +138,7 @@ async fn dns_query(network: &InternalConnector, host: &str, kind: u16) -> io::Re
         query.push(0);
         query.extend_from_slice(&kind.to_be_bytes());
         query.extend_from_slice(&1u16.to_be_bytes());
-        let destination = "10.2.0.1:53".parse().expect("constant");
+        let destination = SocketAddr::new(network.addresses().v4(1).into(), 53);
         let socket = network.udp(destination)?;
         socket.send(&query).await?;
         let mut response = vec![0; 4096];

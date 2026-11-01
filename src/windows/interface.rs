@@ -20,11 +20,13 @@ use windows_sys::Win32::NetworkManagement::IpHelper::{
 
 static OWNED: OnceLock<Mutex<Vec<Weak<Interface>>>> = OnceLock::new();
 pub(crate) struct Interface {
+    pub(crate) addresses: crate::addressing::Addresses,
     settings: Mutex<Settings>, // dropped before session so its IDs remain valid.
     pub(crate) session: Arc<Session>,
     pub(crate) socket: SocketConfig,
 }
 struct Settings {
+    network: crate::addressing::Addresses,
     addresses: Vec<MIB_UNICASTIPADDRESS_ROW>,
     routes: Vec<MIB_IPFORWARD_ROW2>,
     ipv6: bool,
@@ -58,7 +60,10 @@ impl Interface {
                 }
             }
         })?;
+        let (addresses, address) =
+            select_addresses(|addresses| net::address(session.luid, addresses.v4(2).into(), 32))?;
         let mut settings = Settings {
+            network: addresses,
             addresses: Vec::new(),
             routes: Vec::new(),
             ipv6: false,
@@ -69,20 +74,17 @@ impl Interface {
                 .map(|ip| ip.0)
                 .collect(),
         };
-        // Keep the standard subnet until the alternate-subnet integration is
-        // implemented across routing, probes and private control sockets.
-        settings.addresses.push(net::address(
-            session.luid,
-            Ipv4Addr::new(10, 2, 0, 2).into(),
-            32,
-        )?);
+        settings.addresses.push(address);
         net::mtu(session.luid, false, config.mtu)?;
         settings.add_routes(&session, false)?;
-        if config.is_ipv6_enabled {
-            settings.enable_ipv6(&session)?;
+        if config.is_ipv6_enabled && settings.enable_ipv6(&session).is_err() {
+            // The pinned Windows setup also permits a working IPv4 interface
+            // when the OS cannot configure its optional IPv6 address.
+            log::warn!("Windows IPv6 address setup unavailable; IPv4 interface retained");
         }
         settings.set_dns(&session)?;
         let interface = Arc::new(Self {
+            addresses,
             settings: Mutex::new(settings),
             session,
             socket,
@@ -142,14 +144,14 @@ impl Settings {
     fn add_routes(&mut self, session: &Session, ipv6: bool) -> io::Result<()> {
         let (gateway, empty, half, bits): (IpAddr, IpAddr, IpAddr, u8) = if ipv6 {
             (
-                "2a07:b944::2:1".parse().expect("constant"),
+                self.network.v6(1).into(),
                 Ipv6Addr::UNSPECIFIED.into(),
                 "8000::".parse().expect("constant"),
                 128,
             )
         } else {
             (
-                Ipv4Addr::new(10, 2, 0, 1).into(),
+                self.network.v4(1).into(),
                 Ipv4Addr::UNSPECIFIED.into(),
                 Ipv4Addr::new(128, 0, 0, 0).into(),
                 32,
@@ -164,11 +166,8 @@ impl Settings {
         Ok(())
     }
     fn enable_ipv6(&mut self, session: &Session) -> io::Result<()> {
-        self.addresses.push(net::address(
-            session.luid,
-            "2a07:b944::2:2".parse().expect("constant"),
-            128,
-        )?);
+        self.addresses
+            .push(net::address(session.luid, self.network.v6(2).into(), 128)?);
         if let Err(error) =
             net::mtu(session.luid, true, self.mtu).and_then(|()| self.add_routes(session, true))
         {
@@ -204,9 +203,9 @@ impl Settings {
     }
     fn set_dns(&self, session: &Session) -> io::Result<()> {
         let mut servers = self.custom_dns.clone();
-        servers.push(Ipv4Addr::new(10, 2, 0, 1).into());
+        servers.push(self.network.v4(1).into());
         if self.ipv6 {
-            servers.push("2a07:b944::2:1".parse().expect("constant"));
+            servers.push(self.network.v6(1).into());
         }
         net::dns(session.guid, false, &servers)?;
         if self.ipv6 {
@@ -251,4 +250,49 @@ pub(crate) fn delete_owned_routes() {
             false
         }
     });
+}
+
+fn select_addresses<T>(
+    mut assign: impl FnMut(crate::addressing::Addresses) -> io::Result<T>,
+) -> io::Result<(crate::addressing::Addresses, T)> {
+    let mut last = io::Error::from(io::ErrorKind::AddrNotAvailable);
+    for subnet in 2..=u8::MAX {
+        let addresses = crate::addressing::Addresses::new(subnet).expect("validated range");
+        match assign(addresses) {
+            Ok(value) => return Ok((addresses, value)),
+            Err(error) => last = error,
+        }
+    }
+    Err(last)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn failed_default_address_uses_next_subnet_and_total_failure_is_bounded() {
+        let mut attempted = Vec::new();
+        let (addresses, value) = select_addresses(|addresses| {
+            attempted.push(addresses.subnet());
+            if addresses.subnet() == 2 {
+                Err(io::ErrorKind::AddrInUse.into())
+            } else {
+                Ok(42)
+            }
+        })
+        .unwrap();
+        assert_eq!(attempted, [2, 3]);
+        assert_eq!(addresses.v4(2).to_string(), "10.3.0.2");
+        assert_eq!(addresses.v6(1).to_string(), "2a07:b944::3:1");
+        assert_eq!(value, 42);
+        let mut count = 0;
+        assert!(
+            select_addresses::<()>(|_| {
+                count += 1;
+                Err(io::ErrorKind::AddrNotAvailable.into())
+            })
+            .is_err()
+        );
+        assert_eq!(count, 254);
+    }
 }

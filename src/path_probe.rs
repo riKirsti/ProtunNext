@@ -10,6 +10,7 @@ pub(crate) enum Action {
     Failed,
 }
 pub(crate) struct PathProbe {
+    addresses: crate::addressing::Addresses,
     active: bool,
     verified: bool,
     next: Duration,
@@ -19,10 +20,18 @@ pub(crate) struct PathProbe {
     identifier: u16,
 }
 impl PathProbe {
+    #[cfg(test)]
     pub(crate) fn new(now: Duration) -> crate::Result<Self> {
+        Self::with_addresses(now, Default::default())
+    }
+    pub(crate) fn with_addresses(
+        now: Duration,
+        addresses: crate::addressing::Addresses,
+    ) -> crate::Result<Self> {
         let mut id = [0; 2];
         getrandom::fill(&mut id).map_err(|e| crate::Error::Protocol(e.to_string()))?;
         Ok(Self {
+            addresses,
             active: true,
             verified: false,
             next: now,
@@ -83,8 +92,8 @@ impl PathProbe {
         p[2..4].copy_from_slice(&(SIZE as u16).to_be_bytes());
         p[8] = 64;
         p[9] = 1;
-        p[12..16].copy_from_slice(&[10, 2, 0, 2]);
-        p[16..20].copy_from_slice(&[10, 2, 0, 1]);
+        p[12..16].copy_from_slice(&self.addresses.v4(2).octets());
+        p[16..20].copy_from_slice(&self.addresses.v4(1).octets());
         p[20] = 8;
         p[24..26].copy_from_slice(&self.identifier.to_be_bytes());
         p[28..].copy_from_slice(PAYLOAD);
@@ -146,5 +155,16 @@ mod tests {
         assert!(PathProbe::is_reply(&p));
         p[28] ^= 1;
         assert!(!PathProbe::is_reply(&p));
+    }
+    #[test]
+    fn alternate_subnet_probe_has_selected_addresses_and_valid_checksums() {
+        let addresses = crate::addressing::Addresses::new(37).unwrap();
+        let p = PathProbe::with_addresses(Duration::ZERO, addresses)
+            .unwrap()
+            .packet();
+        assert_eq!(&p[12..16], &[10, 37, 0, 2]);
+        assert_eq!(&p[16..20], &[10, 37, 0, 1]);
+        assert_eq!(checksum(&p[..20]), 0);
+        assert_eq!(checksum(&p[20..]), 0);
     }
 }
