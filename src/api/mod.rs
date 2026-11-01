@@ -11,12 +11,12 @@ pub(crate) mod account_os;
 pub mod agent_state;
 pub mod cache;
 pub mod capture;
-#[cfg(feature = "local-agent")]
+#[cfg(feature = "control-plane")]
 mod fragments;
-#[cfg(feature = "local-agent")]
+#[cfg(feature = "control-plane")]
 pub mod internal;
 pub mod keys;
-#[cfg(feature = "local-agent")]
+#[cfg(feature = "control-plane")]
 pub(crate) mod local_http;
 pub mod logger;
 #[cfg(any(unix, windows))]

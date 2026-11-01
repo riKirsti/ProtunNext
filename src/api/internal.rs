@@ -280,30 +280,30 @@ impl InternalNetwork {
         if !reserved(parsed.source_port) {
             return Ok(());
         }
-        let port = self.reserve_customer(&parsed, true)?;
+        let new_allowed = parsed.protocol != 6 || packet[parsed.offset + 13] & 0x12 == 0x02;
+        let port = self.reserve_customer(&parsed, new_allowed)?;
         rewrite_port(packet, parsed.offset, parsed.protocol, true, port);
         Ok(())
     }
-    fn reserve_customer(&mut self, parsed: &Parsed, outbound: bool) -> Result<u16> {
+    fn reserve_customer(&mut self, parsed: &Parsed, new_allowed: bool) -> Result<u16> {
         let flow = Flow {
             origin: Origin::Customer,
             protocol: parsed.protocol,
-            local: if outbound {
-                SocketAddr::new(parsed.source, parsed.source_port)
-            } else {
-                SocketAddr::new(parsed.destination, parsed.destination_port)
-            },
-            remote: if outbound {
-                SocketAddr::new(parsed.destination, parsed.destination_port)
-            } else {
-                SocketAddr::new(parsed.source, parsed.source_port)
-            },
+            local: SocketAddr::new(parsed.source, parsed.source_port),
+            remote: SocketAddr::new(parsed.destination, parsed.destination_port),
         };
         let mut flows = self.flows.lock().unwrap_or_else(|e| e.into_inner());
         let expires = Some(Instant::now() + FLOW_TIMEOUT);
-        if let Some(mapping) = flows.entries.get_mut(&flow) {
+        if let Some(mapping) = flows
+            .entries
+            .get_mut(&flow)
+            .filter(|mapping| mapping.expires.is_none_or(|expiry| expiry > Instant::now()))
+        {
             mapping.expires = expires;
             return Ok(mapping.wire);
+        }
+        if !new_allowed {
+            return Err(Error::Invalid("untracked TCP without SYN"));
         }
         flows
             .entries
@@ -313,13 +313,12 @@ impl InternalNetwork {
         }
         // Preserve the customer source port when its reply tuple is free.
         // Only control-originated flows preferentially use privileged ports.
-        let wire = if !outbound
-            || !flows.entries.values().any(|m| {
-                m.wire == flow.local.port()
-                    && m.flow.protocol == flow.protocol
-                    && m.flow.remote == flow.remote
-                    && m.flow.local.ip() == flow.local.ip()
-            }) {
+        let wire = if !flows.entries.values().any(|m| {
+            m.wire == flow.local.port()
+                && m.flow.protocol == flow.protocol
+                && m.flow.remote == flow.remote
+                && m.flow.local.ip() == flow.local.ip()
+        }) {
             flow.local.port()
         } else {
             (1000..=2000)

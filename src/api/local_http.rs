@@ -2,6 +2,46 @@
 use futures::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use proton_vpn_netstack::TransportFactory;
 use std::{io, time::Duration};
+/// A no-account build still supplies the upstream local connection-test service.
+#[cfg(not(feature = "local-agent"))]
+pub(crate) struct Service {
+    stop: Option<tokio::sync::oneshot::Sender<()>>,
+    join: Option<std::thread::JoinHandle<()>>,
+}
+#[cfg(not(feature = "local-agent"))]
+impl Service {
+    pub(crate) fn start(network: super::internal::InternalConnector) -> crate::Result<Self> {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_time()
+            .build()?;
+        let (stop, stopped) = tokio::sync::oneshot::channel();
+        let join = std::thread::Builder::new()
+            .name("protun-next-local".into())
+            .spawn(move || {
+                runtime.block_on(async {
+                    tokio::select! {
+                        _ = stopped => {},
+                        _ = run(network.factory().clone(), network.addresses().http()) => {},
+                    }
+                });
+            })?;
+        Ok(Self {
+            stop: Some(stop),
+            join: Some(join),
+        })
+    }
+}
+#[cfg(not(feature = "local-agent"))]
+impl Drop for Service {
+    fn drop(&mut self) {
+        if let Some(stop) = self.stop.take() {
+            let _ = stop.send(());
+        }
+        if let Some(join) = self.join.take() {
+            let _ = join.join();
+        }
+    }
+}
 pub(crate) async fn run(factory: TransportFactory, address: std::net::SocketAddr) {
     let Ok(mut listener) = factory.tcp_bind(address) else {
         log::warn!("local connection-test listener could not bind");

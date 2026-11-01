@@ -25,6 +25,7 @@ use std::{
 use tokio::sync::mpsc as async_channel;
 
 pub enum Command {
+    Peer(PeerInfo),
     Settings(LocalAgentSettings, Option<String>),
     Stats,
     Fork(zeroize::Zeroizing<ForkSelectorInfo>),
@@ -48,6 +49,21 @@ impl Service {
         network: InternalConnector,
         mode: ConnectionMode,
         peer: PeerInfo,
+        cache: Arc<dyn PersistentCache>,
+    ) -> Result<Self> {
+        Self::start_with_peer(network, mode, Some(peer), cache)
+    }
+    pub(crate) fn start_waiting(
+        network: InternalConnector,
+        mode: ConnectionMode,
+        cache: Arc<dyn PersistentCache>,
+    ) -> Result<Self> {
+        Self::start_with_peer(network, mode, None, cache)
+    }
+    fn start_with_peer(
+        network: InternalConnector,
+        mode: ConnectionMode,
+        peer: Option<PeerInfo>,
         cache: Arc<dyn PersistentCache>,
     ) -> Result<Self> {
         let (sender, commands) = async_channel::unbounded_channel();
@@ -177,7 +193,7 @@ fn fork_needed(notices: &mpsc::SyncSender<Notice>) {
 async fn run(
     network: InternalConnector,
     mode: ConnectionMode,
-    peer: PeerInfo,
+    peer: Option<PeerInfo>,
     cache: Arc<dyn PersistentCache>,
     mut commands: async_channel::UnboundedReceiver<Command>,
     notices: mpsc::SyncSender<Notice>,
@@ -246,12 +262,11 @@ async fn run(
     let (agent_events_tx, mut agent_events) = async_channel::channel(64);
     let mut agent = ManagedLocalAgent::new(Handler(agent_events_tx), identity.private_der()?);
     agent.subscribe(super::agent_state::AgentState::watched());
-    let server_name = match &peer.server_name {
-        Some(name) => rustls::pki_types::ServerName::try_from(name.clone())
-            .map_err(|_| Error::Invalid("Local Agent server name"))?,
-        None => rustls::pki_types::ServerName::IpAddress(peer.server_ip.0.into()),
-    };
-    let mut label = peer.exit_label;
+    let mut server_name = peer.as_ref().map(agent_server_name).transpose()?;
+    let mut peer_identity = peer
+        .as_ref()
+        .map(|peer| (peer.server_ip.0, peer.server_public_key.0));
+    let mut label = peer.and_then(|peer| peer.exit_label);
     let mut connected_certificate: Option<String> = None;
     let mut invalidated = false;
     let (fork_tx, mut fork_rx) = async_channel::channel(1);
@@ -268,14 +283,17 @@ async fn run(
             refresher.certificate()
         };
         match usable {
-            Some(certificate) if connected_certificate.as_ref() != Some(&certificate.data) => {
+            Some(certificate)
+                if server_name.is_some()
+                    && connected_certificate.as_ref() != Some(&certificate.data) =>
+            {
                 let certificate_der = material::certificate_der(&certificate.data)?;
                 agent.connect(
                     os.clone(),
                     &Executor,
                     certificate_der,
                     addresses.v4(1).into(),
-                    server_name.clone(),
+                    server_name.clone().expect("configured peer"),
                     &super::agent_state::settings(&settings, label.clone()),
                 );
                 connected_certificate = Some(certificate.data);
@@ -289,6 +307,20 @@ async fn run(
         tokio::select! {
             command = commands.recv() => match command {
                 None | Some(Command::Stop) => break,
+                Some(Command::Peer(peer)) => {
+                    let new_name = agent_server_name(&peer)?;
+                    let identity = (peer.server_ip.0, peer.server_public_key.0);
+                    let changed = server_name.as_ref() != Some(&new_name) || peer_identity != Some(identity);
+                    peer_identity = Some(identity);
+                    server_name = Some(new_name);
+                    label = peer.exit_label;
+                    if changed {
+                        agent.disconnect(); connected_certificate = None;
+                        let _ = notices.send(Notice::CertificateUnavailable);
+                    } else {
+                        agent.change_settings(&super::agent_state::settings(&settings, label.clone()));
+                    }
+                }
                 Some(Command::Settings(new_settings, new_label)) => {
                     settings = new_settings; label = new_label;
                     refresher.change_features(material::features(&settings));
@@ -381,6 +413,15 @@ async fn run(
         task.abort();
     }
     Ok(())
+}
+fn agent_server_name(peer: &PeerInfo) -> Result<rustls::pki_types::ServerName<'static>> {
+    match &peer.server_name {
+        Some(name) => rustls::pki_types::ServerName::try_from(name.clone())
+            .map_err(|_| Error::Invalid("Local Agent server name")),
+        None => Ok(rustls::pki_types::ServerName::IpAddress(
+            peer.server_ip.0.into(),
+        )),
+    }
 }
 #[cfg(test)]
 mod tests {
