@@ -3,6 +3,7 @@
 use crate::offload::{self, Header};
 use std::{fs::File, io, os::fd::AsRawFd};
 use zeroize::Zeroize;
+const MAX_GSO_RECORD: usize = 65_536;
 pub(crate) struct Offload {
     pub(crate) header_len: usize,
     packet: Box<[u8]>,
@@ -34,7 +35,8 @@ impl Offload {
         }
         Ok(Some(Self {
             header_len: size as usize,
-            packet: vec![0; 65535].into_boxed_slice(),
+            // The extra byte detects a truncated oversized record before segmentation.
+            packet: vec![0; MAX_GSO_RECORD + 1].into_boxed_slice(),
             len: 0,
             header: Header::default(),
             offset: 0,
@@ -64,8 +66,21 @@ impl Offload {
             if n as usize <= self.header_len {
                 return Err(io::ErrorKind::InvalidData.into());
             }
+            let length = n as usize - self.header_len;
+            if length > MAX_GSO_RECORD {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "TUN GSO record exceeds bounded capacity",
+                ));
+            }
             self.header = Header::decode(&metadata).map_err(io::Error::other)?;
-            self.len = n as usize - self.header_len;
+            if self.header.gso_type == 0 && length > 65_535 {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "oversized unsegmented TUN packet",
+                ));
+            }
+            self.len = length;
             self.offset = 0;
         }
         let (n, next) =
@@ -105,5 +120,53 @@ impl Offload {
 impl Drop for Offload {
     fn drop(&mut self) {
         self.packet.zeroize();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::os::{fd::OwnedFd, unix::net::UnixDatagram};
+
+    #[test]
+    fn maximum_gso_record_preserves_tail_and_oversized_record_is_rejected() {
+        let (sender, receiver) = UnixDatagram::pair().unwrap();
+        let file = File::from(OwnedFd::from(receiver));
+        let mut reader = Offload {
+            header_len: 10,
+            packet: vec![0; MAX_GSO_RECORD + 1].into_boxed_slice(),
+            len: 0,
+            header: Header::default(),
+            offset: 0,
+        };
+        let mut record = vec![0; 10 + MAX_GSO_RECORD];
+        record[1] = 1; // TCPv4 GSO.
+        record[4..6].copy_from_slice(&1000u16.to_ne_bytes());
+        let packet = &mut record[10..];
+        packet[0] = 0x45;
+        packet[8] = 64;
+        packet[9] = 6;
+        packet[32] = 0x50;
+        packet[33] = 0x18;
+        for (index, byte) in packet[40..].iter_mut().enumerate() {
+            *byte = (index % 251) as u8;
+        }
+        sender.send(&record).unwrap();
+        let mut output = [0; 2048];
+        let mut restored = Vec::new();
+        loop {
+            let n = reader.read(&file, &mut output).unwrap();
+            restored.extend_from_slice(&output[40..n]);
+            if reader.len == 0 {
+                break;
+            }
+        }
+        assert_eq!(restored, record[50..]);
+        record.push(42);
+        sender.send(&record).unwrap();
+        assert_eq!(
+            reader.read(&file, &mut output).unwrap_err().kind(),
+            io::ErrorKind::InvalidData
+        );
     }
 }
