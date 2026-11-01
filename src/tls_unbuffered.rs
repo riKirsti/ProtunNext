@@ -39,6 +39,7 @@ enum Step {
     Read(usize),
     Written(usize),
     NeedRead,
+    ReadBlocked,
     Closed,
     PeerClosed,
 }
@@ -157,13 +158,29 @@ impl<S: Read + Write> UnbufferedTlsIo<S> {
             }
             Err(e) => return Err(e),
         }
+        // Once established, writes pump TLS output using an empty input span.
+        // Feeding unread ciphertext here makes rustls return ReadTraffic before
+        // WriteTraffic. Parking that plaintext can otherwise block a full ACK
+        // queue whose owner has paused reads until its output drains.
+        // rustls 0.23.46 process_tls_records_common explicitly yields
+        // WriteTraffic on empty input when application writes are permitted.
+        let process_end = if input.is_some() && !self.connection.is_handshaking() {
+            self.first
+        } else {
+            self.end
+        };
+        let supplied = process_end - self.first;
         let status = self
             .connection
-            .process_tls_records(&mut self.incoming[self.first..self.end]);
+            .process_tls_records(&mut self.incoming[self.first..process_end]);
         let mut discard = status.discard;
         let result = match status.state {
             Ok(ConnectionState::ReadTraffic(mut traffic)) => {
-                if let Some(record) = traffic.next_record() {
+                if input.is_some() && self.pending_first < self.pending_end {
+                    // Leave any pre-existing rustls plaintext owned by rustls
+                    // until there is room; never overwrite parked application data.
+                    Ok(Step::ReadBlocked)
+                } else if let Some(record) = traffic.next_record() {
                     let record = record.map_err(io::Error::other)?;
                     discard += record.discard;
                     consume(record.payload).and_then(|n| {
@@ -257,7 +274,7 @@ impl<S: Read + Write> UnbufferedTlsIo<S> {
             )),
         };
         // Apply *both* status and application-record discard before the next call.
-        if discard > self.end - self.first {
+        if discard > supplied {
             return Err(io::ErrorKind::InvalidData.into());
         }
         self.incoming[self.first..self.first + discard].zeroize();
@@ -304,9 +321,8 @@ impl<S: Read + Write> UnbufferedTlsIo<S> {
         if self.write_closed {
             return Err(io::ErrorKind::BrokenPipe.into());
         }
-        if self.pending_first < self.pending_end {
-            return Err(io::ErrorKind::WouldBlock.into());
-        }
+        let previous_first = self.pending_first;
+        let previous_end = self.pending_end;
         // Writes may encounter a server's application data while processing
         // handshake/control records. Keep that record until the caller reads it.
         let mut pending = std::mem::replace(&mut self.pending, Box::new([]));
@@ -328,6 +344,7 @@ impl<S: Read + Write> UnbufferedTlsIo<S> {
                     }
                     Step::Written(n) => return Ok(n), // Never flush after accepting input.
                     Step::Read(_) => return Err(io::ErrorKind::WouldBlock.into()),
+                    Step::ReadBlocked => return Err(io::ErrorKind::WouldBlock.into()),
                     Step::NeedRead => self.receive_tls()?,
                     Step::Closed => return Err(io::ErrorKind::BrokenPipe.into()),
                     Step::PeerClosed => {}
@@ -337,8 +354,13 @@ impl<S: Read + Write> UnbufferedTlsIo<S> {
             Err(io::ErrorKind::WouldBlock.into())
         })();
         self.pending = pending;
-        self.pending_first = 0;
-        self.pending_end = received;
+        if received != 0 {
+            self.pending_first = 0;
+            self.pending_end = received;
+        } else {
+            self.pending_first = previous_first;
+            self.pending_end = previous_end;
+        }
         result
     }
     /// Queue a TLS close_notify. Call flush to send it; inbound data remains readable.

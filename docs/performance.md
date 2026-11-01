@@ -77,6 +77,15 @@ records append behind already accepted ciphertext. Protocol output can grow
 from 64 to at most 128 KiB under backpressure. A duplex/key-update regression
 checks that this preserves record ordering and accepted application bytes.
 
+Established writes process an empty rustls input span, leaving incoming records
+for the read direction. ReadTraffic has priority over WriteTraffic in the pinned
+rustls state machine. Consuming incoming application data during writes and then
+refusing writes until it is read creates a cycle with the worker's bounded ACK
+queue: a full output queue pauses reads while its TLS writer waits for a read.
+A real loopback TLS/framing regression reproduces this at 63 queued ACKs before
+the fix, and transfers 4096 1280-byte packets after it. A separate TLS1.2/1.3
+regression checks writes preserve an already partially read plaintext record.
+
 Instrumentation stays local to the packet worker and is published with existing
 coalesced snapshots. Counters include syscall/message batching, fallback,
 truncation, GSO/GRO, io_uring operations, queue high-water marks, reserved free
