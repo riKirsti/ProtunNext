@@ -56,7 +56,7 @@ customer ports bypass that connection-tracking map.
 
 Still required before full source/API parity can be asserted: complete upstream
 virtual-router/NAT/firewall behavior (including dynamic Windows subnets), native
-Windows transports and management, higher-level Android service integration,
+Windows transports and management, remaining Android platform acceptance,
 and comprehensive offline account/protocol failure fixtures. NAT-PMP lease management is an extra
 router capability, not a v3.0.5 parity requirement: upstream exposes LocalAgent
 port-forwarding enablement without implementing that lease manager.
@@ -76,3 +76,10 @@ customer/tunnel protocols unchanged. Thus ICMP quoted-flow translation and IPv6
 extension-header NAT are not implemented upstream and are not additional
 v3.0.5 parity requirements. ProtunNext also passes them unchanged, apart from
 its internal connectivity-probe replies and virtual-address isolation.
+
+The independent Android service now compiles with the actual generated native
+bindings and packages an arm64-v8a development AAR. See `android/README.md` for
+the function mapping and remaining device verification. The successful private
+certificate fixture also exercises issuance, legacy persistence and explicit
+replacement with a matching public-test Ed25519 identity; it establishes no
+production LocalAgent trust.

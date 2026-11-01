@@ -4,21 +4,35 @@ Development evidence, not a release acceptance record.
 
 ## Current compatibility work
 
-[Run 41248700583](https://github.com/riKirsti/ProtunNext/actions/runs/41248700583)
-at `2a5d1809e2184a94140c7e5bf94183161c444dd6` passed all five jobs:
+[Run 41252701484](https://github.com/riKirsti/ProtunNext/actions/runs/41252701484)
+at `f05409403c236f3e1245429bafceb582f5151578` passed all five jobs:
 Windows/Linux/macOS tests, formatting, Clippy and release builds; isolated Linux
 TUN tests; and AArch64 Android API25 native library/Kotlin generation.
 Linux also exercises generated Python constructor/cache/state/shutdown callbacks;
 macOS typechecks generated Swift and tests utun prefix I/O with real datagrams.
 
-Later changes add the shared worker, encrypted connectivity probes, monotonic
-statistics timestamps, reentrant shutdown checks and a private account fixture.
+That checkpoint includes the shared worker, encrypted connectivity probes,
+reentrant shutdown checks, private IPv4 fragment ownership and account fixtures.
 The fixture executes published Muon/RCRL code over actual in-memory IP/TCP
 stacks with public test tokens. It verifies certificate JSON/settings/duration,
 rejected-auth cache clearing, a replacement fork GET, cookies and suppression of
 a consumed selector. It does not simulate a successful paid Proton connection.
 The latest CI link and source hash must be checked before treating a newer
 checkpoint as verified.
+
+[Run 41268188099](https://github.com/riKirsti/ProtunNext/actions/runs/41268188099)
+at `fd340cc4799f185af360d25aec594c7f69d0a4a9` additionally passed the Android
+service/Kotlin compilation, unit tests and AAR assembly, and the enlarged Linux
+TUN cases. The inspected release AAR contains the arm64-v8a native library,
+generated native Connection, Android core, manager and VpnService classes.
+This checkpoint reads whole 1,500-byte TUN packets even when the worker's initial
+MTU is 1,280. Physical Android device execution remains deferred.
+
+The successful private certificate issuance/replacement fixture was then added
+at `f47e2c9` and passed locally. A subsequent source check corrected compatibility
+statistics timestamps to milliseconds since high-level connection creation,
+preserving the origin across worker recreation. New CI checks cover that change;
+the internal raw snapshot still retains the absolute continuous clock sample.
 
 `verify-code-parity` reports missing/partial implementation independently from
 the release gate. The matched router benchmark is evidence-only for this code

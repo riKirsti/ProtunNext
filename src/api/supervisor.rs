@@ -65,6 +65,7 @@ impl Connection {
                     attempt_at: Instant::now(),
                     attempts: 0,
                     requested_stats: None,
+                    started_at: Duration::ZERO,
                     key: Zeroizing::new([0; 32]),
                     capture: Arc::new(CaptureState::default()),
                     #[cfg(feature = "local-agent")]
@@ -227,6 +228,7 @@ struct Supervisor {
     attempt_at: Instant,
     attempts: u32,
     requested_stats: Option<u64>,
+    started_at: Duration,
     key: Zeroizing<[u8; 32]>,
     capture: Arc<CaptureState>,
     #[cfg(feature = "local-agent")]
@@ -239,6 +241,7 @@ struct Supervisor {
 }
 impl Supervisor {
     fn initialize(&mut self) -> Result<()> {
+        self.started_at = crate::unix::boottime()?;
         #[cfg(not(feature = "local-agent"))]
         if matches!(
             self.config.connection_mode,
@@ -399,7 +402,13 @@ impl Supervisor {
                 self.requested_stats = None;
                 if let Some(stats) = &snapshot.statistics {
                     self.event_callback.on_event(Event::ConnectionStats {
-                        mono_timestamp_ms: snapshot.mono_timestamp.as_millis().min(i64::MAX as u128)
+                        // v3.0.5 API events.rs: milliseconds since this
+                        // connection began, preserving the origin on failover.
+                        mono_timestamp_ms: snapshot
+                            .mono_timestamp
+                            .saturating_sub(self.started_at)
+                            .as_millis()
+                            .min(i64::MAX as u128)
                             as i64,
                         received_bytes: stats.received_bytes,
                         sent_bytes: stats.sent_bytes,
