@@ -30,13 +30,16 @@ or a green unit test does not mean a complete VPN client or paid-feature support
   rather than being silently ignored. No routing or DNS settings are applied.
 * PCAP writer, NAT-PMP wire codec and candidate-selection/settings validation.
 
-The Linux compatibility API now has a separate supervisor for peer updates,
+The compatibility API now has a separate supervisor for peer updates,
 network recovery, replaceable/optional TUN, socket-protection callbacks, statistics
 and persistent capture controls. The optional `local-agent` feature adds an
 account thread using Proton's published Muon, certificate refresher and managed
 mTLS Local Agent. API/DNS/control sockets use a private in-tunnel TCP/IP stack;
 ordinary customer packets bypass it. This implementation is still under parity
-review; native platform bindings and complete virtual-network policy are missing.
+review. Unix/Apple/Android and Windows platform code and bindings now exist;
+complete virtual-network policy and alternate Windows subnet handling remain
+unfinished. The Android service builds an AAR; Windows loopback transports and
+native initialization run without creating a VPN adapter.
 Account issuance, renewal and paid-server integration have not been tested with
 real credentials. Public API declarations alone do not count as implementation.
 See [the complete parity ledger](docs/parity.json),

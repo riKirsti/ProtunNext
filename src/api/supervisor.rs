@@ -4,11 +4,10 @@ use crate::{
     Result,
     config::{PrivateKey, WireguardConfig},
     connection::{CaptureState, Connection as Worker, State as WorkerState},
-    linux::Transport,
+    platform::{self, TunHandle},
+    transport::Transport,
 };
 use std::{
-    fs::File,
-    os::fd::AsFd,
     sync::{Arc, Mutex, mpsc},
     thread::{self, JoinHandle},
     time::{Duration, Instant},
@@ -34,25 +33,75 @@ pub struct Connection {
 }
 #[cfg_attr(feature = "uniffi", uniffi::export)]
 impl Connection {
-    /// v3.0.5 constructor transfers ownership of the supplied raw descriptor.
-    #[cfg_attr(feature = "uniffi", uniffi::constructor)]
-    pub fn unix_connect(
+    pub fn update_peers(&self, peers: Vec<PeerInfo>) {
+        self.update(ConfigUpdate {
+            peers: Some(peers),
+            ..Default::default()
+        });
+    }
+    pub fn update(&self, update: ConfigUpdate) {
+        self.send(Command::Update(update));
+    }
+    pub fn on_connectivity_change(&self, event: ConnectivityEvent) {
+        self.send(Command::Connectivity(event));
+    }
+    pub fn disconnect(&self) {
+        self.send(Command::Disconnect);
+    }
+    pub fn disconnect_and_wait(&self) {
+        self.disconnect();
+        let join = self.join.lock().unwrap_or_else(|e| e.into_inner()).take();
+        if let Some(join) = join
+            && join.thread().id() != thread::current().id()
+        {
+            let _ = join.join();
+        }
+    }
+    pub fn start_packet_capture(&self, pcap_file: PcapFileInfo) {
+        self.send(Command::Capture(pcap_file));
+    }
+    pub fn stop_packet_capture(&self) {
+        self.send(Command::StopCapture);
+    }
+    pub fn request_stats(&self) {
+        self.send(Command::Stats);
+    }
+    pub fn debug_log(&self) {
+        self.send(Command::Debug);
+    }
+    pub fn update_local_agent_settings(&self, settings: LocalAgentSettings) {
+        self.update(ConfigUpdate {
+            settings: Some(settings),
+            ..Default::default()
+        });
+    }
+    pub fn request_local_agent_stats(&self) {
+        self.send(Command::AgentStats);
+    }
+    pub fn provide_api_fork_selector(&self, fork_selector_info: ForkSelectorInfo) {
+        self.send(Command::Fork(Zeroizing::new(fork_selector_info)));
+    }
+    pub fn invalidate_certificate(&self) {
+        self.send(Command::InvalidateCertificate);
+    }
+}
+impl Connection {
+    pub(crate) fn connect_platform(
         config: InitialConnectionConfig,
-        tun_fd: Option<i32>,
+        owned_tun: Result<Option<TunHandle>>,
         state_change_callback: Box<dyn StateChangedCallback>,
         event_callback: Box<dyn EventCallback>,
-        socket_protector: Option<Box<dyn SocketProtector>>,
+        socket_protector: Option<Arc<dyn SocketProtector>>,
         cache: Box<dyn PersistentCache>,
     ) -> Self {
         let (sender, receiver) = mpsc::channel();
         let join = thread::Builder::new()
             .name("protun-next-control".into())
             .spawn(move || {
-                let owned_tun = tun_fd.map(take_descriptor).transpose();
                 let mut actor = Supervisor {
                     config,
                     tun: None,
-                    protector: socket_protector.map(Arc::from),
+                    protector: socket_protector,
                     cache: Arc::from(cache),
                     state_callback: state_change_callback,
                     event_callback,
@@ -95,65 +144,6 @@ impl Connection {
             join: Mutex::new(Some(join)),
         }
     }
-    pub fn update_peers(&self, peers: Vec<PeerInfo>) {
-        self.update(ConfigUpdate {
-            peers: Some(peers),
-            ..Default::default()
-        });
-    }
-    pub fn update(&self, update: ConfigUpdate) {
-        self.send(Command::Update(update));
-    }
-    pub fn on_connectivity_change(&self, event: ConnectivityEvent) {
-        self.send(Command::Connectivity(event));
-    }
-    pub fn disconnect(&self) {
-        self.send(Command::Disconnect);
-    }
-    pub fn disconnect_and_wait(&self) {
-        self.disconnect();
-        let join = self.join.lock().unwrap_or_else(|e| e.into_inner()).take();
-        if let Some(join) = join
-            && join.thread().id() != thread::current().id()
-        {
-            let _ = join.join();
-        }
-    }
-    pub fn update_unix_tun(&self, tun_fd: TunStreamInfo) {
-        self.update(ConfigUpdate {
-            tun: Some(tun_fd),
-            ..Default::default()
-        });
-    }
-    pub fn start_packet_capture(&self, pcap_file: PcapFileInfo) {
-        self.send(Command::Capture(pcap_file));
-    }
-    pub fn stop_packet_capture(&self) {
-        self.send(Command::StopCapture);
-    }
-    pub fn request_stats(&self) {
-        self.send(Command::Stats);
-    }
-    pub fn debug_log(&self) {
-        self.send(Command::Debug);
-    }
-    pub fn update_local_agent_settings(&self, settings: LocalAgentSettings) {
-        self.update(ConfigUpdate {
-            settings: Some(settings),
-            ..Default::default()
-        });
-    }
-    pub fn request_local_agent_stats(&self) {
-        self.send(Command::AgentStats);
-    }
-    pub fn provide_api_fork_selector(&self, fork_selector_info: ForkSelectorInfo) {
-        self.send(Command::Fork(Zeroizing::new(fork_selector_info)));
-    }
-    pub fn invalidate_certificate(&self) {
-        self.send(Command::InvalidateCertificate);
-    }
-}
-impl Connection {
     fn send(&self, command: Command) {
         let _ = self.sender.send(command);
     }
@@ -163,14 +153,32 @@ impl Drop for Connection {
         self.disconnect_and_wait();
     }
 }
-fn take_descriptor(fd: i32) -> Result<File> {
+#[cfg(unix)]
+fn take_descriptor(fd: i32) -> Result<TunHandle> {
     // Validate before changing any supervisor state, including atomic updates.
-    let owned = crate::linux::duplicate_nonblocking(fd)?;
+    let owned = crate::unix::duplicate_nonblocking(fd);
     // SAFETY: legacy constructor transfers the caller's original descriptor.
     unsafe {
         libc::close(fd);
     }
-    Ok(owned)
+    owned
+}
+
+#[cfg(all(test, unix))]
+#[test]
+fn ownership_transfer_closes_even_a_rejected_non_tun_descriptor() {
+    use std::os::fd::AsRawFd;
+    let file = tempfile::tempfile().unwrap();
+    // SAFETY: duplicate an owned test file at a separate high descriptor number.
+    let transferred = unsafe { libc::fcntl(file.as_raw_fd(), libc::F_DUPFD_CLOEXEC, 128) };
+    assert!(transferred >= 128);
+    assert!(take_descriptor(transferred).is_err());
+    // SAFETY: scalar descriptor query; no ownership is acquired or changed.
+    assert_eq!(unsafe { libc::fcntl(transferred, libc::F_GETFD) }, -1);
+    assert_eq!(
+        std::io::Error::last_os_error().raw_os_error(),
+        Some(libc::EBADF)
+    );
 }
 #[derive(Clone)]
 struct Candidate {
@@ -214,7 +222,7 @@ pub(crate) fn sanitize(mut peers: Vec<PeerInfo>) -> Vec<PeerInfo> {
 }
 struct Supervisor {
     config: InitialConnectionConfig,
-    tun: Option<File>,
+    tun: Option<TunHandle>,
     protector: Option<Arc<dyn SocketProtector>>,
     cache: Arc<dyn PersistentCache>,
     state_callback: Box<dyn StateChangedCallback>,
@@ -241,7 +249,7 @@ struct Supervisor {
 }
 impl Supervisor {
     fn initialize(&mut self) -> Result<()> {
-        self.started_at = crate::unix::boottime()?;
+        self.started_at = platform::boottime()?;
         #[cfg(not(feature = "local-agent"))]
         if matches!(
             self.config.connection_mode,
@@ -349,8 +357,8 @@ impl Supervisor {
             mtu: 1420,
             keepalive: Some(25),
         };
-        let worker = Worker::start_with_capture(
-            self.tun.as_ref().map(AsFd::as_fd),
+        let worker = Worker::start_owned(
+            self.tun.as_ref().map(platform::clone_tun).transpose()?,
             config,
             String::new(),
             transport,
@@ -480,16 +488,10 @@ impl Supervisor {
             Command::Update(update) => {
                 // Validate and take replacement descriptor before applying any
                 // portion of an atomic update.
-                let replacement = update
-                    .tun
-                    .map(|tun| match tun {
-                        TunStreamInfo::NoTun => Ok(None),
-                        TunStreamInfo::TunFd(fd) => take_descriptor(fd).map(Some),
-                    })
-                    .transpose()?;
+                let replacement = update.tun.map(take_tun_update).transpose()?;
                 let worker_tun = replacement
                     .as_ref()
-                    .map(|tun| tun.as_ref().map(File::try_clone).transpose())
+                    .map(|tun| tun.as_ref().map(platform::clone_tun).transpose())
                     .transpose()?;
                 if let Some(peers) = update.peers {
                     self.config.peers = peers;
@@ -648,5 +650,52 @@ impl Supervisor {
             }
         }
         Ok(())
+    }
+}
+
+fn take_tun_update(info: TunStreamInfo) -> Result<Option<TunHandle>> {
+    #[cfg(unix)]
+    {
+        match info {
+            TunStreamInfo::NoTun => Ok(None),
+            TunStreamInfo::TunFd(fd) => take_descriptor(fd).map(Some),
+        }
+    }
+    #[cfg(windows)]
+    {
+        let _ = info;
+        Err(crate::Error::Unsupported(
+            "Unix descriptor update on Windows",
+        ))
+    }
+}
+
+#[cfg(unix)]
+#[cfg_attr(feature = "uniffi", uniffi::export)]
+impl Connection {
+    /// v3.0.5 constructor transfers ownership of the supplied raw descriptor.
+    #[cfg_attr(feature = "uniffi", uniffi::constructor)]
+    pub fn unix_connect(
+        config: InitialConnectionConfig,
+        tun_fd: Option<i32>,
+        state_change_callback: Box<dyn StateChangedCallback>,
+        event_callback: Box<dyn EventCallback>,
+        socket_protector: Option<Box<dyn SocketProtector>>,
+        cache: Box<dyn PersistentCache>,
+    ) -> Self {
+        Self::connect_platform(
+            config,
+            tun_fd.map(take_descriptor).transpose(),
+            state_change_callback,
+            event_callback,
+            socket_protector.map(Arc::from),
+            cache,
+        )
+    }
+    pub fn update_unix_tun(&self, tun_fd: TunStreamInfo) {
+        self.update(ConfigUpdate {
+            tun: Some(tun_fd),
+            ..Default::default()
+        });
     }
 }

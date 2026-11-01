@@ -118,13 +118,17 @@ Live Proton server acceptance and censorship behavior remain unverified.
 Apple utun adds/removes its four-byte network-order address-family header with
 vectored I/O, without shifting the payload. Linux/Android use TUN_NO_PI. Apple
 uses CLOCK_MONOTONIC_RAW, which advances during sleep, and platform-specific
-uplink binding. Windows native adapter and management code remains missing;
-a Windows host build verifies portable components, not a working Windows VPN.
+uplink binding. Windows now has a native Wintun C boundary, IP Helper management,
+physical socket protection, event notifications and shared Mio/IOCP transport.
+See [the Windows checkpoint](windows-runtime.md) for evidence and remaining gaps;
+no real Windows adapter has been activated by the checks.
 
 UniFFI 0.31.0 exports the Unix compatibility object, records and callbacks.
 CI calls it through generated Python bindings, typechecks generated Swift, and
-builds an Android API25 library plus Kotlin bindings. A complete high-level
-Android VpnService integration and the Windows object API are still required.
+builds an Android API25 library plus Kotlin bindings and the independent
+VpnService/manager AAR. The Windows object API is also exported and its generated
+Python initialization is exercised without constructing an adapter. Full
+source/API parity remains incomplete independently of deferred live acceptance.
 
 ## Official reference material checked
 

@@ -60,11 +60,13 @@ pub(crate) fn run<N: Network>(
     let compatibility_policy = observer.is_some_and(|o| o.compatibility_policy());
     let handshake_deadline = boottime()? + Duration::from_secs(10);
     let mut poll = Poll::new()?;
+    let waker = std::sync::Arc::new(mio::Waker::new(poll.registry(), CONTROL)?);
     if let Some(observer) = observer {
-        observer.set_waker(std::sync::Arc::new(mio::Waker::new(
-            poll.registry(),
-            CONTROL,
-        )?));
+        observer.set_waker(waker.clone());
+    }
+    #[cfg(windows)]
+    if let Some(tun) = &mut tun {
+        tun.attach_waker(waker.clone())?;
     }
     if let Some(tun) = &tun {
         tun.register(poll.registry(), TUN, Interest::READABLE)?;
@@ -109,6 +111,10 @@ pub(crate) fn run<N: Network>(
                 old.deregister(poll.registry())?;
             }
             tun = replacement.map(TunDevice::new);
+            #[cfg(windows)]
+            if let Some(tun) = &mut tun {
+                tun.attach_waker(waker.clone())?;
+            }
             tun_ready = tun.is_some();
             tun_writable = false;
             if let Some(new) = &tun {
@@ -467,7 +473,7 @@ pub(crate) fn run<N: Network>(
                 }
                 Err(e)
                     if e.kind() == std::io::ErrorKind::WouldBlock
-                        || e.raw_os_error() == Some(libc::ENOBUFS) =>
+                        || crate::platform::send_pressure(&e) =>
                 {
                     counters.tun_backpressure += 1;
                     break;
@@ -545,6 +551,12 @@ pub(crate) fn run<N: Network>(
                 .and_then(|p| p.delay(boottime().expect("continuous clock")))
                 .map_or(timeout, |delay| delay.min(timeout))
         };
+        #[cfg(windows)]
+        let timeout = if wants_tun {
+            timeout.min(Duration::from_millis(1))
+        } else {
+            timeout
+        };
         match poll.poll(&mut events, Some(timeout)) {
             Ok(()) => {}
             Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
@@ -557,6 +569,10 @@ pub(crate) fn run<N: Network>(
                     tun_ready = true;
                 } else if event.token() == NET {
                     net_ready = true;
+                }
+                #[cfg(windows)]
+                if event.token() == CONTROL {
+                    tun_ready = tun.is_some();
                 }
             }
         }

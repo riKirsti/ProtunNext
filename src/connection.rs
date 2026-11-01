@@ -381,6 +381,7 @@ pub struct Connection {
 impl Connection {
     /// Duplicates/validates the supplied TUN before spawning. Like run_udp, this
     /// enables O_NONBLOCK on the shared file description. No routes/DNS change.
+    #[cfg(unix)]
     pub fn start(
         tun: BorrowedFd<'_>,
         config: WireguardConfig,
@@ -389,6 +390,7 @@ impl Connection {
     ) -> Result<Self> {
         Self::start_optional(Some(tun), config, uplink, transport, None)
     }
+    #[cfg(unix)]
     pub fn start_optional(
         tun: Option<BorrowedFd<'_>>,
         config: WireguardConfig,
@@ -398,6 +400,7 @@ impl Connection {
     ) -> Result<Self> {
         Self::start_with_capture(tun, config, uplink, transport, protector, None)
     }
+    #[cfg(unix)]
     pub(crate) fn start_with_capture(
         tun: Option<BorrowedFd<'_>>,
         config: WireguardConfig,
@@ -489,6 +492,7 @@ impl Connection {
             .unwrap_or_else(|e| e.into_inner())
             .clone()
     }
+    #[cfg(unix)]
     pub fn replace_tun(&self, tun: Option<BorrowedFd<'_>>) -> Result<()> {
         let file = tun
             .map(|fd| crate::unix::duplicate_nonblocking(fd.as_raw_fd()))

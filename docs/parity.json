@@ -337,9 +337,14 @@
     "id": "windows-adapter",
     "requirement": "Wintun, socket/interface protection, routes/DNS and network events",
     "source": "https://github.com/ProtonVPN/protun/blob/a498c38ae6ffb0e68e7190b2831ef985d73fa6da/src/api/windows/connection_windows.rs",
-    "status": "not-implemented",
-    "evidence": [],
-    "code_status": "missing"
+    "status": "partially-implemented",
+    "evidence": [
+      "src/api/windows.rs and src/windows/: executable native constructor, Wintun ownership/ring I/O, physical socket protection, native DNS/address/routes, network events and shared UDP/TCP/TLS/Stealth worker; standard subnet only",
+      "tests/windows_network.rs: all four real loopback Noise transports passed; real Windows event bridge and generated Python initialization passed; no Wintun interface activated",
+      "scripts/package-windows.ps1: pinned official archive hash, valid WireGuard LLC Authenticode signature and architecture checks; driver is packaged without loading/installing it",
+      "docs/windows-runtime.md: alternate-subnet integration and real-device/host acceptance remain outstanding"
+    ],
+    "code_status": "partial"
   },
   {
     "id": "android-adapter",

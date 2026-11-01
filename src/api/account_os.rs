@@ -10,16 +10,16 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 #[derive(Debug, Clone)]
-#[cfg_attr(unix, derive(Default))]
+#[cfg_attr(any(unix, windows), derive(Default))]
 pub struct Clock {
-    #[cfg(not(unix))]
+    #[cfg(not(any(unix, windows)))]
     start: std::time::Instant,
 }
-#[cfg(not(unix))]
+#[cfg(not(any(unix, windows)))]
 impl Default for Clock {
     fn default() -> Self {
         Self {
-            #[cfg(not(unix))]
+            #[cfg(not(any(unix, windows)))]
             start: std::time::Instant::now(),
         }
     }
@@ -27,9 +27,9 @@ impl Default for Clock {
 impl rt::InstantFactory for Clock {
     type Instant = rt::MuonInstant;
     fn now(&self) -> Self::Instant {
-        #[cfg(unix)]
-        let now = crate::unix::boottime().expect("supported continuous monotonic clock");
-        #[cfg(not(unix))]
+        #[cfg(any(unix, windows))]
+        let now = crate::platform::boottime().expect("supported continuous monotonic clock");
+        #[cfg(not(any(unix, windows)))]
         let now = self.start.elapsed();
         rt::MuonInstant::from_duration(now)
     }
