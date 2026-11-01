@@ -514,6 +514,11 @@ fn local_http_exists_offline_and_its_tcp_session_survives_worker_replacement() {
     ip(&["addr", "add", "10.2.0.2/32", "dev", "pnweb"]);
     ip(&["link", "set", "pnweb", "up"]);
     ip(&["route", "add", "10.2.0.3/32", "dev", "pnweb"]);
+    // An isolated on-link destination with no ARP respondent leaves SYN pending.
+    // No packets can leave this namespace through the dummy device.
+    ip(&["link", "add", "pnuplink", "type", "dummy"]);
+    ip(&["addr", "add", "198.51.100.2/24", "dev", "pnuplink"]);
+    ip(&["link", "set", "pnuplink", "up"]);
     let (states, receiver) = mpsc::channel();
     let connection = protun_next::api::connection::Connection::unix_connect(
         InitialConnectionConfig {
@@ -581,6 +586,17 @@ fn local_http_exists_offline_and_its_tcp_session_survives_worker_replacement() {
     wait(true);
     finish(open());
     let persistent_tcp = open();
+    connection.update_peers(vec![PeerInfo {
+        peer_id: "unreachable TCP in namespace".into(),
+        server_ip: IpAddress("198.51.100.100".parse().unwrap()),
+        server_public_key: WgPeerPublicKey(Session::public_key([9; 32])),
+        udp_ports: vec![],
+        tcp_ports: vec![443],
+        tls_ports: vec![],
+        priority: 0,
+        exit_label: None,
+        server_name: None,
+    }]);
     connection.on_connectivity_change(ConnectivityEvent::Up);
     wait(false);
     finish(persistent_tcp);

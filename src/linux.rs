@@ -217,7 +217,6 @@ pub(crate) fn run_owned(
             let socket = linux_network::connect_tcp(
                 config.endpoint,
                 bind_device,
-                stop,
                 observer.and_then(|o| o.protector()),
             )?;
             match other {

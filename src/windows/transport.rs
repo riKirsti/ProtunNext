@@ -1,5 +1,5 @@
-//! Windows sockets attach to Mio's IOCP only once. TCP connect uses WSAPoll
-//! first: attaching a temporary Poll would prevent reassociation to the worker.
+//! Windows sockets attach to Mio once. Pending TCP connections are serviced by
+//! the same reactor as TUN traffic, with no temporary readiness registration.
 use crate::{
     Error, Result,
     config::WireguardConfig,
@@ -10,13 +10,7 @@ use crate::{
     tls::TlsIo,
     transport::{Counters, Transport},
 };
-use std::{
-    io,
-    net::SocketAddr,
-    os::windows::io::AsRawSocket,
-    sync::atomic::{AtomicBool, Ordering},
-    time::{Duration, Instant},
-};
+use std::{net::SocketAddr, sync::atomic::AtomicBool};
 use windows_sys::Win32::Networking::WinSock::*;
 
 fn socket(endpoint: SocketAddr, tcp: bool, tun: Option<&TunHandle>) -> Result<socket2::Socket> {
@@ -45,53 +39,18 @@ fn socket(endpoint: SocketAddr, tcp: bool, tun: Option<&TunHandle>) -> Result<so
     super::net::protect(&socket, endpoint, tun.map_or(0, |tun| tun.session.index))?;
     Ok(socket)
 }
-fn tcp(
-    endpoint: SocketAddr,
-    tun: Option<&TunHandle>,
-    stop: &AtomicBool,
-) -> Result<mio::net::TcpStream> {
+fn tcp(endpoint: SocketAddr, tun: Option<&TunHandle>) -> Result<crate::network::ConnectingTcp> {
     let socket = socket(endpoint, true, tun)?;
     match socket.connect(&endpoint.into()) {
         Ok(()) => {}
-        Err(error) if matches!(error.raw_os_error(), Some(WSAEWOULDBLOCK | WSAEINPROGRESS)) => {
-            let handle = usize::try_from(socket.as_raw_socket())
-                .map_err(|_| Error::Invalid("native SOCKET width"))?;
-            let deadline = Instant::now() + Duration::from_secs(10);
-            loop {
-                if stop.load(Ordering::Relaxed) {
-                    return Err(io::Error::from(io::ErrorKind::Interrupted).into());
-                }
-                if Instant::now() >= deadline {
-                    return Err(io::Error::from(io::ErrorKind::TimedOut).into());
-                }
-                let mut descriptor = WSAPOLLFD {
-                    fd: handle,
-                    events: POLLWRNORM,
-                    revents: 0,
-                };
-                // SAFETY: live native-width socket, one mutable poll descriptor,
-                // bounded wait. No IOCP is associated with the socket here.
-                let ready = unsafe { WSAPoll(&mut descriptor, 1, 100) };
-                if ready == SOCKET_ERROR {
-                    // SAFETY: error belongs to the immediately preceding call.
-                    return Err(io::Error::from_raw_os_error(unsafe { WSAGetLastError() }).into());
-                }
-                if ready == 0 {
-                    continue;
-                }
-                if let Some(error) = socket.take_error()? {
-                    return Err(error.into());
-                }
-                if socket.peer_addr().is_ok() {
-                    break;
-                }
-            }
-        }
+        Err(error) if matches!(error.raw_os_error(), Some(WSAEWOULDBLOCK | WSAEINPROGRESS)) => {}
         Err(error) => return Err(error.into()),
     }
     socket.set_tcp_nodelay(true)?;
     let socket: std::net::TcpStream = socket.into();
-    Ok(mio::net::TcpStream::from_std(socket))
+    Ok(crate::network::ConnectingTcp::new(
+        mio::net::TcpStream::from_std(socket),
+    ))
 }
 pub(crate) fn run_owned(
     tun: Option<TunHandle>,
@@ -131,7 +90,7 @@ pub(crate) fn run_owned(
             if config.mtu > 16351 {
                 return Err(Error::Invalid("MTU exceeds normal TCP frame capacity"));
             }
-            let socket = tcp(config.endpoint, tun.as_ref(), stop)?;
+            let socket = tcp(config.endpoint, tun.as_ref())?;
             match other {
                 Transport::Tcp => crate::engine::run(
                     tun,
