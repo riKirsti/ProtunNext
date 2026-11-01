@@ -1,0 +1,94 @@
+[package]
+name = "protun-next"
+version = "0.1.0-dev.1"
+edition = "2024"
+rust-version = "1.88"
+license = "GPL-3.0-or-later"
+description = "Independent Protun successor; explicit parity and performance verification gates"
+repository = "https://github.com/riKirsti/ProtunNext"
+default-run = "protun-next-cli"
+autobins = false
+
+[lib]
+crate-type = ["rlib", "cdylib", "staticlib"]
+
+[features]
+default = ["local-agent", "uniffi"]
+uniffi = ["dep:uniffi"]
+bindgen = ["uniffi", "uniffi/cli"]
+unix = ["uniffi", "control-plane"]
+linux = ["unix"]
+apple = ["unix"]
+android = ["unix"]
+windows = ["uniffi", "local-agent"]
+test_utils = ["local-agent", "muon/login", "tokio/net", "tokio/io-util"]
+real-connection-tests = ["test_utils"]
+debug-counters = []
+mio = []
+control-plane = ["dep:futures", "dep:proton-vpn-netstack", "dep:tokio"]
+local-agent = ["control-plane", "dep:proton-vpn-local-agent", "dep:muon", "dep:proton-vpn-rcrl", "dep:rand", "dep:httpdate", "dep:x509-parser", "dep:cookie_store", "dep:url"]
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+zeroize = { version = "1", features = ["derive"] }
+getrandom = "0.4"
+base64 = "0.22"
+proton-boringtun = { version = "=4.9.0", registry = "proton", default-features = false }
+rand_chacha = "0.10"
+rustls = { version = "=0.23.46", default-features = false, features = ["std", "ring", "tls12"] }
+webpki-roots = "1"
+proton-vpn-local-agent = { version = "=0.13.0", registry = "proton", optional = true }
+futures = { version = "0.3", optional = true }
+log = "0.4"
+ed25519-dalek = { version = "=3.0.0", features = ["pkcs8", "pem"] }
+pkcs8 = { version = "0.11", features = ["pem"] }
+muon = { version = "=3.0.0", registry = "proton", default-features = false, features = ["transport-hyper", "lenient", "other-product", "unsealed"], optional = true }
+proton-vpn-rcrl = { version = "=2.0.0", registry = "proton", optional = true }
+proton-vpn-netstack = { version = "=0.8.1", registry = "proton", features = ["async", "std", "rng", "ip-fragmentation"], optional = true }
+tokio = { version = "1.52", features = ["rt", "time", "macros", "sync"], optional = true }
+rand = { version = "0.10", optional = true }
+httpdate = { version = "1", optional = true }
+x509-parser = { version = "0.18", optional = true }
+cookie_store = { version = "0.22.1", optional = true }
+url = { version = "2", optional = true }
+uniffi = { version = "=0.31.0", optional = true }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+mio = { version = "1", features = ["net", "os-poll", "os-ext"] }
+socket2 = "0.6"
+
+[target.'cfg(windows)'.dependencies]
+mio = { version = "1", features = ["net", "os-poll", "os-ext"] }
+socket2 = "0.6"
+libloading = "0.8"
+windows-sys = { version = "0.52", features = ["Win32_Foundation", "Win32_Networking_WinSock", "Win32_NetworkManagement_IpHelper", "Win32_NetworkManagement_Ndis", "Win32_System_Threading", "Win32_System_WindowsProgramming", "Win32_System_LibraryLoader", "Win32_Security"] }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+panic = "abort"
+
+[dev-dependencies]
+tempfile = "3"
+
+[[bench]]
+name = "packet_path"
+harness = false
+
+[[bin]]
+name = "protun-next-cli"
+path = "src/main.rs"
+
+[[bin]]
+name = "uniffi-bindgen"
+path = "src/bin/uniffi-bindgen.rs"
+required-features = ["bindgen"]
+
+[lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+
+[lints.clippy]
+undocumented_unsafe_blocks = "deny"

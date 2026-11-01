@@ -1,0 +1,433 @@
+[
+  {
+    "id": "wg-session",
+    "requirement": "WireGuard handshake, encryption, decryption, replay and authentication",
+    "source": "https://github.com/ProtonVPN/protun/blob/a498c38ae6ffb0e68e7190b2831ef985d73fa6da/src/connection/pvpn_client.rs",
+    "status": "implemented-local",
+    "evidence": [
+      "session::tests::actual_handshake_packet_roundtrip_replay_and_tamper"
+    ],
+    "code_status": "complete"
+  },
+  {
+    "id": "tcp-framing",
+    "requirement": "TunSafe normal and predicted-data framing, fragmented reads, reset and partial consumption",
+    "source": "https://github.com/ProtonVPN/protun/blob/a498c38ae6ffb0e68e7190b2831ef985d73fa6da/src/connection/mio/tcp.rs",
+    "status": "implemented-local",
+    "evidence": [
+      "framing::tests"
+    ],
+    "code_status": "complete"
+  },
+  {
+    "id": "capture-codec",
+    "requirement": "Bounded raw-IP PCAP serialization",
+    "source": "https://github.com/ProtonVPN/protun/blob/a498c38ae6ffb0e68e7190b2831ef985d73fa6da/src/connection/pcap_stream.rs",
+    "status": "implemented-local",
+    "evidence": [
+      "capture::tests"
+    ],
+    "code_status": "complete"
+  },
+  {
+    "id": "candidate-selection",
+    "requirement": "Peer/port/protocol ordering, network availability and retry backoff",
+    "source": "https://github.com/ProtonVPN/protun/blob/a498c38ae6ffb0e68e7190b2831ef985d73fa6da/src/connection/sanitized_peers.rs",
+    "status": "implemented-local",
+    "evidence": [
+      "control::tests"
+    ],
+    "code_status": "complete"
+  },
+  {
+    "id": "udp-end-to-end",
+    "requirement": "Complete WireGuard UDP tunnel and packet I/O",
+    "source": "https://github.com/ProtonVPN/protun/blob/a498c38ae6ffb0e68e7190b2831ef985d73fa6da/src/connection/mio/udp.rs",
+    "status": "needs-live-verification",
+    "evidence": [
+      "tests/linux_tun.rs: actual UDP TUN roundtrip passed in CI 41220824642; live Proton server pending"
+    ],
+    "code_status": "complete"
+  },
+  {
+    "id": "tcp-end-to-end",
+    "requirement": "Complete WireGuard TCP tunnel and flow control",
+    "source": "https://github.com/ProtonVPN/protun/blob/a498c38ae6ffb0e68e7190b2831ef985d73fa6da/src/connection/mio/tcp.rs",
+    "status": "needs-live-verification",
+    "evidence": [
+      "tests/tcp_wireguard.rs: real TCP and Noise exchange",
+      "CI 41221611485: real Linux TUN TCP roundtrip passed; live Proton server pending"
+    ],
+    "code_status": "complete"
+  },
+  {
+    "id": "stealth-end-to-end",
+    "requirement": "Proton Stealth TLS-over-TCP with correct inner peer authentication and TLS policy",
+    "source": "https://github.com/ProtonVPN/protun/blob/a498c38ae6ffb0e68e7190b2831ef985d73fa6da/src/connection/mio/tcp.rs",
+    "status": "needs-live-verification",
+    "evidence": [
+      "src/stealth.rs: verified against published pvpnclient 4.4.1 and proton-pfff-module 0.8.10",
+      "CI 41221982426: mismatched outer SNI accepted with valid inner WG; wrong inner WG peer delivered no data; live Proton pending"
+    ],
+    "code_status": "complete"
+  },
+  {
+    "id": "connection-lifecycle",
+    "requirement": "Create, update, disconnect, wait/join, asynchronous state events",
+    "source": "https://github.com/ProtonVPN/protun/blob/a498c38ae6ffb0e68e7190b2831ef985d73fa6da/src/api/connection.rs",
+    "status": "needs-live-verification",
+    "evidence": [
+      "src/api/supervisor.rs: executable common constructor, atomic updates, callbacks, stop/join; Unix owned descriptors and Windows owned Wintun interface",
+      "tests/api_connection.rs; tests/ffi_contract.py; tests/windows_ffi_contract.py"
+    ],
+    "code_status": "complete"
+  },
+  {
+    "id": "peer-failover",
+    "requirement": "Automatic timed failover and live peer updates without unnecessary reconnect",
+    "source": "https://github.com/ProtonVPN/protun/blob/a498c38ae6ffb0e68e7190b2831ef985d73fa6da/src/api/connection.rs",
+    "status": "needs-live-verification",
+    "evidence": [
+      "src/api/supervisor.rs: bounded candidate attempts, timed retry, peer replacement and metadata-preserving updates; private stack and capture survive worker recreation",
+      "tests/api_connection.rs: real encrypted probe failover and unchanged endpoint retention"
+    ],
+    "code_status": "complete"
+  },
+  {
+    "id": "network-recovery",
+    "requirement": "Connectivity up/down, switch, resume and socket recreation",
+    "source": "https://github.com/ProtonVPN/protun/blob/a498c38ae6ffb0e68e7190b2831ef985d73fa6da/src/connection/network_recovery_handler.rs",
+    "status": "needs-live-verification",
+    "evidence": [
+      "src/api/supervisor.rs, src/connection.rs and src/engine.rs: shared persistent control network, offline TUN service, up/down/switch transport recreation and cancellation",
+      "tests/linux_tun.rs: real local HTTP TCP session survives worker replacement, including an unanswered SYN; full and no-account namespace checks passed in the Linux job of CI 41275189414 (host jobs in that run failed formatting)"
+    ],
+    "code_status": "complete"
+  },
+  {
+    "id": "tun-replacement",
+    "requirement": "Live TUN replacement and interface errors",
+    "source": "https://github.com/ProtonVPN/protun/blob/a498c38ae6ffb0e68e7190b2831ef985d73fa6da/src/api/connection_unix.rs",
+    "status": "needs-live-verification",
+    "evidence": [
+      "src/connection.rs and src/engine.rs: wakeable owned TUN replacement, optional interface, detach/error state and replacement validation; tests/api_connection.rs executes real descriptor ownership and replacement on Unix"
+    ],
+    "code_status": "complete"
+  },
+  {
+    "id": "socket-protection",
+    "requirement": "Protect every socket against routing through the tunnel",
+    "source": "https://github.com/ProtonVPN/protun/blob/a498c38ae6ffb0e68e7190b2831ef985d73fa6da/src/api/connection_unix.rs",
+    "status": "needs-live-verification",
+    "evidence": [
+      "src/linux_network.rs and src/linux.rs: bind uplink/protect callback before UDP connect or TCP SYN",
+      "tests/api_connection.rs: actual callback execution and socket recreation; native Windows protection tracked separately"
+    ],
+    "code_status": "complete"
+  },
+  {
+    "id": "stats-events",
+    "requirement": "Byte counters, handshake age, loss, RTT and timestamp events",
+    "source": "https://github.com/ProtonVPN/protun/blob/a498c38ae6ffb0e68e7190b2831ef985d73fa6da/src/api/events.rs",
+    "status": "needs-live-verification",
+    "evidence": [
+      "src/connection.rs and src/api/supervisor.rs: fresh generation-tagged byte/loss/RTT/handshake statistics, zero-session offline samples and connection-relative continuous-clock timestamps",
+      "tests/api_connection.rs; tests/linux_tun.rs; native Android manager forwards the same fields"
+    ],
+    "code_status": "complete"
+  },
+  {
+    "id": "packet-capture-controls",
+    "requirement": "Start/stop, file paths/descriptors, append/overwrite, disconnect and size events",
+    "source": "https://github.com/ProtonVPN/protun/blob/a498c38ae6ffb0e68e7190b2831ef985d73fa6da/src/api/connection.rs",
+    "status": "implemented-local",
+    "evidence": [
+      "src/api/capture.rs, src/connection.rs: file modes, bounds, events and failover-persistent sink",
+      "tests/capture_controls.rs: Unix owned write-only files preserve offset, nonseekable streams, file limits, symlink rejection; tests/api_connection.rs: failover capture continuity"
+    ],
+    "code_status": "complete"
+  },
+  {
+    "id": "persistent-cache",
+    "requirement": "Credential cache compatibility, invalidation and secure persistence",
+    "source": "https://github.com/ProtonVPN/protun/blob/a498c38ae6ffb0e68e7190b2831ef985d73fa6da/src/api/connection.rs",
+    "status": "needs-live-verification",
+    "evidence": [
+      "src/api/cache.rs, src/api/keys.rs and src/api/account_material.rs: host-owned opaque persistence, legacy Ed25519 PKCS8 v1, Muon Auth JSON and certificate PEM/date headers",
+      "android/src/main/java/io/github/rikirsti/protunnext/android/CacheStore.kt: per-user application-private persistence, optional host cipher and memory-only fallback on cipher failure; tests/account_api.rs validates successful certificate persistence and invalidation"
+    ],
+    "code_status": "complete"
+  },
+  {
+    "id": "key-generation",
+    "requirement": "Production OS-seeded keys and persisted identity lifecycle",
+    "source": "https://github.com/ProtonVPN/protun/blob/a498c38ae6ffb0e68e7190b2831ef985d73fa6da/src/api/connection.rs",
+    "status": "implemented-local",
+    "evidence": [
+      "src/api/keys.rs: persisted OS-seeded Ed25519 identity, RFC8410 v1 PKCS8, verified X25519 conversion"
+    ],
+    "code_status": "complete"
+  },
+  {
+    "id": "local-agent",
+    "requirement": "Authenticated Local Agent transport and state",
+    "source": "https://github.com/ProtonVPN/protun/blob/a498c38ae6ffb0e68e7190b2831ef985d73fa6da/src/api/local_agent.rs",
+    "status": "needs-live-verification",
+    "evidence": [
+      "src/api/account.rs: official ManagedLocalAgent mTLS over the private stack, all source subscriptions, peer identity changes, certificate replacement and rekey on unusable key/certificate",
+      "src/api/agent_state.rs: server-observed state and jail gating; native Unix/Windows/Android controls are executable; production trust/account acceptance is deferred"
+    ],
+    "code_status": "complete"
+  },
+  {
+    "id": "api-fork",
+    "requirement": "Fork selector/cookies, token invalidation and refresh-loop protection",
+    "source": "https://github.com/ProtonVPN/protun/blob/a498c38ae6ffb0e68e7190b2831ef985d73fa6da/src/api/connection.rs",
+    "status": "needs-live-verification",
+    "evidence": [
+      "src/api/account.rs: selector/cookie exchange, in-memory and persisted auth invalidation, refresh suspension, generation-checked results and consumed-selector suppression",
+      "tests/account_api.rs: actual private HTTP fork GET, public test cookie delivery and rejected-session behavior; no real account contacted"
+    ],
+    "code_status": "complete"
+  },
+  {
+    "id": "certificate-renewal",
+    "requirement": "API certificate issuance/renewal, expiration handling, invalidation, rekey and configured duration",
+    "source": "https://github.com/ProtonVPN/protun/blob/a498c38ae6ffb0e68e7190b2831ef985d73fa6da/src/api/connection.rs",
+    "status": "needs-live-verification",
+    "evidence": [
+      "src/api/account.rs and src/api/account_material.rs: official RCRL issuance/renewal, expiry, refresh features, duration, invalidation, storage and identity replacement",
+      "tests/account_api.rs: successful private fixture issuance with matching test Ed25519 key, legacy persistence and explicit replacement request; live API/mTLS acceptance deferred"
+    ],
+    "code_status": "complete"
+  },
+  {
+    "id": "api-environments",
+    "requirement": "Production, Atlas and custom API hosts plus pins",
+    "source": "https://github.com/ProtonVPN/protun/blob/a498c38ae6ffb0e68e7190b2831ef985d73fa6da/src/api/connection.rs",
+    "status": "implemented-local",
+    "evidence": [
+      "src/api/account_material.rs: Proton VPN production host and official pins, Atlas and validated custom servers/pins; unit tests"
+    ],
+    "code_status": "complete"
+  },
+  {
+    "id": "netshield",
+    "requirement": "All v3.0.5 NetShield levels and applied-server feedback",
+    "source": "https://github.com/ProtonVPN/protun/blob/a498c38ae6ffb0e68e7190b2831ef985d73fa6da/src/api/local_agent.rs",
+    "status": "needs-live-verification",
+    "evidence": [
+      "src/api/account.rs and src/api/agent_state.rs: executable official SDK settings/subscriptions, server readback, refusals, jail/restriction mappings, labels and six-field statistics aggregation",
+      "src/api/types.rs and native Unix/Windows/Android controls expose the complete source settings and event fields; typed unit fixtures verify mappings; production Plus entitlements/acceptance remain deferred"
+    ],
+    "code_status": "complete"
+  },
+  {
+    "id": "port-forwarding",
+    "requirement": "Local Agent port-forwarding enablement, entitlement refusals and applied-server feedback (NAT-PMP lease manager is outside upstream parity)",
+    "source": "https://github.com/ProtonVPN/protun/blob/a498c38ae6ffb0e68e7190b2831ef985d73fa6da/src/api/local_agent.rs",
+    "status": "needs-live-verification",
+    "evidence": [
+      "src/api/account.rs and src/api/agent_state.rs: executable official SDK settings/subscriptions, server readback, refusals, jail/restriction mappings, labels and six-field statistics aggregation",
+      "src/api/types.rs and native Unix/Windows/Android controls expose the complete source settings and event fields; typed unit fixtures verify mappings; production Plus entitlements/acceptance remain deferred"
+    ],
+    "code_status": "complete"
+  },
+  {
+    "id": "split-tcp",
+    "requirement": "VPN Accelerator split-TCP request, policy refusal and applied feedback",
+    "source": "https://github.com/ProtonVPN/protun/blob/a498c38ae6ffb0e68e7190b2831ef985d73fa6da/src/api/local_agent.rs",
+    "status": "needs-live-verification",
+    "evidence": [
+      "src/api/account.rs and src/api/agent_state.rs: executable official SDK settings/subscriptions, server readback, refusals, jail/restriction mappings, labels and six-field statistics aggregation",
+      "src/api/types.rs and native Unix/Windows/Android controls expose the complete source settings and event fields; typed unit fixtures verify mappings; production Plus entitlements/acceptance remain deferred"
+    ],
+    "code_status": "complete"
+  },
+  {
+    "id": "random-nat",
+    "requirement": "NAT policy request and applied feedback",
+    "source": "https://github.com/ProtonVPN/protun/blob/a498c38ae6ffb0e68e7190b2831ef985d73fa6da/src/api/local_agent.rs",
+    "status": "needs-live-verification",
+    "evidence": [
+      "src/api/account.rs and src/api/agent_state.rs: executable official SDK settings/subscriptions, server readback, refusals, jail/restriction mappings, labels and six-field statistics aggregation",
+      "src/api/types.rs and native Unix/Windows/Android controls expose the complete source settings and event fields; typed unit fixtures verify mappings; production Plus entitlements/acceptance remain deferred"
+    ],
+    "code_status": "complete"
+  },
+  {
+    "id": "circumvention-routing",
+    "requirement": "Circumvention routing setting and applied feedback",
+    "source": "https://github.com/ProtonVPN/protun/blob/a498c38ae6ffb0e68e7190b2831ef985d73fa6da/src/api/local_agent.rs",
+    "status": "needs-live-verification",
+    "evidence": [
+      "src/api/account.rs and src/api/agent_state.rs: executable official SDK settings/subscriptions, server readback, refusals, jail/restriction mappings, labels and six-field statistics aggregation",
+      "src/api/types.rs and native Unix/Windows/Android controls expose the complete source settings and event fields; typed unit fixtures verify mappings; production Plus entitlements/acceptance remain deferred"
+    ],
+    "code_status": "complete"
+  },
+  {
+    "id": "jails-restrictions",
+    "requirement": "Soft/hard jails, plan/2FA/invoice/session limits, streaming/P2P restrictions",
+    "source": "https://github.com/ProtonVPN/protun/blob/a498c38ae6ffb0e68e7190b2831ef985d73fa6da/src/api/local_agent.rs",
+    "status": "needs-live-verification",
+    "evidence": [
+      "src/api/account.rs and src/api/agent_state.rs: executable official SDK settings/subscriptions, server readback, refusals, jail/restriction mappings, labels and six-field statistics aggregation",
+      "src/api/types.rs and native Unix/Windows/Android controls expose the complete source settings and event fields; typed unit fixtures verify mappings; production Plus entitlements/acceptance remain deferred"
+    ],
+    "code_status": "complete"
+  },
+  {
+    "id": "exit-labels",
+    "requirement": "Selected exits/server-name metadata and bouncing semantics",
+    "source": "https://github.com/ProtonVPN/protun/blob/a498c38ae6ffb0e68e7190b2831ef985d73fa6da/src/api/connection.rs",
+    "status": "needs-live-verification",
+    "evidence": [
+      "src/api/account.rs and src/api/agent_state.rs: executable official SDK settings/subscriptions, server readback, refusals, jail/restriction mappings, labels and six-field statistics aggregation",
+      "src/api/types.rs and native Unix/Windows/Android controls expose the complete source settings and event fields; typed unit fixtures verify mappings; production Plus entitlements/acceptance remain deferred"
+    ],
+    "code_status": "complete"
+  },
+  {
+    "id": "agent-statistics",
+    "requirement": "Traffic, block categories and data-saved events",
+    "source": "https://github.com/ProtonVPN/protun/blob/a498c38ae6ffb0e68e7190b2831ef985d73fa6da/src/api/events.rs",
+    "status": "needs-live-verification",
+    "evidence": [
+      "src/api/account.rs and src/api/agent_state.rs: executable official SDK settings/subscriptions, server readback, refusals, jail/restriction mappings, labels and six-field statistics aggregation",
+      "src/api/types.rs and native Unix/Windows/Android controls expose the complete source settings and event fields; typed unit fixtures verify mappings; production Plus entitlements/acceptance remain deferred"
+    ],
+    "code_status": "complete"
+  },
+  {
+    "id": "sni-strategy",
+    "requirement": "Random and top-domain strategy compatibility",
+    "source": "https://github.com/ProtonVPN/protun/blob/a498c38ae6ffb0e68e7190b2831ef985d73fa6da/src/api/connection.rs",
+    "status": "implemented-local",
+    "evidence": [
+      "stealth::tests::sni_strategies_produce_dns_names_and_stable_top_selection",
+      "official v3.0.5 Top domain data with attribution; stable mapping intentionally differs, documented in architecture.md"
+    ],
+    "code_status": "complete"
+  },
+  {
+    "id": "logging",
+    "requirement": "Initialization, diagnostics and secret redaction",
+    "source": "https://github.com/ProtonVPN/protun/blob/a498c38ae6ffb0e68e7190b2831ef985d73fa6da/src/api/logger.rs",
+    "status": "implemented-local",
+    "evidence": [
+      "src/api/logger.rs: executable exported initialization/levels/callback; recursion guard",
+      "api::logger::tests::sdk_auth_and_http_traces_cannot_forward_selectors_to_client_logger"
+    ],
+    "code_status": "complete"
+  },
+  {
+    "id": "unix-bindings",
+    "requirement": "Unix/Linux constructor, descriptor lifecycle and API bindings",
+    "source": "https://github.com/ProtonVPN/protun/blob/a498c38ae6ffb0e68e7190b2831ef985d73fa6da/src/api/connection_unix.rs",
+    "status": "needs-live-verification",
+    "evidence": [
+      "src/api/supervisor.rs: native Unix compatibility API and descriptor ownership; generated Python calls actual native constructor/cache/state/shutdown in CI 41251229331; full platform policy tracked separately"
+    ],
+    "code_status": "complete"
+  },
+  {
+    "id": "apple-adapter",
+    "requirement": "Apple utun header, packet I/O and platform behavior",
+    "source": "https://github.com/ProtonVPN/protun/blob/a498c38ae6ffb0e68e7190b2831ef985d73fa6da/src/connection/mio/tun_apple.rs",
+    "status": "needs-live-verification",
+    "evidence": [
+      "src/tun_device.rs, src/linux.rs and src/linux_network.rs: vectored utun AF prefix, continuous Apple clock, interface binding and shared full control/packet runtime",
+      "macOS CI executes header/device adapter tests, supervisor tests and generated Swift typechecking; real utun activation remains deferred"
+    ],
+    "code_status": "complete"
+  },
+  {
+    "id": "windows-adapter",
+    "requirement": "Wintun, socket/interface protection, routes/DNS and network events",
+    "source": "https://github.com/ProtonVPN/protun/blob/a498c38ae6ffb0e68e7190b2831ef985d73fa6da/src/api/windows/connection_windows.rs",
+    "status": "needs-live-verification",
+    "evidence": [
+      "src/api/windows.rs and src/windows/: native Wintun ownership/ring I/O, physical-interface socket binding, IP Helper routes/addresses/DNS/MTU, network monitoring, IPv6 and scoped teardown",
+      "src/addressing.rs and src/windows/interface.rs: bounded subnet selection from 2 through 255, consistently wired into private stack, gateway/DNS, probes, policy and reported details",
+      "tests/windows_network.rs and tests/windows_ffi_contract.py: real loopback transports and native initialization; CI 41271451414 passed Windows driver packaging/signature/architecture checks without activating an adapter; native device acceptance deferred"
+    ],
+    "code_status": "complete"
+  },
+  {
+    "id": "android-adapter",
+    "requirement": "Android bindings, VpnService/TUN lifecycle and socket protection",
+    "source": "https://github.com/ProtonVPN/protun/blob/a498c38ae6ffb0e68e7190b2831ef985d73fa6da/vpn-core-android/vpn-core",
+    "status": "needs-live-verification",
+    "evidence": [
+      "android/: executable core/manager/VpnService, TUN/DNS/routes/IPv6/per-app policy, socket protection/network binding, user cache/cipher, account/capture/stats and process/always-on/revoke lifecycle",
+      "Actual arm64 API25 ELF, Kotlin bindings, service, unit tests and AAR passed CI 41274301445; android/README.md documents API migration and deferred device/other-ABI acceptance"
+    ],
+    "code_status": "complete"
+  },
+  {
+    "id": "ffi-contract",
+    "requirement": "UniFFI/Kotlin/platform-facing API and callback contracts",
+    "source": "https://github.com/ProtonVPN/protun/blob/a498c38ae6ffb0e68e7190b2831ef985d73fa6da/src/api",
+    "status": "needs-live-verification",
+    "evidence": [
+      "src/api: UniFFI 0.31.0 native Unix and Windows objects, control methods, callbacks, custom keys, enums and records; Android directly consumes generated contracts",
+      "Generated Python calls real Unix constructor/cache/state/shutdown and Windows initialization; generated Swift typechecks and Android Kotlin/AAR compiles; C# host acceptance is deferred"
+    ],
+    "code_status": "complete"
+  },
+  {
+    "id": "performance-evidence",
+    "requirement": "Matched target benchmarks versus v3.0.5 with allocation/syscall counters",
+    "source": "https://github.com/ProtonVPN/protun/blob/a498c38ae6ffb0e68e7190b2831ef985d73fa6da/src/connection",
+    "status": "needs-live-verification",
+    "evidence": [],
+    "code_status": "not-applicable"
+  },
+  {
+    "id": "virtual-network-policy",
+    "requirement": "Upstream virtual-router, address translation and firewall behavior for all supported interface/address and traffic modes",
+    "source": "https://rust-registry.proton.me/index/pv/pn/pvpnclient",
+    "status": "needs-live-verification",
+    "evidence": [
+      "src/virtual_policy.rs, src/addressing.rs and src/api/internal.rs: selected-subnet isolation, local-service shortcut, control/customer port collision NAT, strict new TCP SYN and tracked-reply ownership independent of destination routing",
+      "src/api/fragments.rs: bounded ten-second first-fragment ownership; src/api/local_http.rs: real fixed-response service; private stack and mappings persist across worker recreation",
+      "tests/internal_network.rs: real translated TCP/UDP, fragmented UDP reassembly, peer-initiated reserved ports and alternate-subnet DNS/local HTTP",
+      "tests/linux_tun.rs: tracked LAN reply through real TUN and offline local HTTP session continuity; the Linux job of CI 41275189414 passed with the pending-SYN extension; that run was not a complete passing workflow",
+      "Pinned pvpnclient net/packet.rs, net/firewall.rs, net/router.rs and net/ip_fragment_handler.rs define this behavior; related-ICMP NAT and IPv6 extension-header NAT are not additional upstream functions"
+    ],
+    "code_status": "complete"
+  },
+  {
+    "id": "connectivity-probes",
+    "requirement": "Initial data-path verification, 500 unanswered-packet trigger, bounded probe retries and failover",
+    "source": "https://rust-registry.proton.me/index/pv/pn/pvpnclient",
+    "status": "implemented-local",
+    "code_status": "complete",
+    "evidence": [
+      "src/path_probe.rs and src/engine.rs: published ICMP wire marker, 500/1000/2000/4000ms retries, authenticated decrypted data confirms path",
+      "tests/api_connection.rs: handshake-only peer must fail over to a peer answering encrypted probes; passed CI 41251229331"
+    ]
+  },
+  {
+    "id": "development-config",
+    "requirement": "Optional sample INI mode/peer/fork configuration reader",
+    "source": "https://github.com/ProtonVPN/protun/blob/a498c38ae6ffb0e68e7190b2831ef985d73fa6da/src/api/test_utils/test_config_parser.rs",
+    "status": "implemented-local",
+    "code_status": "complete",
+    "evidence": [
+      "src/api/test_utils/test_config_parser.rs: bounded fresh parser, both connection modes, peers/ports/priority, environment, capture, Linux interface and fork defaults; public test/malformed-input fixtures"
+    ]
+  },
+  {
+    "id": "development-auth",
+    "requirement": "Optional synchronous/asynchronous account login and session fork helper",
+    "source": "https://github.com/ProtonVPN/protun/blob/a498c38ae6ffb0e68e7190b2831ef985d73fa6da/src/api/test_utils/muon_test_auth.rs",
+    "status": "needs-live-verification",
+    "code_status": "complete",
+    "evidence": [
+      "src/api/test_utils/muon_test_auth.rs: explicit opt-in host-network SDK SRP login, typed 2FA/error handling, child-app fork and scoped cookie jar; default runtime has no host-network fallback",
+      "Unit tests run only invalid configuration and real loopback TCP adapter I/O; real login/fork acceptance is deferred"
+    ]
+  }
+]
