@@ -92,7 +92,7 @@ jobs:
       - name: Install the pinned current Android toolchain
         shell: bash
         run: |
-          sdkmanager 'platforms;android-37' 'build-tools;36.0.0' 'ndk;30.0.16248370'
+          "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-37.0' 'build-tools;36.0.0' 'ndk;30.0.16248370'
       - name: Compile native Android library at API 36
         shell: bash
         run: |
