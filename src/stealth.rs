@@ -114,16 +114,7 @@ mod policy {
         }
     }
     // Intentionally crate-private; all public entry points couple it to WireGuard.
-    pub(crate) fn client(sni: String) -> Result<rustls::ClientConnection> {
-        rustls::ClientConnection::new(
-            config()?,
-            ServerName::try_from(sni).map_err(|_| Error::Invalid("Stealth SNI"))?,
-        )
-        .map_err(|e| Error::Protocol(e.to_string()))
-    }
-    pub(crate) fn unbuffered_client(
-        sni: String,
-    ) -> Result<rustls::client::UnbufferedClientConnection> {
+    pub(crate) fn client(sni: String) -> Result<rustls::client::UnbufferedClientConnection> {
         rustls::client::UnbufferedClientConnection::new(
             config()?,
             ServerName::try_from(sni).map_err(|_| Error::Invalid("Stealth SNI"))?,
@@ -142,7 +133,7 @@ mod policy {
     }
 }
 #[cfg(any(unix, windows))]
-pub(crate) use policy::{client, unbuffered_client};
+pub(crate) use policy::client;
 
 include!("stealth_top_sni.rs");
 

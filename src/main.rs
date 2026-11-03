@@ -6,22 +6,7 @@ fn main() {
     }
 }
 fn run() -> protun_next::Result<()> {
-    let mut args: Vec<String> = std::env::args().collect();
-    let options = if let Some(index) = args.iter().position(|a| a.starts_with("--performance=")) {
-        let flag = args.remove(index);
-        if !args.get(1).is_some_and(|a| a.starts_with("run-"))
-            || args.iter().any(|a| a.starts_with("--performance="))
-        {
-            return Err(protun_next::Error::Invalid(
-                "one performance flag is allowed with run commands",
-            ));
-        }
-        protun_next::performance::Options::parse(
-            flag.strip_prefix("--performance=").expect("checked prefix"),
-        )?
-    } else {
-        Default::default()
-    };
+    let args: Vec<String> = std::env::args().collect();
     match args.get(1).map(String::as_str) {
         Some("status") => {
             println!("{}", include_str!("../docs/parity.json"));
@@ -62,14 +47,10 @@ fn run() -> protun_next::Result<()> {
                         };
                         Transport::Stealth(sni)
                     }
-                    _ if options.unbuffered_tls => Transport::UnbufferedTls(Box::new(
-                        protun_next::tls::unbuffered_client(&args[5])?,
-                    )),
                     _ => Transport::Tls(Box::new(protun_next::tls::client(&args[5])?)),
                 };
-                let counters = protun_next::linux::run_with_options(
-                    fd, &config, &args[4], transport, options, &stop,
-                )?;
+                let counters =
+                    protun_next::linux::run_transport_fd(fd, &config, &args[4], transport, &stop)?;
                 println!(
                     "{}",
                     serde_json::to_string(&counters)
@@ -79,13 +60,13 @@ fn run() -> protun_next::Result<()> {
             }
             #[cfg(not(target_os = "linux"))]
             {
-                let _ = (command, options);
+                let _ = command;
                 Err(protun_next::Error::Unsupported("Linux TUN adapter"))
             }
         }
         _ => {
             eprintln!(
-                "usage: protun-next-cli status | verify-parity | verify-code-parity | check-config FILE | run-udp FILE TUN_FD UPLINK_DEVICE | run-tcp FILE TUN_FD UPLINK_DEVICE | run-tls FILE TUN_FD UPLINK_DEVICE SERVER_NAME | run-stealth FILE TUN_FD UPLINK_DEVICE [random|top|DNS_SNI] [--performance=portable|batch|uring,offload,compact,in-place,unbuffered]"
+                "usage: protun-next-cli status | verify-parity | verify-code-parity | check-config FILE | run-udp FILE TUN_FD UPLINK_DEVICE | run-tcp FILE TUN_FD UPLINK_DEVICE | run-tls FILE TUN_FD UPLINK_DEVICE SERVER_NAME | run-stealth FILE TUN_FD UPLINK_DEVICE [random|top|DNS_SNI]"
             );
             Err(protun_next::Error::Invalid("command"))
         }

@@ -9,6 +9,12 @@ functional requirements plus a separate performance-evidence item.
 fails until deferred service/device acceptance is complete. This is a development
 build; offline tests do not establish live Proton Plus support or release readiness.
 
+The [supported platform contract](docs/supported-platforms.md) is Windows 11
+25H2/26H2 native x64; Linux 6.12/6.18 LTS x64/ARM64; Android 16/17 API 36/37;
+and macOS/iOS/iPadOS 26/27 ARM64. Production backend choices are internal and
+fixed. [Measured TLS selection](docs/tls-selection-20261103.md) retains the small
+transfer regression as well as the repeatable sustained-download benefit.
+
 ## Working implementation in this snapshot
 
 * WireGuard cryptographic-session adapter with real handshakes, packet round trips,
@@ -21,7 +27,7 @@ build; offline tests do not establish live Proton Plus support or release readin
   loopback/WireGuard handshake tests.
 * Shared Unix/Windows UDP/framed TCP/TLS worker. Unix attaches only to a caller-owned TUN descriptor and
   binding the outer socket to an explicitly supplied uplink interface before connect.
-  TLS uses bounded rustls buffering and keeps flushing pending ciphertext.
+  TLS uses the selected bounded unbuffered rustls adapter and keeps flushing pending ciphertext.
 * Managed worker start/disconnect/join, bounded latest-state observation
   and real WireGuard byte/loss/handshake/RTT statistics; no user callbacks or
   control messages run per packet.
@@ -102,7 +108,7 @@ The compatibility target includes peer updates/failover, connectivity events,
 TUN replacement, socket protection, stats, capture control, logging, secure cache,
 API forks/cookies, certificate issuance/renewal, Local Agent state/settings,
 NetShield, port forwarding, split TCP, NAT/circumvention options, policy refusals,
-jails/restrictions and platform bindings—not just the three tunnel transports.
+jails/restrictions and platform bindingsâ€”not just the three tunnel transports.
 
 Paid capabilities remain subject to Proton's server policy and the account's
 entitlements. A local setting, stub, codec or a successful connection cannot

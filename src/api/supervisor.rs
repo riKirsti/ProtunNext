@@ -25,7 +25,6 @@ pub(crate) enum Command {
     Fork(Zeroizing<ForkSelectorInfo>),
     InvalidateCertificate,
     Debug,
-    Performance(crate::performance::Options),
 }
 #[cfg_attr(feature = "uniffi", derive(uniffi::Object))]
 pub struct Connection {
@@ -34,11 +33,6 @@ pub struct Connection {
 }
 #[cfg_attr(feature = "uniffi", uniffi::export)]
 impl Connection {
-    /// Queues a controlled packet-worker reconnect; retains account and control services.
-    /// Invalid options or a closed connection return false without changing state.
-    pub fn update_performance_options(&self, options: crate::performance::Options) -> bool {
-        options.validate().is_ok() && self.sender.send(Command::Performance(options)).is_ok()
-    }
     pub fn update_peers(&self, peers: Vec<PeerInfo>) {
         self.update(ConfigUpdate {
             peers: Some(peers),
@@ -138,7 +132,6 @@ impl Connection {
                     #[cfg(feature = "local-agent")]
                     pending_fork: None,
                     fatal: false,
-                    performance: Default::default(),
                 };
                 match owned_tun {
                     Ok(tun) => actor.tun = tun,
@@ -269,7 +262,6 @@ struct Supervisor {
     #[cfg(feature = "local-agent")]
     pending_fork: Option<Zeroizing<ForkSelectorInfo>>,
     fatal: bool,
-    performance: crate::performance::Options,
 }
 impl Supervisor {
     fn initialize(&mut self) -> Result<()> {
@@ -398,11 +390,7 @@ impl Supervisor {
         self.update_account_peer(&candidate.peer);
         let worker = Worker::start_runtime(
             self.tun.as_ref().map(platform::clone_tun).transpose()?,
-            Some((
-                config,
-                String::new(),
-                transport.with_performance(self.performance),
-            )),
+            Some((config, String::new(), transport)),
             self.protector.clone(),
             self.runtime_services(),
         )?;
@@ -620,15 +608,6 @@ impl Supervisor {
                         worker.replace_owned_tun(worker_tun.expect("prepared update"));
                     }
                     self.tun = tun;
-                }
-            }
-            Command::Performance(options) => {
-                options.validate()?;
-                if options != self.performance {
-                    self.performance = options;
-                    self.stop_worker();
-                    self.retry_at = Instant::now();
-                    self.next = 0;
                 }
             }
             Command::Connectivity(event) => {

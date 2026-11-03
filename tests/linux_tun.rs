@@ -73,15 +73,9 @@ fn echo_ipv4(packet: &mut [u8], spoof: bool) {
 #[test]
 #[ignore = "requires a disposable network namespace and CAP_NET_ADMIN; never run on a router"]
 fn actual_udp_tcp_tls_engine_tun_roundtrips() {
-    tun_roundtrips(None);
+    tun_roundtrips();
 }
-#[test]
-#[ignore = "requires disposable namespace and CAP_NET_ADMIN; never run on a router"]
-fn actual_vnet_tun_headers_and_udp_gso_roundtrip() {
-    tun_roundtrips(Some(10));
-    tun_roundtrips(Some(12));
-}
-fn tun_roundtrips(vnet: Option<libc::c_int>) {
+fn tun_roundtrips() {
     assert_eq!(
         std::env::var("PROTUN_NEXT_NETNS_TEST").as_deref(),
         Ok("1"),
@@ -94,39 +88,16 @@ fn tun_roundtrips(vnet: Option<libc::c_int>) {
         .unwrap();
     let mut request = [0u8; 40];
     request[..3].copy_from_slice(b"pn0");
-    let flags = libc::IFF_TUN
-        | libc::IFF_NO_PI
-        | if vnet.is_some() {
-            libc::IFF_VNET_HDR
-        } else {
-            0
-        };
+    let flags = libc::IFF_TUN | libc::IFF_NO_PI;
     request[16..18].copy_from_slice(&(flags as i16).to_ne_bytes());
     // SAFETY: valid TUN descriptor and 40-byte ifreq storage, private test namespace.
     let configured = unsafe { libc::ioctl(tun.as_raw_fd(), libc::TUNSETIFF, request.as_mut_ptr()) };
     assert_eq!(configured, 0);
-    if let Some(size) = vnet {
-        assert_eq!(
-            // SAFETY: host-owned TUN in a disposable namespace; explicit header ABI.
-            unsafe { libc::ioctl(tun.as_raw_fd(), libc::TUNSETVNETHDRSZ, &size) },
-            0
-        );
-        let flags = libc::TUN_F_CSUM
-            | libc::TUN_F_TSO4
-            | libc::TUN_F_TSO6
-            | libc::TUN_F_USO4
-            | libc::TUN_F_USO6;
-        assert_eq!(
-            // SAFETY: scalar offload negotiation on the test's own TUN descriptor.
-            unsafe { libc::ioctl(tun.as_raw_fd(), libc::TUNSETOFFLOAD, flags) },
-            0
-        );
-    }
     ip(&["link", "set", "lo", "up"]);
     ip(&["addr", "add", "10.2.0.2/32", "dev", "pn0"]);
     ip(&["link", "set", "pn0", "mtu", "1500", "up"]);
     ip(&["route", "add", "10.2.0.3/32", "dev", "pn0"]);
-    for mode in 0..20 {
+    for mode in [0, 1, 2, 3, 4, 5, 6, 7, 15, 16, 17, 18, 19] {
         let scenario = match mode {
             16 => 4,
             17 => 5,
@@ -237,8 +208,8 @@ fn tun_roundtrips(vnet: Option<libc::c_int>) {
         let transport = match mode {
             0 | 8 | 9 | 10 | 13 | 15 => linux::Transport::Udp,
             1 | 7 | 14 => linux::Transport::Tcp,
-            12 => linux::Transport::UnbufferedTls(Box::new(
-                tls::unbuffered_client_with_roots("localhost", common::roots()).unwrap(),
+            12 => linux::Transport::Tls(Box::new(
+                tls::client_with_roots("localhost", common::roots()).unwrap(),
             )),
             2 => linux::Transport::Tls(Box::new(
                 tls::client_with_roots("localhost", common::roots()).unwrap(),
@@ -246,22 +217,6 @@ fn tun_roundtrips(vnet: Option<libc::c_int>) {
             _ => linux::Transport::Stealth(protun_next::stealth::SniStrategy::Explicit(
                 "unrelated.test".into(),
             )),
-        };
-        let transport = if mode >= 8 {
-            transport.with_performance(protun_next::performance::Options {
-                udp_backend: if mode == 10 {
-                    protun_next::performance::UdpBackend::IoUring
-                } else {
-                    protun_next::performance::UdpBackend::Batch
-                },
-                udp_offload: mode == 9 || mode == 15,
-                unbuffered_tls: mode == 11 || mode >= 16,
-                compact_pool: true,
-                in_place_crypto: cfg!(feature = "in-place-crypto"),
-                ..Default::default()
-            })
-        } else {
-            transport
         };
         let mut connection =
             Connection::start(tun.as_fd(), config, "lo".into(), transport).unwrap();
@@ -702,15 +657,6 @@ fn local_http_exists_offline_and_its_tcp_session_survives_worker_replacement() {
     };
     wait(true);
     finish(open());
-    let survives_tuning = open();
-    assert!(
-        connection.update_performance_options(protun_next::performance::Options {
-            compact_pool: true,
-            unbuffered_tls: true,
-            ..Default::default()
-        })
-    );
-    finish(survives_tuning);
     let persistent_tcp = open();
     connection.update_peers(vec![PeerInfo {
         peer_id: "unreachable TCP in namespace".into(),

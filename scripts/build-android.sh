@@ -22,9 +22,9 @@ for target in "${targets[@]}"; do
   rustup target add "$target"
   underscore="${target//-/_}"
   uppercase="$(printf '%s' "$underscore" | tr '[:lower:]' '[:upper:]')"
-  env "CC_$underscore=$toolchain/${clang}25-clang" \
+  env "CC_$underscore=$toolchain/${clang}36-clang" \
     "AR_$underscore=$toolchain/llvm-ar" \
-    "CARGO_TARGET_${uppercase}_LINKER=$toolchain/${clang}25-clang" \
+    "CARGO_TARGET_${uppercase}_LINKER=$toolchain/${clang}36-clang" \
     cargo build --locked --release --lib --features android --target "$target"
   mkdir -p "target/android-jni/$abi"
   cp "target/$target/release/libprotun_next.so" "target/android-jni/$abi/"

@@ -29,26 +29,6 @@ pub struct Counters {
 pub enum Transport {
     Udp,
     Tcp,
-    Tls(Box<rustls::ClientConnection>),
-    UnbufferedTls(Box<rustls::client::UnbufferedClientConnection>),
+    Tls(Box<rustls::client::UnbufferedClientConnection>),
     Stealth(crate::stealth::SniStrategy),
-    /// Optional paths without changing existing constructors or config records.
-    Tuned(Box<Transport>, crate::performance::Options),
-}
-impl Transport {
-    pub fn with_performance(self, options: crate::performance::Options) -> Self {
-        Self::Tuned(Box::new(self), options)
-    }
-    pub(crate) fn into_options(self) -> crate::Result<(Self, crate::performance::Options)> {
-        match self {
-            Self::Tuned(inner, options) => {
-                options.validate()?;
-                if matches!(*inner, Self::Tuned(..)) {
-                    return Err(crate::Error::Invalid("nested transport options"));
-                }
-                Ok((*inner, options))
-            }
-            inner => Ok((inner, Default::default())),
-        }
-    }
 }
