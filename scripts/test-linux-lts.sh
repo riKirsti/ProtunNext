@@ -16,7 +16,7 @@ tar -xJf "$stage/linux.tar.xz" -C "$stage"
 kernel="$stage/linux-$version"
 make -C "$kernel" defconfig
 "$kernel/scripts/config" --file "$kernel/.config" \
-    -e TUN -e DEVTMPFS -e DEVTMPFS_MOUNT -e BLK_DEV_INITRD -e RD_GZIP \
+    -e TUN -e DUMMY -e DEVTMPFS -e DEVTMPFS_MOUNT -e BLK_DEV_INITRD -e RD_GZIP \
     -e SERIAL_8250 -e SERIAL_8250_CONSOLE -e PROC_FS -e SYSFS -e TMPFS \
     -e IPV6 -e INET -e UNIX -e NET_NS -e RANDOM_TRUST_CPU \
     -e VIRTIO -e VIRTIO_PCI -e HW_RANDOM -e HW_RANDOM_VIRTIO -d MODULES
@@ -72,7 +72,9 @@ SH
 chmod +x "$guest/init"
 (cd "$guest"; find . -print0 | cpio --null -o --format=newc | gzip -1) > "$stage/initramfs.gz"
 set +e
-timeout 300 qemu-system-x86_64 -machine accel=kvm:tcg -m 2048 -smp 2 -nographic -no-reboot \
+# The hosted runner exposes /dev/kvm to root. Do not silently use slow CPU
+# emulation: the unchanged regression deadlines require hardware acceleration.
+sudo -n timeout 300 qemu-system-x86_64 -accel kvm -m 2048 -smp 2 -nographic -no-reboot \
     -object rng-random,filename=/dev/urandom,id=rng0 -device virtio-rng-pci,rng=rng0 \
     -nic none -kernel "$image" -initrd "$stage/initramfs.gz" \
     -append 'console=ttyS0 rdinit=/init panic=-1' | tee "$stage/guest.log"
