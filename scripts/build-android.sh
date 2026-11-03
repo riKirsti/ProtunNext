@@ -34,3 +34,4 @@ cargo run --locked --features bindgen --bin uniffi-bindgen -- generate \
   --library "target/$first/release/libprotun_next.so" --language kotlin \
   --config uniffi.toml --out-dir target/android-bindings --no-format
 gradle -p android --no-daemon testDebugUnitTest assembleRelease
+python3 scripts/verify-android-package.py
