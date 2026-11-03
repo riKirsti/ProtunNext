@@ -1,28 +1,25 @@
 plugins {
-    id("com.android.library") version "8.13.2"
-    id("org.jetbrains.kotlin.android") version "2.2.21"
+    id("com.android.library") version "9.1.1"
 }
 android {
     namespace = "io.github.rikirsti.protunnext.android"
-    compileSdk = 36
+    compileSdk = 37
     defaultConfig {
-        minSdk = 25
+        minSdk = 36
+        targetSdk = 37
         consumerProguardFiles("consumer-rules.pro")
     }
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_11
-        targetCompatibility = JavaVersion.VERSION_11
-        isCoreLibraryDesugaringEnabled = true
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
     }
-    kotlinOptions { jvmTarget = "11" }
     sourceSets["main"].apply {
-        java.srcDir("../target/android-bindings")
+        kotlin.directories.add("../target/android-bindings")
         jniLibs.srcDir("../target/android-jni")
     }
 }
 dependencies {
     api("net.java.dev.jna:jna:5.16.0@aar")
     api("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.11.0")
-    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.5")
     testImplementation("junit:junit:4.13.2")
 }

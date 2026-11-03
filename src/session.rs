@@ -148,7 +148,6 @@ impl Session {
         }
         result
     }
-    #[cfg(feature = "in-place-crypto")]
     /// Plaintext must occupy buffer[16..16 + plaintext_len]; reserves header/tag space.
     pub fn encrypt_in_place(&mut self, buffer: &mut [u8], plaintext_len: usize) -> Result<Output> {
         if plaintext_len > 65_503 || buffer.len() < (plaintext_len + 32).max(148) {
@@ -157,7 +156,6 @@ impl Session {
         Self::output(self.tunnel.encapsulate_in_place(buffer, plaintext_len))
     }
     /// Only data messages. Handshakes/cookies continue through the original API.
-    #[cfg(feature = "in-place-crypto")]
     pub fn decrypt_data_in_place(&mut self, buffer: &mut [u8]) -> Result<Output> {
         Self::output(self.tunnel.decapsulate_data_in_place(buffer))
     }
@@ -284,7 +282,6 @@ pub(crate) mod tests {
         assert_eq!(&plain[..m], ip);
         assert_eq!(a.successful_crypto_copy_bytes() - before_a, 1280);
         assert_eq!(b.successful_crypto_copy_bytes() - before_b, 1296);
-        #[cfg(feature = "in-place-crypto")]
         {
             wire[16..16 + ip.len()].copy_from_slice(&ip);
             let Output::Network(n) = a.encrypt_in_place(&mut wire, ip.len()).unwrap() else {
@@ -298,7 +295,6 @@ pub(crate) mod tests {
             assert_eq!(b.successful_crypto_copy_bytes() - before_b, 1296);
         }
     }
-    #[cfg(feature = "in-place-crypto")]
     #[test]
     fn in_place_interoperates_with_copy_path_and_preserves_authentication_and_replay() {
         let (mut a, mut b) = pair();

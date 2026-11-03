@@ -91,9 +91,8 @@ fn windows_native_udp_tcp_tls_and_stealth_exchange_real_noise_without_a_tun() {
         let transport = match mode {
             0 | 6 => Transport::Udp,
             1 | 7 => Transport::Tcp,
-            5 => Transport::UnbufferedTls(Box::new(
-                protun_next::tls::unbuffered_client_with_roots("localhost", common::roots())
-                    .unwrap(),
+            5 => Transport::Tls(Box::new(
+                protun_next::tls::client_with_roots("localhost", common::roots()).unwrap(),
             )),
             2 => Transport::Tls(Box::new(
                 protun_next::tls::client_with_roots("localhost", common::roots()).unwrap(),
@@ -101,17 +100,6 @@ fn windows_native_udp_tcp_tls_and_stealth_exchange_real_noise_without_a_tun() {
             _ => Transport::Stealth(protun_next::stealth::SniStrategy::Explicit(
                 "unrelated.test".into(),
             )),
-        };
-        let transport = if mode >= 4 {
-            transport.with_performance(protun_next::performance::Options {
-                udp_backend: protun_next::performance::UdpBackend::Batch,
-                compact_pool: true,
-                in_place_crypto: cfg!(feature = "in-place-crypto"),
-                unbuffered_tls: mode == 4,
-                ..Default::default()
-            })
-        } else {
-            transport
         };
         let mut worker = windows::start_without_tun(config, transport).unwrap();
         let deadline = Instant::now() + Duration::from_secs(5);

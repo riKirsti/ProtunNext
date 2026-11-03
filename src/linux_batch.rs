@@ -3,12 +3,13 @@
 use crate::{
     Error, Result,
     packet::{Packet, PacketPool, PacketQueue},
-    performance::{IoCounters, Options},
+    performance::IoCounters,
     stream::Receive,
 };
 use std::{collections::VecDeque, io, net::UdpSocket, os::fd::AsRawFd};
 
 pub(crate) const MAX_BATCH: usize = 32;
+const BATCH_SIZE: usize = 16;
 #[repr(C, align(8))]
 struct Control([u8; 64]);
 struct Received {
@@ -17,18 +18,16 @@ struct Received {
     offset: usize,
 }
 pub(crate) struct Batch {
-    options: Options,
     ready: VecDeque<Received>,
     slots: Vec<Packet>,
     pub(crate) counters: IoCounters,
     retry_at: Option<std::time::Instant>,
-    mmsg: bool,
     gso: bool,
 }
 impl Batch {
-    pub(crate) fn new(socket: &UdpSocket, options: Options) -> Self {
+    pub(crate) fn new(socket: &UdpSocket, offload: bool) -> Self {
         let mut counters = IoCounters::default();
-        if options.udp_offload {
+        if offload {
             let enabled: libc::c_int = 1;
             // SAFETY: a live UDP socket and a correctly sized read-only scalar.
             if unsafe {
@@ -45,13 +44,11 @@ impl Batch {
             }
         }
         Self {
-            options,
             ready: VecDeque::with_capacity(MAX_BATCH),
             slots: Vec::with_capacity(MAX_BATCH),
             counters,
             retry_at: None,
-            mmsg: true,
-            gso: options.udp_offload,
+            gso: offload,
         }
     }
     fn pop_ready(&mut self, output: &mut Packet, pool: &mut PacketPool) -> Result<bool> {
@@ -88,10 +85,9 @@ impl Batch {
         if self.pop_ready(output, pool)? {
             return Ok(Receive::Packet);
         }
-        let count = usize::from(self.options.udp_batch_size)
+        let count = BATCH_SIZE
             .min(pool.available().saturating_sub(1).max(1))
             .min(pool.available());
-        let count = if self.mmsg { count } else { count.min(1) };
         if count == 0 {
             return Ok(Receive::Yield);
         }
@@ -116,32 +112,14 @@ impl Batch {
         self.counters.receive_calls += 1;
         // SAFETY: connected live socket, bounded initialized descriptor array, and
         // disjoint owned output allocations remain valid throughout this sync call.
-        let received = if self.mmsg {
-            // SAFETY: all active descriptors reference the live, disjoint slots above.
-            unsafe {
-                libc::recvmmsg(
-                    socket.as_raw_fd(),
-                    messages.as_mut_ptr(),
-                    count as u32,
-                    libc::MSG_DONTWAIT as _,
-                    std::ptr::null_mut(),
-                )
-            }
-        } else {
-            // SAFETY: first initialized descriptor references live disjoint buffers.
-            let n = unsafe {
-                libc::recvmsg(
-                    socket.as_raw_fd(),
-                    &mut messages[0].msg_hdr,
-                    libc::MSG_DONTWAIT,
-                )
-            };
-            if n < 0 {
-                -1
-            } else {
-                messages[0].msg_len = n as u32;
-                1
-            }
+        let received = unsafe {
+            libc::recvmmsg(
+                socket.as_raw_fd(),
+                messages.as_mut_ptr(),
+                count as u32,
+                libc::MSG_DONTWAIT as _,
+                std::ptr::null_mut(),
+            )
         };
         let error = (received < 0).then(io::Error::last_os_error);
         if let Some(error) = &error {
@@ -180,11 +158,6 @@ impl Batch {
         }
         if let Some(error) = error {
             return match error.raw_os_error() {
-                Some(libc::ENOSYS | libc::EOPNOTSUPP) => {
-                    self.mmsg = false;
-                    self.counters.kernel_fallbacks += 1;
-                    Ok(Receive::Yield)
-                }
                 _ if error.kind() == io::ErrorKind::WouldBlock => Ok(Receive::WouldBlock),
                 _ if error.kind() == io::ErrorKind::Interrupted => Ok(Receive::Yield),
                 _ => Err(error.into()),
@@ -229,7 +202,7 @@ impl Batch {
             let mut vectors: [libc::iovec; MAX_BATCH] = unsafe { std::mem::zeroed() };
             // SAFETY: zero is a valid empty mmsghdr, including null pointer fields.
             let mut messages: [libc::mmsghdr; MAX_BATCH] = unsafe { std::mem::zeroed() };
-            let mut count = queue.len().min(usize::from(self.options.udp_batch_size));
+            let mut count = queue.len().min(BATCH_SIZE);
             if self.gso {
                 // Do not let an isolated control/empty packet make sendmmsg
                 // swallow a following GSO-eligible group. Preserve wire order.
@@ -259,35 +232,20 @@ impl Batch {
                 messages[i].msg_hdr.msg_iovlen = 1;
             }
             self.counters.send_calls += 1;
-            let sent = if self.mmsg {
-                // SAFETY: the connected socket and initialized read-only packet
-                // descriptors stay alive; no queue ownership changes during call.
-                unsafe {
-                    libc::sendmmsg(
-                        socket.as_raw_fd(),
-                        messages.as_mut_ptr(),
-                        count as u32,
-                        (libc::MSG_DONTWAIT | libc::MSG_NOSIGNAL) as _,
-                    )
-                }
-            } else {
-                match socket.send(queue.front().expect("nonempty").data()) {
-                    Ok(n) => {
-                        messages[0].msg_len = n as u32;
-                        1
-                    }
-                    Err(_) => -1,
-                }
+            // SAFETY: initialized read-only descriptors and all packet buffers
+            // remain alive until this synchronous call returns.
+            let sent = unsafe {
+                libc::sendmmsg(
+                    socket.as_raw_fd(),
+                    messages.as_mut_ptr(),
+                    count as u32,
+                    (libc::MSG_DONTWAIT | libc::MSG_NOSIGNAL) as _,
+                )
             };
             if sent < 0 {
                 let error = io::Error::last_os_error();
                 self.counters.socket_error(&error, true);
                 match error.raw_os_error() {
-                    Some(libc::ENOSYS | libc::EOPNOTSUPP) if self.mmsg => {
-                        self.mmsg = false;
-                        self.counters.kernel_fallbacks += 1;
-                        continue;
-                    }
                     Some(libc::ENOBUFS) => {
                         self.counters.enobufs += 1;
                         self.retry_at =
@@ -340,7 +298,7 @@ impl Batch {
         let mut count = 0;
         // SAFETY: descriptors start empty and are populated with read-only packet slices.
         let mut vectors: [libc::iovec; MAX_BATCH] = unsafe { std::mem::zeroed() };
-        for packet in queue.iter().take(usize::from(self.options.udp_batch_size)) {
+        for packet in queue.iter().take(BATCH_SIZE) {
             let n = packet.data().len();
             if n == 0 || n > segment || total + n > 65_487 {
                 break;
@@ -482,14 +440,8 @@ mod tests {
         for ipv6 in [false, true] {
             for offload in [false, true] {
                 let (a, b) = sockets(ipv6);
-                let options = Options {
-                    udp_backend: crate::performance::UdpBackend::Batch,
-                    udp_offload: offload,
-                    udp_batch_size: 16,
-                    ..Default::default()
-                };
-                let mut tx = Batch::new(&a, options);
-                let mut rx = Batch::new(&b, options);
+                let mut tx = Batch::new(&a, offload);
+                let mut rx = Batch::new(&b, offload);
                 let mut pool = PacketPool::new(96, 65535).unwrap();
                 let mut queue = PacketQueue::new(64).unwrap();
                 let sizes = [
@@ -530,7 +482,7 @@ mod tests {
     #[test]
     fn partial_batch_acknowledgement_retains_unsent_packet_ownership() {
         let (socket, _) = sockets(false);
-        let mut batch = Batch::new(&socket, Options::default());
+        let mut batch = Batch::new(&socket, false);
         let mut pool = PacketPool::new(4, 65535).unwrap();
         let mut queue = PacketQueue::new(4).unwrap();
         for byte in [1, 2, 3] {

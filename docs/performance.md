@@ -1,67 +1,38 @@
-Performance paths and verification
-==================================
+Production packet path and verification
+=======================================
 
-The existing transports remain the default. These changes implement the November
-1, 2026 proposal's stages 1–6. Kernel TLS is deliberately excluded. New paths are
-independently selectable and require target benchmarks before promotion.
+This revision replaces the unreleased tuning matrix with one production policy:
+compact bounded packets, in-place WireGuard data crypto and unbuffered rustls.
+Linux/Android use recvmmsg/sendmmsg; Windows/Apple use their native Mio sockets.
+UDP offload is negotiated inside the batch adapter and preserves datagram
+boundaries. The maximum available batch is 16; the worker never waits to fill it.
+Partial sends retain every unaccepted packet exactly once.
 
-Use `Transport::with_performance(performance::Options { ... })` in the native Rust
-API. The high-level/UniFFI connection exposes `update_performance_options`:
-valid options queue a controlled worker reconnect while retaining account,
-certificate, Local Agent, capture and private-network services. Invalid options
-return false without changing state. A true return means queued, not connected.
-Existing configuration records and constructors retain their fields/signatures.
+The November 3 measured comparison selected unbuffered for sustained router
+downloads, with an explicit small-transfer throughput regression. The limited
+io_uring comparison established no repeatable win, so the simpler batch backend
+was selected and the alternate ring receiver removed. This is not proof that
+io_uring cannot be faster in a different implementation or workload.
+The [three paired router samples](benchmarks/linux-io-selection-20261103.json)
+include actual completion/fallback/buffer-exhaustion counters. Both router
+cohorts through cleanup occupied 991.888 seconds of the approved twenty-minute
+window, with Direct mode and installed software preserved.
 
-The Linux CLI also accepts one additive `--performance=` argument with its run
-commands. For example, `--performance=batch,offload,compact,in-place` or
-`--performance=unbuffered,compact`. Positional arguments retain their previous
-meaning. Build `--features io-uring,in-place-crypto` to include both optional
-engines; compiling them does not change the default options.
-`batch-size=8`, `batch-size=16` and `batch-size=32` select the syscall budget.
+`Options`, `UdpBackend`, `Transport::Tuned`, `Transport::UnbufferedTls`,
+`update_performance_options`, `run_with_options`, the CLI `--performance` switch
+and the `io-uring` / `in-place-crypto` build features were unreleased experiments
+and are removed. Existing v3.0.5 transport/account/control functions remain;
+ordinary `Transport::Tls` and `tls::client*` now use the selected adapter.
+Callers supplying a custom TLS connection must supply rustls's
+UnbufferedClientConnection. `run_transport_fd` accepts the chosen transport with
+the production policy. Build with ordinary default or existing product features.
 
-| Option | Default | Implementation / fallback |
-|---|---|---|
-| udp_backend | Portable | Batch uses Linux recvmmsg/sendmmsg; other platforms use portable sockets |
-| udp_batch_size | 16 | Maximum 1–32 available messages; never waits for a full batch |
-| udp_offload | false | UDP_SEGMENT sends, UDP_GRO receives; failures count and retain ordinary batch I/O |
-| unbuffered_tls | false | Selects caller-managed rustls for Stealth; custom TLS uses Transport::UnbufferedTls |
-| compact_pool | false | Small reusable buffers plus full-size read/oversized buffers; ownership remains bounded |
-| in_place_crypto | false | Requires in-place-crypto build feature; narrow reviewed proton-boringtun extension |
-
-`UdpBackend::IoUring` additionally requires the `io-uring` build feature. Linux
-setup/register failures fall back to batching. A terminal unsupported multishot
-completion also falls back. If UDP offload is requested with io_uring, the current
-implementation selects batching so GRO metadata cannot be lost. There is no
-claim that io_uring is faster; sends still use the batched socket implementation.
-
-The io_uring path uses multishot receive, registered buffer rings and an eventfd
-for completion readiness in the existing worker. Received buffers change owners
-only after a completion returns them. An empty replacement buffer is published
-with release ordering before reuse. SQPOLL and busy polling are absent. Setup
-requires bounded synchronous cancellation support. Shutdown cancels outstanding
-operations before freeing buffers; a kernel refusing cancellation quarantines
-the bounded payload/ring mapping rather than risking use-after-free. Such a
-failure is a reason not to promote the experimental backend.
-After such a failure, new rings are disabled for the process to prevent repeated
-quarantines; subsequent requested connections use the batched fallback.
-
-TUN offloads are selected by the embedding host supplying an `IFF_VNET_HDR`
-descriptor. The engine reads its metadata, software-segments TCPv4/TCPv6 and UDP
-L4 GSO packets, and completes partial checksums. Raw TUN and Apple utun retain
-their existing formats. The library does not call TUNSETIFF or TUNSETOFFLOAD and
-does not change MTU, routes, DNS, packages or sysctls. The host controls offload
-negotiation. Supported vnet header sizes are 10 and 12 bytes, using native byte
-order. Legacy UFO, IPv6 routing/fragment GSO and oversized (>65536-byte) TUN
-records are outside this new descriptor contract and fail explicitly. Ordinary
-raw-TUN packet processing continues to support its existing inputs.
-
-TUN segmentation is outbound. Inbound IP packets are injected individually with
-zero vnet offload metadata; this implementation does not coalesce inner packets
-for TUN injection. Outer UDP GRO is split into separate WireGuard datagrams before
-authentication. Outer UDP GSO groups already encrypted independent datagrams;
-every datagram retains its own counter and authentication tag. No peer protocol
-change is introduced. GRO aggregates must fit the bounded receive allocation;
-truncation is counted, and truncated data is never passed to WireGuard.
+Raw TUN is the descriptor contract on Linux/Android; vnet-header software
+segmentation was an unmeasured new contract and is omitted. UDP GSO/GRO operates
+on already encrypted independent WireGuard datagrams, preserving counters/tags;
+receive aggregates are split before authentication. Oversized/truncated datagrams
+are counted and never passed to WireGuard. The library changes no host sysctl,
+route, DNS or package settings in this path. See [platform support](supported-platforms.md).
 
 The unbuffered TLS adapter covers partial socket I/O, bounded output records,
 fragmented input, accepted-byte ownership, close_notify/half-close, tickets and
@@ -98,12 +69,11 @@ also be borrowed directly, avoiding the gather copy and its erasure.
 
 Instrumentation stays local to the packet worker and is published with existing
 coalesced snapshots. Counters include syscall/message batching, fallback,
-truncation, GSO/GRO, io_uring operations, queue high-water marks, reserved free
+truncation, GSO/GRO, queue high-water marks, reserved free
 pool storage at startup, authentication failures and outer I/O/EOF failures.
 TCP/TLS counters are collected at the socket boundary, including ciphertext and
 handshake I/O; they are distinct from delivered inner/application byte counts.
-Pool capacity is not RSS or total process memory. io_uring buffers and vnet
-scratch storage add memory beyond that pool statistic. No packet contents or
+Pool capacity is not RSS or total process memory. No packet contents or
 per-packet timestamp logging is added.
 
 The optional `debug-counters` build feature adds packet-queue byte high-water
@@ -139,7 +109,7 @@ The extension reuses the existing ring AEAD operations, counter allocation,
 pre-authentication replay check and post-authentication replay commit. Handshake,
 cookie, rate-limiting, timers, session selection, queued-packet and IP validation
 semantics stay in the original implementation. There is no mutable/immutable
-buffer aliasing. Disabled builds retain the copy API. Root tests cover mixed
+buffer aliasing. The upstream copy API remains available for reference interoperability and handshake/control processing. Root tests cover mixed
 copy/in-place interoperability, bad tags, replay and large packets. These tests
 do not constitute an independent cryptographic audit. `changes.patch` contains
 the exact three-file extension diff against the checksum-verified archive.
@@ -155,12 +125,11 @@ Primary references checked for this implementation
 - [Linux sendmmsg contract](https://man7.org/linux/man-pages/man2/sendmmsg.2.html): partial results consume only the accepted prefix.
 - [Linux UDP options](https://man7.org/linux/man-pages/man7/udp.7.html): UDP_SEGMENT and UDP_GRO semantics and PMTU constraints.
 - [WireGuard socket batching](https://github.com/WireGuard/wireguard-go/blob/master/conn/bind_std.go) and [GSO metadata](https://github.com/WireGuard/wireguard-go/blob/master/conn/gso_linux.go).
-- [WireGuard TUN offload implementation](https://github.com/WireGuard/wireguard-go/blob/master/tun/offload_linux.go) and [kernel segmentation documentation](https://docs.kernel.org/networking/segmentation-offloads.html).
 - [Rustls unbuffered API](https://docs.rs/rustls/latest/rustls/unbuffered/index.html), checked against cached 0.23.46 source.
-- [Maintainer UDP multishot example](https://github.com/axboe/liburing/blob/master/examples/io_uring-udp.c) and [io-uring 0.7.15 API](https://docs.rs/io-uring/0.7.15/io_uring/).
 - Proton registry-distributed proton-boringtun 4.9.0, specifically noise/session.rs, noise/mod.rs, noise/rate_limiter.rs and their tests; archive checksum above.
 
-Acceptance remains separate from implementation: compare portable/current and
-each candidate on the target using matched direct/kernel controls, total CPU,
-RSS, latency and all failed attempts. No new Travel throughput figure follows
-from host/CI tests. Paid-account/Plus live validation remains a separate gate.
+Acceptance remains separate from implementation. Host/CI checks establish
+specific functional behavior, not universal VPN speeds or device acceptance.
+The [TLS comparison](tls-selection-20261103.md) records the real router evidence,
+including failures and workload-specific regressions. Device/Plus acceptance
+remains governed by the existing parity release gate.

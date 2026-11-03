@@ -63,7 +63,6 @@ pub(crate) fn run_owned(
     if observer.and_then(Observer::protector).is_some() {
         return Err(Error::Unsupported("Unix fd protector on Windows"));
     }
-    let (transport, options) = transport.into_options()?;
     match transport {
         Transport::Udp => {
             let socket = socket(config.endpoint, false, tun.as_ref())?;
@@ -82,7 +81,7 @@ pub(crate) fn run_owned(
             crate::engine::run(
                 tun,
                 config,
-                Datagram::new(mio::net::UdpSocket::from_std(socket), options),
+                Datagram::new(mio::net::UdpSocket::from_std(socket)),
                 stop,
                 observer,
             )
@@ -96,58 +95,28 @@ pub(crate) fn run_owned(
                 Transport::Tcp => crate::engine::run(
                     tun,
                     config,
-                    Stream(FramedIo::new(socket, 64)?, options),
+                    Stream(FramedIo::new(socket, 64)?),
                     stop,
                     observer,
                 ),
                 Transport::Tls(connection) => crate::engine::run(
                     tun,
                     config,
-                    Stream(FramedIo::new(TlsIo::new(socket, *connection), 64)?, options),
-                    stop,
-                    observer,
-                ),
-                Transport::UnbufferedTls(connection) => crate::engine::run(
-                    tun,
-                    config,
-                    Stream(
-                        FramedIo::borrowing(
-                            crate::tls_unbuffered::UnbufferedTlsIo::new(socket, *connection),
-                            64,
-                        )?,
-                        options,
-                    ),
+                    Stream(FramedIo::borrowing(TlsIo::new(socket, *connection), 64)?),
                     stop,
                     observer,
                 ),
                 Transport::Stealth(sni) => {
-                    if options.unbuffered_tls {
-                        let connection =
-                            crate::stealth::unbuffered_client(sni.for_peer(config.endpoint.ip())?)?;
-                        return crate::engine::run(
-                            tun,
-                            config,
-                            Stream(
-                                FramedIo::borrowing(
-                                    crate::tls_unbuffered::UnbufferedTlsIo::new(socket, connection),
-                                    64,
-                                )?,
-                                options,
-                            ),
-                            stop,
-                            observer,
-                        );
-                    }
                     let connection = crate::stealth::client(sni.for_peer(config.endpoint.ip())?)?;
                     crate::engine::run(
                         tun,
                         config,
-                        Stream(FramedIo::new(TlsIo::new(socket, connection), 64)?, options),
+                        Stream(FramedIo::borrowing(TlsIo::new(socket, connection), 64)?),
                         stop,
                         observer,
                     )
                 }
-                Transport::Udp | Transport::Tuned(..) => unreachable!("handled above"),
+                Transport::Udp => unreachable!("handled above"),
             }
         }
     }

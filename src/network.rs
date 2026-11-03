@@ -1,6 +1,8 @@
 //! Reactor-facing transports. A single bounded packet worker serves UDP/TCP/TLS.
+#[cfg(not(any(target_os = "linux", target_os = "android")))]
+use crate::Error;
 use crate::{
-    Error, Result,
+    Result,
     packet::{Packet, PacketPool, PacketQueue},
     stream::{Flush, FramedIo, Receive},
     tls::TlsIo,
@@ -9,7 +11,6 @@ use crate::{
 use mio::unix::SourceFd;
 use mio::{Interest, Token};
 use std::io::{self, IoSlice, Read, Write};
-pub(crate) const COMPLETION: Token = Token(4);
 
 #[cfg(windows)]
 use mio::net::{TcpStream, UdpSocket};
@@ -20,9 +21,6 @@ use std::{
 };
 
 pub(crate) trait Network {
-    fn options(&self) -> crate::performance::Options {
-        Default::default()
-    }
     fn diagnostics(&self) -> crate::performance::IoCounters {
         Default::default()
     }
@@ -80,91 +78,48 @@ pub(crate) trait Network {
 }
 pub(crate) struct Datagram {
     socket: UdpSocket,
-    options: crate::performance::Options,
+    #[cfg(not(any(target_os = "linux", target_os = "android")))]
     counters: crate::performance::IoCounters,
+    #[cfg(not(any(target_os = "linux", target_os = "android")))]
     retry_at: Option<std::time::Instant>,
-    #[cfg(target_os = "linux")]
-    batch: Option<crate::linux_batch::Batch>,
-    #[cfg(all(target_os = "linux", feature = "io-uring"))]
-    uring: Option<crate::uring_rx::Receiver>,
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    batch: crate::linux_batch::Batch,
 }
 impl Datagram {
-    pub(crate) fn new(socket: UdpSocket, options: crate::performance::Options) -> Self {
-        #[cfg(target_os = "linux")]
-        let mut batch = (options.udp_backend != crate::performance::UdpBackend::Portable)
-            .then(|| crate::linux_batch::Batch::new(&socket, options));
-        #[cfg(all(target_os = "linux", feature = "io-uring"))]
-        let uring = if options.udp_backend == crate::performance::UdpBackend::IoUring {
-            // RecvMulti lacks GRO control messages: preserve their boundaries by
-            // selecting the metadata-aware batch path when offload is requested.
-            match (!options.udp_offload)
-                .then(|| crate::uring_rx::Receiver::new(&socket, options.udp_batch_size))
-            {
-                Some(Ok(receiver)) => Some(receiver),
-                _ => {
-                    batch
-                        .as_mut()
-                        .expect("batched fallback")
-                        .counters
-                        .kernel_fallbacks += 1;
-                    None
-                }
-            }
-        } else {
-            None
-        };
-        #[cfg(all(target_os = "linux", not(feature = "io-uring")))]
-        if options.udp_backend == crate::performance::UdpBackend::IoUring {
-            batch
-                .as_mut()
-                .expect("batched fallback")
-                .counters
-                .kernel_fallbacks += 1;
-        }
-        let mut counters = crate::performance::IoCounters::default();
-        if !cfg!(target_os = "linux")
-            && options.udp_backend != crate::performance::UdpBackend::Portable
-        {
-            counters.kernel_fallbacks += 1;
-        }
+    pub(crate) fn new(socket: UdpSocket) -> Self {
         Self {
+            #[cfg(any(target_os = "linux", target_os = "android"))]
+            batch: crate::linux_batch::Batch::new(&socket, true),
             socket,
-            options,
-            counters,
+            #[cfg(not(any(target_os = "linux", target_os = "android")))]
+            counters: Default::default(),
+            #[cfg(not(any(target_os = "linux", target_os = "android")))]
             retry_at: None,
-            #[cfg(target_os = "linux")]
-            batch,
-            #[cfg(all(target_os = "linux", feature = "io-uring"))]
-            uring,
         }
     }
 }
 impl Network for Datagram {
-    fn options(&self) -> crate::performance::Options {
-        self.options
-    }
     fn diagnostics(&self) -> crate::performance::IoCounters {
-        #[cfg(target_os = "linux")]
-        if let Some(batch) = &self.batch {
-            #[cfg(all(target_os = "linux", feature = "io-uring"))]
-            if let Some(receiver) = &self.uring {
-                return crate::performance::IoCounters {
-                    io_uring_submissions: receiver.submissions,
-                    ..batch.counters
-                };
-            }
-            return batch.counters;
+        #[cfg(any(target_os = "linux", target_os = "android"))]
+        {
+            self.batch.counters
         }
-        self.counters
+        #[cfg(not(any(target_os = "linux", target_os = "android")))]
+        {
+            self.counters
+        }
     }
     fn retry_delay(&self) -> Option<std::time::Duration> {
-        #[cfg(target_os = "linux")]
-        if let Some(batch) = &self.batch {
-            return batch.retry_delay();
+        #[cfg(any(target_os = "linux", target_os = "android"))]
+        {
+            self.batch.retry_delay()
         }
-        self.retry_at
-            .map(|when| when.saturating_duration_since(std::time::Instant::now()))
-            .filter(|delay| !delay.is_zero())
+        #[cfg(not(any(target_os = "linux", target_os = "android")))]
+        {
+            self.retry_at
+                .map(|when| when.saturating_duration_since(std::time::Instant::now()))
+                .filter(|delay| !delay.is_zero())
+        }
     }
     #[cfg(windows)]
     fn register(&mut self, r: &mio::Registry, t: Token, i: Interest) -> io::Result<()> {
@@ -173,14 +128,6 @@ impl Network for Datagram {
     #[cfg(unix)]
     fn register(&mut self, r: &mio::Registry, t: Token, i: Interest) -> io::Result<()> {
         r.register(&mut SourceFd(&self.fd()), t, i)?;
-        #[cfg(all(target_os = "linux", feature = "io-uring"))]
-        if let Some(receiver) = &self.uring {
-            r.register(
-                &mut SourceFd(&receiver.event_fd()),
-                COMPLETION,
-                Interest::READABLE,
-            )?;
-        }
         Ok(())
     }
     #[cfg(windows)]
@@ -193,82 +140,76 @@ impl Network for Datagram {
         self.socket.as_raw_fd()
     }
     fn receive(&mut self, packet: &mut Packet, pool: &mut PacketPool) -> Result<Receive> {
-        #[cfg(all(target_os = "linux", feature = "io-uring"))]
-        if let Some(receiver) = &mut self.uring
-            && !receiver.disabled
+        #[cfg(any(target_os = "linux", target_os = "android"))]
         {
-            match receiver.receive(
-                &self.socket,
-                packet,
-                &mut self.batch.as_mut().expect("batch sender").counters,
-            ) {
-                Err(Error::Unsupported(_)) => {} // Terminal unsupported CQE returned no packet.
-                result => return result,
+            self.batch.receive(&self.socket, packet, pool)
+        }
+        #[cfg(not(any(target_os = "linux", target_os = "android")))]
+        {
+            let _ = pool;
+            self.counters.receive_calls += 1;
+            let result = self.socket.recv(packet.writable());
+            if let Err(error) = &result {
+                self.counters.socket_error(error, false);
             }
-        }
-        #[cfg(target_os = "linux")]
-        if let Some(batch) = &mut self.batch {
-            return batch.receive(&self.socket, packet, pool);
-        }
-        let _ = pool;
-        self.counters.receive_calls += 1;
-        let result = self.socket.recv(packet.writable());
-        if let Err(error) = &result {
-            self.counters.socket_error(error, false);
-        }
-        match result {
-            Ok(n) => {
-                packet.set_len(n)?;
-                self.counters.received_datagrams += 1;
-                self.counters.received_bytes += n as u64;
-                self.counters.max_receive_batch = self.counters.max_receive_batch.max(1);
-                Ok(Receive::Packet)
+            match result {
+                Ok(n) => {
+                    packet.set_len(n)?;
+                    self.counters.received_datagrams += 1;
+                    self.counters.received_bytes += n as u64;
+                    self.counters.max_receive_batch = self.counters.max_receive_batch.max(1);
+                    Ok(Receive::Packet)
+                }
+                Err(e) if e.kind() == io::ErrorKind::WouldBlock => Ok(Receive::WouldBlock),
+                Err(e) if e.kind() == io::ErrorKind::Interrupted => Ok(Receive::Yield),
+                Err(e) => Err(e.into()),
             }
-            Err(e) if e.kind() == io::ErrorKind::WouldBlock => Ok(Receive::WouldBlock),
-            Err(e) if e.kind() == io::ErrorKind::Interrupted => Ok(Receive::Yield),
-            Err(e) => Err(e.into()),
         }
     }
     fn flush(&mut self, queue: &mut PacketQueue, pool: &mut PacketPool) -> Result<bool> {
-        #[cfg(target_os = "linux")]
-        if let Some(batch) = &mut self.batch {
-            return batch.flush(&self.socket, queue, pool);
+        #[cfg(any(target_os = "linux", target_os = "android"))]
+        {
+            self.batch.flush(&self.socket, queue, pool)
         }
-        if self.retry_delay().is_some() {
-            return Ok(!queue.is_empty());
-        }
-        self.retry_at = None;
-        for _ in 0..64 {
-            let Some(packet) = queue.front() else {
-                return Ok(false);
-            };
-            self.counters.send_calls += 1;
-            let result = self.socket.send(packet.data());
-            if let Err(error) = &result {
-                self.counters.socket_error(error, true);
+        #[cfg(not(any(target_os = "linux", target_os = "android")))]
+        {
+            if self.retry_delay().is_some() {
+                return Ok(!queue.is_empty());
             }
-            match result {
-                Ok(n) if n == packet.data().len() => {
-                    pool.recycle(queue.pop().expect("front exists"))?;
-                    self.counters.sent_datagrams += 1;
-                    self.counters.sent_bytes += n as u64;
-                    self.counters.max_send_batch = 1;
+            self.retry_at = None;
+            for _ in 0..64 {
+                let Some(packet) = queue.front() else {
+                    return Ok(false);
+                };
+                self.counters.send_calls += 1;
+                let result = self.socket.send(packet.data());
+                if let Err(error) = &result {
+                    self.counters.socket_error(error, true);
                 }
-                Ok(_) => return Err(Error::Invalid("partial UDP send")),
-                Err(e) if e.kind() == io::ErrorKind::WouldBlock => return Ok(true),
-                Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
-                Err(e) if crate::platform::send_pressure(&e) => {
-                    self.counters.enobufs += 1;
-                    self.retry_at =
-                        Some(std::time::Instant::now() + std::time::Duration::from_millis(2));
-                    return Ok(true);
+                match result {
+                    Ok(n) if n == packet.data().len() => {
+                        pool.recycle(queue.pop().expect("front exists"))?;
+                        self.counters.sent_datagrams += 1;
+                        self.counters.sent_bytes += n as u64;
+                        self.counters.max_send_batch = 1;
+                    }
+                    Ok(_) => return Err(Error::Invalid("partial UDP send")),
+                    Err(e) if e.kind() == io::ErrorKind::WouldBlock => return Ok(true),
+                    Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
+                    Err(e) if crate::platform::send_pressure(&e) => {
+                        self.counters.enobufs += 1;
+                        self.retry_at =
+                            Some(std::time::Instant::now() + std::time::Duration::from_millis(2));
+                        return Ok(true);
+                    }
+                    Err(e) => return Err(e.into()),
                 }
-                Err(e) => return Err(e.into()),
             }
+            Ok(!queue.is_empty())
         }
-        Ok(!queue.is_empty())
     }
 }
+
 pub(crate) trait WireSocket: Read + Write {
     fn diagnostics(&self) -> crate::performance::IoCounters {
         Default::default()
@@ -426,28 +367,6 @@ impl<S: WireSocket> WireSocket for TlsIo<S> {
     fn diagnostics(&self) -> crate::performance::IoCounters {
         self.socket().diagnostics()
     }
-    fn register(&mut self, r: &mio::Registry, t: Token, i: Interest) -> io::Result<()> {
-        WireSocket::register(self.socket_mut(), r, t, i)
-    }
-    fn reregister(&mut self, r: &mio::Registry, t: Token, i: Interest) -> io::Result<()> {
-        WireSocket::reregister(self.socket_mut(), r, t, i)
-    }
-
-    #[cfg(unix)]
-    fn fd(&self) -> i32 {
-        self.socket().fd()
-    }
-    fn wants_write(&self) -> bool {
-        self.wants_write() || self.socket().wants_write()
-    }
-    fn handshaking(&self) -> bool {
-        self.is_handshaking() || self.socket().handshaking()
-    }
-}
-impl<S: WireSocket> WireSocket for crate::tls_unbuffered::UnbufferedTlsIo<S> {
-    fn diagnostics(&self) -> crate::performance::IoCounters {
-        self.socket().diagnostics()
-    }
     fn receive_frame(stream: &mut FramedIo<Self>, packet: &mut Packet) -> Result<Receive> {
         stream.receive_using(packet, |io, decoder, _| {
             Ok(io.read_plaintext(|data| {
@@ -473,13 +392,10 @@ impl<S: WireSocket> WireSocket for crate::tls_unbuffered::UnbufferedTlsIo<S> {
         self.is_handshaking() || self.socket().handshaking()
     }
 }
-pub(crate) struct Stream<S>(pub FramedIo<S>, pub crate::performance::Options);
+pub(crate) struct Stream<S>(pub FramedIo<S>);
 impl<S: WireSocket> Network for Stream<S> {
     fn diagnostics(&self) -> crate::performance::IoCounters {
         self.0.io().diagnostics()
-    }
-    fn options(&self) -> crate::performance::Options {
-        self.1
     }
     fn max_ip_packet(&self) -> usize {
         0x3fff - 32 // Must also fit a normal, uncompressed TunSafe frame.

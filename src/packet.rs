@@ -66,7 +66,6 @@ impl Packet {
         self.high_water = self.high_water.max(self.end);
         Ok(())
     }
-    #[cfg(feature = "in-place-crypto")]
     pub(crate) fn wireguard_buffer(&mut self) -> Result<&mut [u8]> {
         if self.start < 16 || self.bytes.len() - self.end < 16 {
             return Err(Error::Full);

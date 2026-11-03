@@ -1,5 +1,14 @@
 //! Independent packet engine. Control operations do not traverse the packet path.
 //! See docs/parity.json for verified support, rather than inferring it from types.
+#[cfg(all(windows, not(target_arch = "x86_64")))]
+compile_error!("Windows production builds require x86_64");
+#[cfg(all(target_vendor = "apple", not(target_arch = "aarch64")))]
+compile_error!("Apple production and simulator builds require ARM64");
+#[cfg(all(
+    target_os = "linux",
+    not(any(target_arch = "x86_64", target_arch = "aarch64"))
+))]
+compile_error!("Linux production builds require x64 or ARM64");
 #[cfg(feature = "uniffi")]
 uniffi::setup_scaffolding!();
 pub mod addressing;
@@ -16,7 +25,7 @@ mod engine;
 pub mod framing;
 #[cfg(unix)]
 pub mod linux;
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "android"))]
 mod linux_batch;
 #[cfg(unix)]
 mod linux_network;
@@ -24,12 +33,9 @@ mod linux_network;
 mod network;
 #[cfg(any(unix, windows))]
 mod path_probe;
-#[cfg(all(target_os = "linux", feature = "io-uring"))]
-mod uring_rx;
 #[cfg(unix)]
 pub use linux as unix;
 pub mod natpmp;
-pub mod offload;
 pub mod packet;
 pub mod performance;
 #[cfg(any(unix, windows))]
@@ -46,8 +52,6 @@ mod tun_device;
 #[cfg(windows)]
 #[path = "windows/tun.rs"]
 mod tun_device;
-#[cfg(target_os = "linux")]
-mod tun_offload;
 pub mod virtual_policy;
 #[cfg(windows)]
 pub mod windows;

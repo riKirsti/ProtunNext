@@ -104,8 +104,7 @@ class ConnectionManager internal constructor(private val context: Context) {
         }
         try {
             val intent = Intent(context, ProtunVpnService::class.java).setAction(ProtunVpnService.START)
-            if (Build.VERSION.SDK_INT >= 26) context.startForegroundService(intent)
-            else context.startService(intent)
+            context.startForegroundService(intent)
             if (!bound) {
                 bound = context.bindService(intent, binding, Context.BIND_AUTO_CREATE)
                 if (!bound) {

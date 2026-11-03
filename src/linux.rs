@@ -55,9 +55,11 @@ pub(crate) fn duplicate_nonblocking(fd: i32) -> Result<File> {
             return Err(std::io::Error::last_os_error().into());
         }
         let tun_flags = i16::from_ne_bytes([info[libc::IFNAMSIZ], info[libc::IFNAMSIZ + 1]]) as i32;
-        if tun_flags & (libc::IFF_TUN | libc::IFF_NO_PI) != (libc::IFF_TUN | libc::IFF_NO_PI) {
+        if tun_flags & (libc::IFF_TUN | libc::IFF_NO_PI) != (libc::IFF_TUN | libc::IFF_NO_PI)
+            || tun_flags & libc::IFF_VNET_HDR != 0
+        {
             return Err(Error::Invalid(
-                "descriptor must be TUN without packet-info header",
+                "descriptor must be raw TUN without packet-info or vnet headers",
             ));
         }
     }
@@ -108,24 +110,15 @@ pub fn run_udp(
         None,
     )
 }
-/// Existing descriptor contract with explicit per-run experimental options.
-pub fn run_with_options(
+/// Run a chosen transport with the platform's production packet policy.
+pub fn run_transport_fd(
     tun_fd: i32,
     config: &WireguardConfig,
     bind_device: &str,
     transport: Transport,
-    options: crate::performance::Options,
     stop: &AtomicBool,
 ) -> Result<Counters> {
-    options.validate()?;
-    run_transport(
-        Some(tun_fd),
-        config,
-        bind_device,
-        transport.with_performance(options),
-        stop,
-        None,
-    )
+    run_transport(Some(tun_fd), config, bind_device, transport, stop, None)
 }
 pub fn run_tcp(
     tun_fd: i32,
@@ -147,7 +140,7 @@ pub fn run_tls(
     tun_fd: i32,
     config: &WireguardConfig,
     bind_device: &str,
-    connection: rustls::ClientConnection,
+    connection: rustls::client::UnbufferedClientConnection,
     stop: &AtomicBool,
 ) -> Result<Counters> {
     run_transport(
@@ -205,7 +198,6 @@ pub(crate) fn run_owned(
     if bind_device.is_empty() && observer.is_none() {
         return Err(Error::Invalid("uplink device"));
     }
-    let (transport, options) = transport.into_options()?;
     match transport {
         Transport::Udp => {
             let addr = if config.endpoint.is_ipv4() {
@@ -228,13 +220,7 @@ pub(crate) fn run_owned(
                 return Err(std::io::Error::from(std::io::ErrorKind::PermissionDenied).into());
             }
             socket.connect(config.endpoint)?;
-            run(
-                tun_file,
-                config,
-                Datagram::new(socket, options),
-                stop,
-                observer,
-            )
+            run(tun_file, config, Datagram::new(socket), stop, observer)
         }
         other => {
             if config.mtu > 16_351 {
@@ -249,58 +235,28 @@ pub(crate) fn run_owned(
                 Transport::Tcp => run(
                     tun_file,
                     config,
-                    Stream(FramedIo::new(socket, 64)?, options),
+                    Stream(FramedIo::new(socket, 64)?),
                     stop,
                     observer,
                 ),
                 Transport::Tls(connection) => run(
                     tun_file,
                     config,
-                    Stream(FramedIo::new(TlsIo::new(socket, *connection), 64)?, options),
-                    stop,
-                    observer,
-                ),
-                Transport::UnbufferedTls(connection) => run(
-                    tun_file,
-                    config,
-                    Stream(
-                        FramedIo::borrowing(
-                            crate::tls_unbuffered::UnbufferedTlsIo::new(socket, *connection),
-                            64,
-                        )?,
-                        options,
-                    ),
+                    Stream(FramedIo::borrowing(TlsIo::new(socket, *connection), 64)?),
                     stop,
                     observer,
                 ),
                 Transport::Stealth(sni) => {
-                    if options.unbuffered_tls {
-                        let connection =
-                            crate::stealth::unbuffered_client(sni.for_peer(config.endpoint.ip())?)?;
-                        return run(
-                            tun_file,
-                            config,
-                            Stream(
-                                FramedIo::borrowing(
-                                    crate::tls_unbuffered::UnbufferedTlsIo::new(socket, connection),
-                                    64,
-                                )?,
-                                options,
-                            ),
-                            stop,
-                            observer,
-                        );
-                    }
                     let connection = crate::stealth::client(sni.for_peer(config.endpoint.ip())?)?;
                     run(
                         tun_file,
                         config,
-                        Stream(FramedIo::new(TlsIo::new(socket, connection), 64)?, options),
+                        Stream(FramedIo::borrowing(TlsIo::new(socket, connection), 64)?),
                         stop,
                         observer,
                     )
                 }
-                Transport::Udp | Transport::Tuned(..) => unreachable!("handled above"),
+                Transport::Udp => unreachable!("handled above"),
             }
         }
     }

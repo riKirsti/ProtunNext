@@ -5,6 +5,7 @@ mod interface;
 mod monitor;
 mod net;
 mod transport;
+mod version;
 mod wait;
 use crate::Result;
 pub(crate) use interface::Interface;

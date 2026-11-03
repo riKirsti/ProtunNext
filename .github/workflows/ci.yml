@@ -16,8 +16,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        os: [ubuntu-latest, windows-latest, macos-26, xcode-27]
     runs-on: ${{ matrix.os }}
+    env:
+      MACOSX_DEPLOYMENT_TARGET: "26.0"
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -29,13 +31,8 @@ jobs:
       - run: python scripts/verify-vendor.py
       - run: cargo fmt --package protun-next --check
       - run: cargo test --locked --all-targets --all-features
-      - name: Compile performance API from a separate application
+      - name: Compile production API from a separate application
         run: python scripts/check-downstream.py
-      - name: Require actual multishot receive and bounded cancellation
-        if: runner.os == 'Linux'
-        env:
-          PROTUN_REQUIRE_URING: '1'
-        run: cargo test --locked --all-features uring_rx::tests::real_multishot -- --nocapture
       - run: cargo clippy --locked --all-targets --all-features -- -D warnings
       - name: Check no-account runtime retains its private network services
         run: cargo clippy --locked --all-targets --no-default-features --features unix -- -D warnings
@@ -49,7 +46,7 @@ jobs:
             exit 1
           fi
       - name: Build optimized runtime library and CLI
-        run: cargo build --locked --release --lib --bin protun-next-cli --features io-uring,in-place-crypto
+        run: cargo build --locked --release --lib --bin protun-next-cli
       - name: Call the native compatibility API through generated bindings
         if: runner.os == 'Linux'
         shell: bash
@@ -63,6 +60,12 @@ jobs:
         run: |
           cargo run --locked --features bindgen --bin uniffi-bindgen -- generate --library target/release/libprotun_next.dylib --language swift --language kotlin --config uniffi.toml --out-dir target/generated --no-format
           swiftc -typecheck target/generated/ProtunNext.swift -I target/generated -Xcc -fmodule-map-file=target/generated/ProtunNextFFI.modulemap
+      - name: Build public ARM64 Apple packet-flow adapter
+        if: runner.os == 'macOS'
+        run: swift build --package-path apple
+      - name: Build all supported Apple ARM64 SDK slices
+        if: matrix.os == 'xcode-27'
+        run: bash scripts/build-apple.sh
       - name: Call Windows native initialization through generated bindings
         if: runner.os == 'Windows'
         shell: bash
@@ -86,11 +89,15 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-linux-android
-      - name: Compile native Android library for the upstream minimum API level
+      - name: Install the pinned current Android toolchain
         shell: bash
         run: |
-          toolchain="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin"
-          export CC_aarch64_linux_android="$toolchain/aarch64-linux-android25-clang"
+          sdkmanager 'platforms;android-37' 'build-tools;36.0.0' 'ndk;30.0.16248370'
+      - name: Compile native Android library at API 36
+        shell: bash
+        run: |
+          toolchain="${ANDROID_HOME}/ndk/30.0.16248370/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          export CC_aarch64_linux_android="$toolchain/aarch64-linux-android36-clang"
           export AR_aarch64_linux_android="$toolchain/llvm-ar"
           export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$CC_aarch64_linux_android"
           cargo build --locked --release --lib --features android --target aarch64-linux-android
@@ -104,7 +111,7 @@ jobs:
           java-version: '17'
       - uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: '8.14.3'
+          gradle-version: '9.3.1'
       - name: Compile Android service, bindings, unit tests and AAR
         shell: bash
         run: |
@@ -145,3 +152,42 @@ jobs:
           sudo ip netns add protun-next-minimal-ci
           trap 'sudo ip netns del protun-next-minimal-ci' EXIT
           sudo ip netns exec protun-next-minimal-ci env PROTUN_NEXT_NETNS_TEST=1 "$(cat minimal-test-binary.txt)" local_http_exists_offline --ignored --nocapture
+  linux-lts:
+    strategy:
+      fail-fast: false
+      matrix:
+        kernel: ['6.12.115', '6.18.60']
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-musl
+      - name: Install disposable-VM build tools
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends qemu-system-x86 busybox-static musl-tools flex bison libelf-dev libssl-dev bc cpio
+      - name: Boot the actual supported LTS kernel and run functional tests
+        run: bash scripts/test-linux-lts.sh '${{ matrix.kernel }}'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: linux-${{ matrix.kernel }}-guest-results
+          path: target/lts-results/
+  linux-arm64-musl:
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-unknown-linux-musl
+      - run: sudo apt-get update && sudo apt-get install -y musl-tools
+      - name: Build the OpenWrt ARM64-musl artifact
+        env:
+          CC_aarch64_unknown_linux_musl: musl-gcc
+        run: cargo build --locked --release --lib --bin protun-next-cli --target aarch64-unknown-linux-musl
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-arm64-musl
+          path: |
+            target/aarch64-unknown-linux-musl/release/protun-next-cli
+            target/aarch64-unknown-linux-musl/release/libprotun_next.a

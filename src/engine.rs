@@ -285,12 +285,8 @@ pub(crate) fn run<N: Network>(
             .duration_since(UNIX_EPOCH)
             .map_err(|_| Error::Invalid("wall clock"))?,
     )?;
-    let options = network.options();
-    let mut pool = if options.compact_pool {
-        PacketPool::compact(132, (usize::from(config.mtu) + 32).max(2048), 65535)?
-    } else {
-        PacketPool::new(132, 65535)?
-    };
+    let mut pool = PacketPool::compact(132, (usize::from(config.mtu) + 32).max(2048), 65535)?;
+
     let mut to_net = PacketQueue::new(64)?;
     let mut to_tun = PacketQueue::new(64)?;
     let mut counters = Counters {
@@ -464,11 +460,8 @@ pub(crate) fn run<N: Network>(
                         pool.recycle(input)?;
                         continue;
                     }
-                    let (result, mut output) =
-                        encrypt_owned(&mut session, &mut pool, input, options.in_place_crypto)?;
-                    if options.in_place_crypto {
-                        counters.in_place_encryptions += 1;
-                    }
+                    let (result, mut output) = encrypt_owned(&mut session, input)?;
+                    counters.in_place_encryptions += 1;
                     match result {
                         Output::Network(n) => {
                             output.set_data_len(n)?;
@@ -521,11 +514,8 @@ pub(crate) fn run<N: Network>(
                 continue;
             }
             observer.capture(input.data());
-            let (result, mut output) =
-                encrypt_owned(&mut session, &mut pool, input, options.in_place_crypto)?;
-            if options.in_place_crypto {
-                counters.in_place_encryptions += 1;
-            }
+            let (result, mut output) = encrypt_owned(&mut session, input)?;
+            counters.in_place_encryptions += 1;
             match result {
                 Output::Network(n) => {
                     output.set_data_len(n)?;
@@ -551,8 +541,7 @@ pub(crate) fn run<N: Network>(
                     if let Some(observer) = observer {
                         observer.capture_wireguard(input.data(), false);
                     }
-                    let in_place =
-                        options.in_place_crypto && input.data().starts_with(&[4, 0, 0, 0]);
+                    let in_place = input.data().starts_with(&[4, 0, 0, 0]);
                     let (result, mut output) =
                         decrypt_owned(&mut session, &mut pool, input, in_place)?;
                     if in_place {
@@ -842,7 +831,7 @@ pub(crate) fn run<N: Network>(
             if event.is_readable() {
                 if event.token() == TUN {
                     tun_ready = true;
-                } else if event.token() == NET || event.token() == crate::network::COMPLETION {
+                } else if event.token() == NET {
                     net_ready = true;
                 }
                 #[cfg(windows)]
@@ -872,25 +861,11 @@ fn detach_tun(
 
 fn encrypt_owned(
     session: &mut Session,
-    pool: &mut PacketPool,
-    input: crate::packet::Packet,
-    in_place: bool,
+    mut input: crate::packet::Packet,
 ) -> Result<(Output, crate::packet::Packet)> {
-    #[cfg(feature = "in-place-crypto")]
-    if in_place {
-        let mut input = input;
-        let length = input.data().len();
-        let result = session.encrypt_in_place(input.wireguard_buffer()?, length)?;
-        return Ok((result, input));
-    }
-    let _ = in_place;
-    let capacity = (input.data().len() + 32).max(148);
-    let mut output = pool.take_sized(capacity).ok_or(Error::Full)?;
-    // Erase the entire potentially modified region even when encryption fails.
-    output.set_len(capacity)?;
-    let result = session.encrypt(input.data(), output.writable());
-    pool.recycle(input)?;
-    Ok((result?, output))
+    let length = input.data().len();
+    let result = session.encrypt_in_place(input.wireguard_buffer()?, length)?;
+    Ok((result, input))
 }
 
 type OwnedDecryption = (Result<Output>, crate::packet::Packet);
@@ -900,7 +875,6 @@ fn decrypt_owned(
     input: crate::packet::Packet,
     in_place: bool,
 ) -> Result<OwnedDecryption> {
-    #[cfg(feature = "in-place-crypto")]
     if in_place {
         let mut input = input;
         let result = session.decrypt_data_in_place(input.data_mut());
@@ -910,7 +884,6 @@ fn decrypt_owned(
         }
         return Ok((result, input));
     }
-    let _ = in_place;
     let capacity = input.data().len().max(148);
     let mut output = pool.take_sized(capacity).ok_or(Error::Full)?;
     // A failed AEAD open is allowed to modify its output. Track it for erasure.

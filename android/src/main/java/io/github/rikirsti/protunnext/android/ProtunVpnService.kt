@@ -25,7 +25,7 @@ class ProtunVpnService : VpnService() {
     private val callback = object : ConnectivityManager.NetworkCallback() {
         override fun onAvailable(network: Network) {
             submit {
-                if (Build.VERSION.SDK_INT >= 31) frameworkBest = network
+                frameworkBest = network
                 connectivity.getNetworkCapabilities(network)?.let { candidates[network] = it }
                 chooseNetwork()
             }
@@ -60,9 +60,7 @@ class ProtunVpnService : VpnService() {
         val request = NetworkRequest.Builder()
             .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
             .addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN).build()
-        if (Build.VERSION.SDK_INT >= 31)
-            connectivity.registerBestMatchingNetworkCallback(request, callback, control)
-        else connectivity.registerNetworkCallback(request, callback)
+        connectivity.registerBestMatchingNetworkCallback(request, callback, control)
         submit {
             connectivity.allNetworks.forEach { network ->
                 connectivity.getNetworkCapabilities(network)?.let { candidates[network] = it }
@@ -87,11 +85,8 @@ class ProtunVpnService : VpnService() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (!::core.isInitialized) return START_NOT_STICKY
         val notification = core.dependencies.notification(this, core.connectionManager.state.value)
-        if (Build.VERSION.SDK_INT >= 34)
-            startForeground(core.dependencies.notificationId, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SYSTEM_EXEMPTED)
-        else startForeground(core.dependencies.notificationId, notification)
-        if (Build.VERSION.SDK_INT >= 29)
-            core.connectionManager.environment(isAlwaysOn, isLockdownEnabled)
+        startForeground(core.dependencies.notificationId, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SYSTEM_EXEMPTED)
+        core.connectionManager.environment(isAlwaysOn, isLockdownEnabled)
         when {
             intent == null -> core.dependencies.systemEvents.onProcessRestored()
             intent.action == SERVICE_INTERFACE -> core.dependencies.systemEvents.onAlwaysOnEnabled()
@@ -104,10 +99,7 @@ class ProtunVpnService : VpnService() {
                 it.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
                 it.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
         }
-        val next = if (Build.VERSION.SDK_INT >= 31)
-            frameworkBest?.takeIf { usable.containsKey(it) }
-        else connectivity.activeNetwork?.takeIf { usable.containsKey(it) }
-            ?: underlying?.takeIf { usable.containsKey(it) } ?: usable.keys.firstOrNull()
+        val next = frameworkBest?.takeIf { usable.containsKey(it) }
         val old = underlying
         underlying = next
         setUnderlyingNetworks(next?.let { arrayOf(it) } ?: emptyArray())
@@ -156,7 +148,7 @@ class ProtunVpnService : VpnService() {
                 }
             }
         }
-        if (Build.VERSION.SDK_INT >= 29) builder.setMetered(false)
+        builder.setMetered(false)
         return builder.establish() ?: throw SecurityException("VPN permission missing")
     }
     internal fun connect(next: AndroidConnectionConfig, invalidate: InvalidateRequest?) = submit {

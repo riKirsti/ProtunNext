@@ -9,3 +9,5 @@ benchmark-results.local.json
 /android/.gradle/
 /android/build/
 /android/local.properties
+/apple/.build/
+/apple/.swiftpm/
