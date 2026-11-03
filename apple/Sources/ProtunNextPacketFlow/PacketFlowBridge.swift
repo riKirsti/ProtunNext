@@ -93,7 +93,11 @@ public final class PacketFlowBridge: @unchecked Sendable {
         reader.cancel()
         if let fd = native { _ = Darwin.close(fd); native = nil }
     }
-    private func fail() { stopOnQueue(); failed() }
+    private func fail() {
+        stopOnQueue()
+        // Host recovery may join native threads. Keep it outside the packet queue.
+        DispatchQueue.global(qos: .utility).async(execute: failed)
+    }
     private func readBatch() {
         guard !stopped && !readPending && pending.isEmpty else { return }
         readPending = true
@@ -124,11 +128,11 @@ public final class PacketFlowBridge: @unchecked Sendable {
             var header = UInt32(family).bigEndian
             let sent = withUnsafeBytes(of: &header) { prefix in
                 packet.data.withUnsafeBytes { bytes in
-                    var vectors = [
-                        iovec(iov_base: UnsafeMutableRawPointer(mutating: prefix.baseAddress), iov_len: 4),
-                        iovec(iov_base: UnsafeMutableRawPointer(mutating: bytes.baseAddress), iov_len: bytes.count)
-                    ]
-                    return Darwin.writev(descriptor, &vectors, 2)
+                    withUnsafeTemporaryAllocation(of: iovec.self, capacity: 2) { vectors in
+                        vectors[0] = iovec(iov_base: UnsafeMutableRawPointer(mutating: prefix.baseAddress), iov_len: 4)
+                        vectors[1] = iovec(iov_base: UnsafeMutableRawPointer(mutating: bytes.baseAddress), iov_len: bytes.count)
+                        return Darwin.writev(descriptor, vectors.baseAddress!, 2)
+                    }
                 }
             }
             if sent == packet.data.count + 4 { next += 1; continue }
