@@ -9,6 +9,8 @@ mkdir -p target
 stage=$(mktemp -d "$PWD/target/lts.XXXXXX")
 # This directory contains only this run's kernel sources, initramfs and logs.
 trap 'rm -rf -- "$stage"' EXIT
+image="$PWD/target/lts-kernels/$version/bzImage"
+if [[ ! -s "$image" ]]; then
 curl --fail --location --retry 2 "https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-$version.tar.xz" -o "$stage/linux.tar.xz"
 tar -xJf "$stage/linux.tar.xz" -C "$stage"
 kernel="$stage/linux-$version"
@@ -19,8 +21,14 @@ make -C "$kernel" defconfig
     -e IPV6 -e INET -e UNIX -e NET_NS -e RANDOM_TRUST_CPU -d MODULES
 make -C "$kernel" olddefconfig
 make -C "$kernel" -j"$(nproc)" bzImage
+mkdir -p "$(dirname "$image")"
+cp "$kernel/arch/x86/boot/bzImage" "$image"
+fi
 rustup target add x86_64-unknown-linux-musl
 export CC_x86_64_unknown_linux_musl=musl-gcc
+# Debug symbols are unnecessary for these functional checks and previously made
+# the initramfs too large to unpack inside the test VM. Keep source assertions.
+export CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0
 cargo test --locked --lib --tests --all-features --target x86_64-unknown-linux-musl \
     --no-run --message-format=json > "$stage/artifacts.jsonl"
 guest="$stage/root"
@@ -39,6 +47,8 @@ for line in open(sys.argv[1]):
     shutil.copy2(exe,out/name)
 assert (out/'linux_tun').is_file()
 PY
+strip --strip-debug "$guest/tests/"*
+du -sh "$guest/tests"
 cat > "$guest/init" <<'SH'
 #!/bin/sh
 export PATH=/bin
@@ -61,8 +71,8 @@ SH
 chmod +x "$guest/init"
 (cd "$guest"; find . -print0 | cpio --null -o --format=newc | gzip -1) > "$stage/initramfs.gz"
 set +e
-timeout 300 qemu-system-x86_64 -machine accel=kvm:tcg -m 1024 -smp 2 -nographic -no-reboot \
-    -nic none -kernel "$kernel/arch/x86/boot/bzImage" -initrd "$stage/initramfs.gz" \
+timeout 300 qemu-system-x86_64 -machine accel=kvm:tcg -m 2048 -smp 2 -nographic -no-reboot \
+    -nic none -kernel "$image" -initrd "$stage/initramfs.gz" \
     -append 'console=ttyS0 rdinit=/init panic=-1' | tee "$stage/guest.log"
 status=${PIPESTATUS[0]}
 set -e
