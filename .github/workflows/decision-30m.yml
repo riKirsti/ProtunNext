@@ -10,8 +10,9 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-24.04, ubuntu-24.04-arm]
+        replica: [1, 2, 3]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 17
+    timeout-minutes: 12
     steps:
       - uses: actions/checkout@v4
         with:
@@ -43,9 +44,10 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: decision-components-${{ matrix.os }}
+          name: decision-components-${{ matrix.os }}-${{ matrix.replica }}
           path: results/
       - name: Instrument train and evaluate scoped crypto PGO
+        if: matrix.replica == 1
         env:
           CARGO_TARGET_DIR: ${{ github.workspace }}/bench-target
         run: |
@@ -67,7 +69,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: decision-native-${{ matrix.os }}
+          name: decision-native-${{ matrix.os }}-${{ matrix.replica }}
           path: results/
   lts:
     if: ${{ !contains(github.event.head_commit.message, 'PGO-only') }}
@@ -75,8 +77,9 @@ jobs:
       fail-fast: false
       matrix:
         kernel: ['6.12.115', '6.18.60']
+        replica: [1, 2, 3]
     runs-on: ubuntu-24.04
-    timeout-minutes: 22
+    timeout-minutes: 12
     steps:
       - uses: actions/checkout@v4
         with:
@@ -97,5 +100,5 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: decision-lts-${{ matrix.kernel }}
+          name: decision-lts-${{ matrix.kernel }}-${{ matrix.replica }}
           path: results/
