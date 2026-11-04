@@ -1,0 +1,75 @@
+"""Prepare an ephemeral benchmark copy of frozen 83f0252; never patch production."""
+from pathlib import Path
+import shutil, subprocess
+
+root = Path(__file__).resolve().parents[2]
+r = root / 'reference'
+r.mkdir(exist_ok=True)
+archive = subprocess.check_output(['git','archive','83f025231535a3ef0731123988e9dae8621cef4a'], cwd=root)
+subprocess.run(['tar','-x','-C',str(r)],input=archive,check=True)
+p=r/'src/lib.rs'; p.write_text(p.read_text()+'\n#[cfg(target_os="linux")] pub mod decision;\n')
+shutil.copy(root/'experiments/decision/core.rs', r/'src/decision.rs')
+(r/'src/bin/decision.rs').write_text('fn main() { protun_next::decision::run(); }\n')
+p=r/'Cargo.toml';p.write_text(p.read_text()+'\n[[bin]]\nname="decision"\npath="src/bin/decision.rs"\n')
+p=r/'src/linux_batch.rs';s=p.read_text().replace('if options.udp_offload {','if options.udp_offload && std::env::var("BENCH_GRO").as_deref() != Ok("0") {').replace('gso: options.udp_offload,','gso: options.udp_offload && std::env::var("BENCH_GSO").as_deref() != Ok("0"),').replace('mmsg: true,','mmsg: std::env::var("BENCH_SINGLE").as_deref() != Ok("1"),').replace('fn gro_size(', 'pub(crate) fn gro_size(');p.write_text(s)
+p=r/'src/tun_offload.rs';s=p.read_text().replace('pub(crate) header_len: usize,','pub(crate) header_len: usize,\n    pub(crate) read_records: u64,').replace('header_len: size as usize,','header_len: size as usize, read_records: 0,').replace('let n = unsafe { libc::readv(', 'self.read_records += 1;\n            let n = unsafe { libc::readv(');p.write_text(s)
+p=r/'src/uring_rx.rs';s=p.read_text()
+s=s.replace('    ring: Option<IoUring>,','    message: Box<libc::msghdr>,\n    aggregate: Packet,\n    segment: usize,\n    offset: usize,\n    ring: Option<IoUring>,')
+s=s.replace('let count = count.max(8).next_power_of_two() as usize;', 'let count = std::env::var("BENCH_BUFFERS").ok().and_then(|s|s.parse::<u16>().ok()).unwrap_or(count).max(8).next_power_of_two() as usize;')
+s=s.replace('let mut receiver = Self {','let mut message: Box<libc::msghdr> = Box::new(unsafe { std::mem::zeroed() });\n        message.msg_controllen = 64;\n        let mut extra = PacketPool::new(1,65535).map_err(io::Error::other)?;\n        let mut receiver = Self { message, aggregate: extra.take().unwrap(), segment: 0, offset: 0,')
+s=s.replace('opcode::RecvMulti::new(types::Fd(socket.as_raw_fd()), GROUP)','opcode::RecvMsgMulti::new(types::Fd(socket.as_raw_fd()), &*self.message, GROUP)')
+needle='        self.arm(socket)?;\n        let mut completion'
+s=s.replace(needle,'''        if self.segment > 0 {
+            let end=(self.offset+self.segment).min(self.aggregate.data().len());
+            let n=end-self.offset;
+            output.writable()[..n].copy_from_slice(&self.aggregate.data()[self.offset..end]);
+            output.set_len(n)?; self.offset=end;
+            if end==self.aggregate.data().len() {self.segment=0;self.offset=0;}
+            counters.received_datagrams+=1;
+            return Ok(Receive::Packet);
+        }
+        self.arm(socket)?;
+        let mut completion''')
+start=s.index('            if result >= 0 && result as usize <= 65535 {')
+end=s.index('            self.buffers[id].set_len(0)?;',start+len('            if result >= 0 && result as usize <= 65535 {'))
+# Find the end of the original successful-message branch, rather than its inner reset.
+end=s.index('            }\n            self.buffers[id].set_len(0)?;',start)+len('            }')
+s=s[:start]+'''            if result >= 0 && result as usize <= 65535 {
+                let parsed=types::RecvMsgOut::parse(&self.buffers[id].writable()[..result as usize], &self.message).map_err(|_|Error::Invalid("recvmsg layout"))?;
+                if parsed.is_payload_truncated() || parsed.is_control_data_truncated() {return Err(Error::Invalid("recvmsg truncated"));}
+                let length=parsed.payload_data().len();
+                let offset=16+self.message.msg_namelen as usize+self.message.msg_controllen as usize;
+                let mut control: libc::msghdr=unsafe{std::mem::zeroed()};
+                control.msg_control=parsed.control_data().as_ptr().cast_mut().cast();
+                control.msg_controllen=parsed.control_data().len() as _;
+                let segment=crate::linux_batch::gro_size(&control)?;
+                self.buffers[id].set_len(result as usize)?;
+                std::mem::swap(output, &mut self.buffers[id]);
+                self.buffers[id].set_len(0)?;self.provide(id);
+                output.consume(offset)?; output.set_data_len(length)?;
+                counters.received_bytes+=length as u64;
+                if segment>0 {
+                    counters.gro_datagrams+=length.div_ceil(segment) as u64;
+                    std::mem::swap(output,&mut self.aggregate);self.segment=segment;self.offset=0;
+                    return self.receive(socket,output,counters);
+                }
+                counters.received_datagrams+=1; return Ok(Receive::Packet);
+            }'''+s[end:]
+p.write_text(s)
+# Reuse the actual validated adapter/framing benchmark, with immutable reference paths.
+t=root/'experiments/decision/tls';(t/'src').mkdir(parents=True,exist_ok=True)
+shutil.copy(root/'experiments/decision/tls-main.rs',t/'src/main.rs')
+(t/'Cargo.toml').write_text('''[package]
+name="decision-tls"
+version="0.0.0"
+edition="2024"
+[dependencies]
+protun-next={path="../../../reference",default-features=false,features=["in-place-crypto","io-uring"]}
+rustls={version="=0.23.46",default-features=false,features=["std","ring","tls12"]}
+serde_json="1"
+libc="0.2"
+[profile.release]
+lto="thin"
+codegen-units=1
+panic="abort"
+''')

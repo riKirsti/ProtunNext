@@ -1,0 +1,88 @@
+name: bounded-performance-experiment
+on:
+  push:
+    branches: ['experiments/decision-30m-*']
+permissions:
+  contents: read
+jobs:
+  native:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 22
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
+      - name: Prepare frozen benchmark candidates
+        run: python3 experiments/decision/prepare.py
+      - name: Compile optimized controlled benchmarks
+        env:
+          CARGO_TARGET_DIR: ${{ github.workspace }}/bench-target
+        run: |
+          cargo build --manifest-path reference/Cargo.toml --release --no-default-features --features in-place-crypto,io-uring --bin decision
+          cargo build --manifest-path experiments/decision/tls/Cargo.toml --release
+      - name: Record native environment and execute isolated components
+        run: |
+          mkdir -p results
+          uname -a | tee results/environment.txt
+          lscpu >> results/environment.txt
+          rustc -vV >> results/environment.txt
+          sha256sum bench-target/release/decision bench-target/release/decision-tls > results/hashes.txt
+          sudo -n python3 experiments/decision/run.py "$PWD/bench-target/release/decision" > results/udp.jsonl 2>&1 || echo 'UDP experiment has failed/incomplete cells' | tee results/udp-incomplete.txt
+          bench-target/release/decision --cpu > results/cpu-baseline.jsonl
+          sudo -n unshare -n bench-target/release/decision --tun > results/tun.jsonl 2>&1 || echo 'TUN experiment incomplete' | tee results/tun-incomplete.txt
+          bench-target/release/decision-tls 67108864 > results/tls.jsonl
+          bench-target/release/decision-tls --framed > results/tls-framed.jsonl
+      - name: Instrument train and evaluate scoped crypto PGO
+        env:
+          CARGO_TARGET_DIR: ${{ github.workspace }}/bench-target
+        run: |
+          export RUSTFLAGS="-Cprofile-generate=$PWD/pgo-train"
+          cargo build --manifest-path reference/Cargo.toml --release --no-default-features --features in-place-crypto,io-uring --bin decision
+          bench-target/release/decision --train > results/pgo-training.jsonl
+          tool="$(rustc --print sysroot)/lib/rustlib/$(rustc -vV | sed -n 's/host: //p')/bin/llvm-profdata"
+          "$tool" merge -o "$PWD/merged.profdata" pgo-train/*.profraw
+          export RUSTFLAGS="-Cprofile-use=$PWD/merged.profdata"
+          cargo build --manifest-path reference/Cargo.toml --release --no-default-features --features in-place-crypto,io-uring --bin decision
+          bench-target/release/decision --cpu > results/cpu-pgo.jsonl
+          sha256sum bench-target/release/decision merged.profdata > results/pgo-hashes.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: decision-native-${{ matrix.os }}
+          path: results/
+  lts:
+    strategy:
+      fail-fast: false
+      matrix:
+        kernel: ['6.12.115', '6.18.60']
+    runs-on: ubuntu-24.04
+    timeout-minutes: 22
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-musl
+      - uses: actions/cache/restore@v4
+        with:
+          path: target/lts-kernels/${{ matrix.kernel }}/
+          key: lts-kernel-${{ runner.arch }}-${{ matrix.kernel }}-${{ hashFiles('scripts/test-linux-lts.sh') }}
+          fail-on-cache-miss: true
+      - name: Build and execute in actual supported LTS kernel
+        run: |
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends qemu-system-x86 busybox-static musl-tools cpio
+          python3 experiments/decision/prepare.py
+          bash experiments/decision/lts.sh '${{ matrix.kernel }}'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: decision-lts-${{ matrix.kernel }}
+          path: results/
