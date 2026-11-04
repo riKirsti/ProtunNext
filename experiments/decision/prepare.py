@@ -9,6 +9,7 @@ archive = subprocess.check_output(['git','archive','83f025231535a3ef0731123988e9
 subprocess.run(['tar','-x','-C',str(r)],input=archive,check=True)
 p=r/'src/lib.rs'; p.write_text(p.read_text()+'\n#[cfg(target_os="linux")] pub mod decision;\n')
 shutil.copy(root/'experiments/decision/core.rs', r/'src/decision.rs')
+p=r/'src/decision.rs';s=p.read_text();s=s.replace('if args.get(1).map(String::as_str)==Some("--cpu")', 'if args.get(1).map(String::as_str)==Some("--train"){for size in [512,1420] {for mode in ["copy","inplace"] {let(s,c)=crypto(mode,size,200000);emit(serde_json::json!({"test":"pgo-training-only","size":size,"mode":mode,"seconds":s,"cpu":c}));}}return;}if args.get(1).map(String::as_str)==Some("--cpu")');p.write_text(s)
 (r/'src/bin/decision.rs').write_text('fn main() { protun_next::decision::run(); }\n')
 p=r/'Cargo.toml';p.write_text(p.read_text()+'\n[[bin]]\nname="decision"\npath="src/bin/decision.rs"\n')
 p=r/'src/linux_batch.rs';s=p.read_text().replace('if options.udp_offload {','if options.udp_offload && std::env::var("BENCH_GRO").as_deref() != Ok("0") {').replace('gso: options.udp_offload,','gso: options.udp_offload && std::env::var("BENCH_GSO").as_deref() != Ok("0"),').replace('mmsg: true,','mmsg: std::env::var("BENCH_SINGLE").as_deref() != Ok("1"),').replace('fn gro_size(', 'pub(crate) fn gro_size(');p.write_text(s)
@@ -55,6 +56,7 @@ s=s[:start]+'''            if result >= 0 && result as usize <= 65535 {
                 }
                 counters.received_datagrams+=1; return Ok(Receive::Packet);
             }'''+s[end:]
+s=s.replace('.flags(libc::MSG_TRUNC)', '.flags(libc::MSG_TRUNC as _)')
 p.write_text(s)
 # Reuse the actual validated adapter/framing benchmark, with immutable reference paths.
 t=root/'experiments/decision/tls';(t/'src').mkdir(parents=True,exist_ok=True)

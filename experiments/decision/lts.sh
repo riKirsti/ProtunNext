@@ -1,6 +1,17 @@
 #!/usr/bin/env bash
 set -euo pipefail
 kernel=${1:?}
+if [ ! -s "target/lts-kernels/$kernel/bzImage" ]; then
+  mkdir -p target/lts-kernels
+  curl --fail --location --retry 2 "https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-$kernel.tar.xz" -o target/lts-kernels/source.tar.xz
+  tar -xJf target/lts-kernels/source.tar.xz -C target/lts-kernels
+  source="$PWD/target/lts-kernels/linux-$kernel"
+  sed 's/^/CONFIG_/;s/$/=y/' experiments/decision/kernel-options.txt > "$source/bench.config"
+  make -C "$source" ARCH=x86_64 KCONFIG_ALLCONFIG="$source/bench.config" allnoconfig
+  make -C "$source" ARCH=x86_64 -j"$(nproc)" bzImage > target/lts-kernels/build.log 2>&1 || { tail -80 target/lts-kernels/build.log; exit 1; }
+  mkdir -p "target/lts-kernels/$kernel"
+  cp "$source/arch/x86/boot/bzImage" "target/lts-kernels/$kernel/"
+fi
 export CARGO_TARGET_DIR="$PWD/bench-target" CC_x86_64_unknown_linux_musl=musl-gcc
 cargo build --manifest-path reference/Cargo.toml --release --no-default-features --features in-place-crypto,io-uring --bin decision --target x86_64-unknown-linux-musl
 cargo build --manifest-path experiments/decision/tls/Cargo.toml --release --target x86_64-unknown-linux-musl
