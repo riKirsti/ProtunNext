@@ -11,7 +11,7 @@ jobs:
       matrix:
         os: [ubuntu-24.04, ubuntu-24.04-arm]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 22
+    timeout-minutes: 17
     steps:
       - uses: actions/checkout@v4
         with:
@@ -36,9 +36,15 @@ jobs:
           sha256sum bench-target/release/decision bench-target/release/decision-tls > results/hashes.txt
           sudo -n python3 experiments/decision/run.py "$PWD/bench-target/release/decision" > results/udp.jsonl 2>&1 || echo 'UDP experiment has failed/incomplete cells' | tee results/udp-incomplete.txt
           bench-target/release/decision --cpu > results/cpu-baseline.jsonl
+          cp bench-target/release/decision bench-target/release/decision-baseline
           sudo -n unshare -n bench-target/release/decision --tun > results/tun.jsonl 2>&1 || echo 'TUN experiment incomplete' | tee results/tun-incomplete.txt
           bench-target/release/decision-tls 67108864 > results/tls.jsonl
           bench-target/release/decision-tls --framed > results/tls-framed.jsonl
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: decision-components-${{ matrix.os }}
+          path: results/
       - name: Instrument train and evaluate scoped crypto PGO
         env:
           CARGO_TARGET_DIR: ${{ github.workspace }}/bench-target
@@ -51,6 +57,12 @@ jobs:
           export RUSTFLAGS="-Cprofile-use=$PWD/merged.profdata"
           cargo build --manifest-path reference/Cargo.toml --release --no-default-features --features in-place-crypto,io-uring --bin decision
           bench-target/release/decision --cpu > results/cpu-pgo.jsonl
+          for block in 0 1; do
+            for mode in baseline pgo pgo baseline; do
+              if [ "$mode" = baseline ]; then binary=bench-target/release/decision-baseline; else binary=bench-target/release/decision; fi
+              "$binary" --cpu >> "results/pgo-paired-$block-$mode.jsonl"
+            done
+          done
           sha256sum bench-target/release/decision merged.profdata > results/pgo-hashes.txt
       - uses: actions/upload-artifact@v4
         if: always()
@@ -58,6 +70,7 @@ jobs:
           name: decision-native-${{ matrix.os }}
           path: results/
   lts:
+    if: ${{ !contains(github.event.head_commit.message, 'PGO-only') }}
     strategy:
       fail-fast: false
       matrix:
