@@ -6,6 +6,7 @@ permissions:
   contents: read
 jobs:
   native:
+    if: ${{ !contains(github.event.head_commit.message, 'TUN-only') }}
     strategy:
       fail-fast: false
       matrix:
@@ -93,6 +94,8 @@ jobs:
           path: target/lts-kernels/${{ matrix.kernel }}/
           key: lts-kernel-${{ runner.arch }}-${{ matrix.kernel }}-${{ hashFiles('scripts/test-linux-lts.sh') }}
       - name: Build and execute in actual supported LTS kernel
+        env:
+          DECISION_TUN_ONLY: ${{ contains(github.event.head_commit.message, 'TUN-only') && '1' || '0' }}
         run: |
           sudo apt-get update && sudo apt-get install -y --no-install-recommends qemu-system-x86 busybox-static musl-tools cpio flex bison libelf-dev libssl-dev bc
           python3 experiments/decision/prepare.py
@@ -101,4 +104,28 @@ jobs:
         if: always()
         with:
           name: decision-lts-${{ matrix.kernel }}-${{ matrix.replica }}
+          path: results/
+  tun-only:
+    if: contains(github.event.head_commit.message, 'TUN-only')
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+      - run: python3 experiments/decision/prepare.py
+      - run: cargo build --manifest-path reference/Cargo.toml --release --no-default-features --features in-place-crypto,io-uring --bin decision --target-dir bench-target
+      - run: |
+          mkdir -p results
+          uname -a > results/environment.txt
+          sudo -n unshare -n bench-target/release/decision --tun > results/tun.jsonl 2>&1
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: decision-tun-fixed-${{ matrix.os }}
           path: results/

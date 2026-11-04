@@ -14,14 +14,14 @@ if [ ! -s "target/lts-kernels/$kernel/bzImage" ]; then
 fi
 export CARGO_TARGET_DIR="$PWD/bench-target" CC_x86_64_unknown_linux_musl=musl-gcc
 cargo build --manifest-path reference/Cargo.toml --release --no-default-features --features in-place-crypto,io-uring --bin decision --target x86_64-unknown-linux-musl
-cargo build --manifest-path experiments/decision/tls/Cargo.toml --release --target x86_64-unknown-linux-musl
+if [ "${DECISION_TUN_ONLY:-0}" != 1 ]; then cargo build --manifest-path experiments/decision/tls/Cargo.toml --release --target x86_64-unknown-linux-musl; fi
 stage=$(mktemp -d "$PWD/decision-guest.XXXXXX")
 trap 'rm -rf -- "$stage"' EXIT
 mkdir -p "$stage"/{bin,proc,sys,dev,tmp} results
 cp /usr/bin/busybox "$stage/bin/busybox"
 for app in sh mount ip poweroff uname; do ln -s busybox "$stage/bin/$app"; done
 cp bench-target/x86_64-unknown-linux-musl/release/decision "$stage/bin/decision"
-cp bench-target/x86_64-unknown-linux-musl/release/decision-tls "$stage/bin/decision-tls"
+if [ "${DECISION_TUN_ONLY:-0}" != 1 ]; then cp bench-target/x86_64-unknown-linux-musl/release/decision-tls "$stage/bin/decision-tls"; fi
 cat > "$stage/init" <<'SH'
 #!/bin/sh
 export PATH=/bin
@@ -49,11 +49,25 @@ decision-tls --framed || result=1
 echo "DECISION_FINISHED $result"
 poweroff -f
 SH
+if [ "${DECISION_TUN_ONLY:-0}" = 1 ]; then
+cat > "$stage/init" <<'SH'
+#!/bin/sh
+export PATH=/bin
+mount -t proc proc /proc
+mount -t sysfs sysfs /sys
+mount -t devtmpfs devtmpfs /dev
+ip link set lo up
+echo "DECISION_KERNEL $(uname -r)"
+decision --tun
+echo "DECISION_FINISHED $?"
+poweroff -f
+SH
+fi
 chmod +x "$stage/init"
 (cd "$stage"; find . -print0 | cpio --null -o --format=newc | gzip -1) > "$stage/initramfs.gz"
 uname -a > results/host.txt
 lscpu >> results/host.txt
-sha256sum bench-target/x86_64-unknown-linux-musl/release/{decision,decision-tls} > results/hashes.txt
+sha256sum bench-target/x86_64-unknown-linux-musl/release/decision > results/hashes.txt
 timeout 600 sudo -n qemu-system-x86_64 -accel kvm -cpu host -m 2048 -smp 4 -nographic -no-reboot -object rng-random,filename=/dev/urandom,id=rng0 -device virtio-rng-pci,rng=rng0 -nic none -kernel "target/lts-kernels/$kernel/bzImage" -initrd "$stage/initramfs.gz" -append 'console=ttyS0 rdinit=/init panic=-1' | tee "results/lts-$kernel.log"
 grep -F "DECISION_KERNEL $kernel" "results/lts-$kernel.log"
 grep 'DECISION_FINISHED' "results/lts-$kernel.log"
