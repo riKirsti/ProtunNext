@@ -1,0 +1,36 @@
+name: one-hour-native-Apple-TLS
+on:
+  push:
+    branches: ['experiments/decision-hour-*']
+permissions: { contents: read }
+jobs:
+  apple:
+    if: contains(github.event.head_commit.message, 'apple-tests')
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-26,xcode-27]
+        replicate: [1,2,3]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: dtolnay/rust-toolchain@stable
+      - run: |
+          mkdir -p results
+          uname -a > results/environment.txt
+          sw_vers >> results/environment.txt
+          sysctl -n machdep.cpu.brand_string >> results/environment.txt
+          rustc -vV >> results/environment.txt
+          test "$(uname -m)" = arm64
+          python3 experiments/decision/prepare.py
+          cargo build --release --manifest-path experiments/decision/tls/Cargo.toml --target-dir bench-target
+          shasum -a 256 bench-target/release/decision-tls > results/hashes.txt
+          bench-target/release/decision-tls 67108864 > results/tls.jsonl
+          BENCH_FRAMED_BYTES=268435456 bench-target/release/decision-tls --framed > results/tls-framed.jsonl
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: hour-apple-${{ matrix.os }}-${{ matrix.replicate }}
+          path: results/
