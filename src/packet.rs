@@ -4,7 +4,7 @@ use std::collections::VecDeque;
 /// Keep the existing erasure extent and lifetime while allowing bulk zeroing.
 /// The supported zeroize barrier observes the slice after all stores and prevents
 /// dead-store elimination, including when the allocation is immediately freed.
-fn erase(bytes: &mut [u8]) {
+pub(crate) fn erase(bytes: &mut [u8]) {
     bytes.fill(0);
     zeroize::optimization_barrier(bytes);
 }
