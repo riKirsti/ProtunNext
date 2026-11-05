@@ -1,0 +1,26 @@
+{
+  "runs": [
+    {
+      "id": 42104739688,
+      "name": "packet-erasure-actual-lts",
+      "head_sha": "0dff6615a98e62397817783e8b60a0cef68afe0e",
+      "conclusion": "success",
+      "html_url": "https://github.com/riKirsti/ProtunNext/actions/runs/42104739688",
+      "created_at": "2026-11-05T20:35:06Z",
+      "updated_at": "2026-11-05T20:45:44Z"
+    },
+    {
+      "id": 42104741996,
+      "name": "buffer-erasure-release-verification",
+      "head_sha": "0dff6615a98e62397817783e8b60a0cef68afe0e",
+      "conclusion": "success",
+      "html_url": "https://github.com/riKirsti/ProtunNext/actions/runs/42104741996",
+      "created_at": "2026-11-05T20:35:07Z",
+      "updated_at": "2026-11-05T20:38:09Z"
+    }
+  ],
+  "cross_platform_verification": "https://github.com/riKirsti/ProtunNext/actions/runs/42104742250",
+  "baseline": "ae9c9e86da8509261812813c9438e7ea625e19f5",
+  "candidate": "0dff6615a98e62397817783e8b60a0cef68afe0e",
+  "scope": "Six actual-x64-LTS allocations and three native ARM64 diagnostics. Native ARM64 host kernel is 7.0.0-1017-azure, not 6.12/6.18. All 648 samples are valid. Two of 81 A/A controls fail the predeclared 5% screen; those cells remain inconclusive and were not rerun. No router or Proton WAN tests were performed."
+}
