@@ -55,8 +55,14 @@ impl Batch {
         let Some(mut received) = self.ready.pop_front() else {
             return Ok(false);
         };
-        if received.segment == 0 {
+        // The final GRO segment can own the aggregate allocation. Earlier
+        // segments have already been copied out, so no outstanding view aliases
+        // it. Preserve high_water: recycling must erase the complete aggregate.
+        if received.segment == 0
+            || received.offset + received.segment >= received.packet.data().len()
+        {
             std::mem::swap(output, &mut received.packet);
+            output.consume(received.offset)?;
             pool.recycle(received.packet)?;
         } else {
             let end = (received.offset + received.segment).min(received.packet.data().len());
@@ -519,5 +525,63 @@ mod tests {
             (*header).cmsg_len = 4096;
         }
         assert!(gro_size(&msg).is_err());
+    }
+
+    #[test]
+    fn gro_tail_owns_aggregate_without_aliasing_retained_packets_and_recycles_cleanly() {
+        for sizes in [[64, 64, 17], [64, 0, 0]] {
+            let (socket, _) = sockets(false);
+            let mut batch = Batch::new(&socket, false);
+            let mut pool = PacketPool::new(4, 256).unwrap();
+            let mut aggregate = pool.take().unwrap();
+            let length: usize = sizes.iter().sum();
+            let mut offset = 0;
+            for (i, size) in sizes.into_iter().enumerate() {
+                aggregate.writable()[offset..offset + size].fill((i + 1) as u8);
+                offset += size;
+            }
+            aggregate.set_len(length).unwrap();
+            let base = aggregate.data().as_ptr() as usize;
+            batch.ready.push_back(Received {
+                packet: aggregate,
+                segment: 64,
+                offset: 0,
+            });
+            let mut held = Vec::new();
+            offset = 0;
+            for (i, size) in sizes.into_iter().enumerate().filter(|(_, n)| *n != 0) {
+                let mut output = pool.take().unwrap();
+                assert!(batch.pop_ready(&mut output, &mut pool).unwrap());
+                assert_eq!(output.data(), vec![(i + 1) as u8; size]);
+                offset += size;
+                if offset == length {
+                    assert!(batch.ready.is_empty());
+                    // The tail owns its storage, including when no splitting
+                    // was necessary. Holding earlier packets must stay safe.
+                    assert_eq!(output.data().as_ptr() as usize, base + offset - size);
+                    output.data_mut().fill(0xee);
+                    for (j, prior) in held.iter().enumerate() {
+                        let prior: &Packet = prior;
+                        assert!(prior.data().iter().all(|b| *b == (j + 1) as u8));
+                    }
+                    pool.recycle(output).unwrap();
+                    let mut reused = pool.take().unwrap();
+                    assert!(reused.writable().iter().all(|b| *b == 0));
+                    reused.set_len(17).unwrap();
+                    assert_eq!(reused.data().as_ptr() as usize, base);
+                    assert!(
+                        reused.wireguard_buffer().is_ok(),
+                        "recycled headroom must be restored"
+                    );
+                    pool.recycle(reused).unwrap();
+                } else {
+                    held.push(output);
+                }
+            }
+            for packet in held {
+                pool.recycle(packet).unwrap();
+            }
+            assert_eq!(pool.available(), 4);
+        }
     }
 }
