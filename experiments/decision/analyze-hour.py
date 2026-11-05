@@ -4,6 +4,8 @@ root=pathlib.Path(sys.argv[1]).resolve()
 PRIMARY_WORKER=41949204026
 PRIMARY_COMPONENT=41949203991
 PRIMARY_PGO=41949032738
+PRIMARY_BRIDGE=41950384745
+APPLE_RUN=41950699980
 records=[];failures=[];artifacts=[];seen=set();environments=[]
 for folder in sorted(p for p in root.iterdir() if p.is_dir()):
  m=folder/'artifact-manifest.json'
@@ -20,6 +22,7 @@ for folder in sorted(p for p in root.iterdir() if p.is_dir()):
   if env.exists():
    first=env.read_text(errors='replace').splitlines()[0].split()
    if len(first)>2:kernel=first[2]
+   if 'arm64' in first or 'aarch64' in first:arch='aarch64'
   for ln,line in enumerate(f.read_text(errors='replace').splitlines(),1):
    if line.startswith('DECISION_KERNEL '):kernel=line.split()[1]
    if line.startswith('HOUR_CASE '):last_case=line[10:]
@@ -40,6 +43,14 @@ for folder in sorted(p for p in root.iterdir() if p.is_dir()):
    r.update(artifact_id=aid,run=meta['run_id'],artifact=folder.name,file=f.name,line=ln,kernel=r.get('kernel',kernel),arch=r.get('arch',arch),guest_cpus=cpus,guest_clock=clock)
    records.append(r)
 
+# Three repeated executions on ONE laptop, not three independent machines.
+windows=root/'local-windows'
+if windows.exists():
+ for f in list(windows.glob('framed-1GiB-*.jsonl'))+list(windows.glob('adapter-256MiB-*.jsonl')):
+  for ln,line in enumerate(f.read_text(errors='replace').splitlines(),1):
+   if not line.startswith('{'):continue
+   r=json.loads(line);r.update(artifact_id='local-windows',run='local-windows',artifact='local-windows',file=f.name,line=ln,kernel='Windows 11 reported 26H2, build 26300.9818',arch='x86_64',guest_cpus=None,guest_clock=None);records.append(r)
+
 def summary(values):
  values=[v for v in values if v is not None]
  if not values:return None
@@ -56,7 +67,7 @@ def add(a,b,family,label,metric='Mbps'):
 
 worker=[r for r in records if r['run']==PRIMARY_WORKER and r.get('test')=='full-worker-controlled-peer' and r['delivered_bytes']>0]
 idx={(r['artifact_id'],r['transport'],r['variant'],r['payload'],r['round'],r['vnet'],r['window']):r for r in worker}
-comparisons=[('batch-full-copy','portable-full-copy','mmsg-vs-portable'),('batch-compact-inplace','batch-compact-copy','inplace-compact'),('batch-full-inplace','batch-full-copy','inplace-full'),('batch-compact-copy','batch-full-copy','compact-copy'),('batch-compact-inplace','batch-full-inplace','compact-inplace'),('batch-offload-compact-inplace','batch-compact-inplace','outer-UDP-offloads'),('uring-compact-inplace','batch-compact-inplace','uring-no-offloads'),('uring-offload-compact-inplace','batch-offload-compact-inplace','uring-with-offloads'),('batch-unbuffered-compact-inplace','batch-buffered-compact-inplace','unbuffered-TLS13'),('batch-unbuffered-compact-inplace-tls12','batch-buffered-compact-inplace-tls12','unbuffered-TLS12'),('batch-buffered-compact-inplace','batch-buffered-compact-copy','inplace-buffered'),('batch-buffered-full-inplace','batch-buffered-full-copy','inplace-full-buffered'),('batch-buffered-compact-copy','batch-buffered-full-copy','compact-buffered'),('batch-buffered-compact-inplace','batch-buffered-full-inplace','compact-inplace-buffered')]
+comparisons=[('batch-full-copy','portable-full-copy','mmsg-vs-portable'),('batch-compact-inplace','batch-compact-copy','inplace-compact'),('batch-full-inplace','batch-full-copy','inplace-full'),('batch-compact-copy','batch-full-copy','compact-copy'),('batch-compact-inplace','batch-full-inplace','compact-inplace'),('batch-offload-compact-inplace','batch-compact-inplace','outer-UDP-offloads'),('uring-compact-inplace','batch-compact-inplace','uring-no-offloads'),('uring-offload-compact-inplace','batch-offload-compact-inplace','uring-with-offloads'),('batch-unbuffered-compact-inplace','batch-buffered-compact-inplace','unbuffered-TLS13'),('batch-unbuffered-compact-inplace-tls12','batch-buffered-compact-inplace-tls12','unbuffered-TLS12'),('batch-buffered-compact-inplace','batch-buffered-compact-copy','inplace-buffered'),('batch-buffered-full-inplace','batch-buffered-full-copy','inplace-full-buffered'),('batch-buffered-compact-copy','batch-buffered-full-copy','compact-buffered'),('batch-buffered-compact-inplace','batch-buffered-full-inplace','compact-inplace-buffered'),('batch-buffered-full-inplace','batch-full-copy','inplace-full'),('batch-buffered-compact-copy','batch-full-copy','compact-copy'),('batch-compact-inplace','batch-buffered-compact-copy','inplace-compact'),('batch-compact-inplace','batch-buffered-full-inplace','compact-inplace')]
 for a,b,label in comparisons:
  for r in worker:
   if r['variant']==a and not r['vnet']:add(r,idx.get((r['artifact_id'],r['transport'],b,r['payload'],r['round'],False,r['window'])),'worker',label)
@@ -71,13 +82,13 @@ idxu={(r['artifact_id'],r['size'],r['round'],r['mode'],r['gso'],r['gro']):r for 
 for r in udp:
  if r['mode']=='batch' and not (r['gso'] or r['gro']):add(r,idxu.get((r['artifact_id'],r['size'],r['round'],'single',False,False)),'socket','mmsg-vs-single')
  if r['mode']=='uring128':add(r,idxu.get((r['artifact_id'],r['size'],r['round'],'batch',r['gso'],r['gro'])),'socket',f'uring128-vs-batch:GSO={r["gso"]},GRO={r["gro"]}')
-tls=[r for r in component if 'tls' in r and 'mode' in r]
-idxt={(r['artifact_id'],r['round'],r['direction'],r['chunk'],r['tls'],r['mode']):r for r in tls}
+tls=[r for r in records if r['run'] in (PRIMARY_COMPONENT,APPLE_RUN,'local-windows') and 'tls' in r and 'mode' in r]
+idxt={(r['artifact_id'],r['file'],r['round'],r['direction'],r['chunk'],r['tls'],r['mode']):r for r in tls}
 for r in tls:
  if r['mode']=='unbuffered':
-  b=idxt.get((r['artifact_id'],r['round'],r['direction'],r['chunk'],r['tls'],'buffered'))
+  b=idxt.get((r['artifact_id'],r['file'],r['round'],r['direction'],r['chunk'],r['tls'],'buffered'))
   add(r,b,'TLS-component',f'{r["direction"]}:{r["tls"]}',metric='seconds')
-parallel=[r for r in records if r['run']==PRIMARY_PGO and r.get('test')=='shared-session-crypto']
+parallel=[r for r in records if r['run'] in (PRIMARY_PGO,PRIMARY_COMPONENT) and r.get('test')=='shared-session-crypto']
 idxp={(r['artifact_id'],r['round'],r['size'],r['workers']):r for r in parallel}
 for r in parallel:
  if r['workers']>1:add(r,idxp.get((r['artifact_id'],r['round'],r['size'],1)),'shared-session-primitive',str(r['workers'])+'-workers')
@@ -85,6 +96,10 @@ pgo=[r for r in records if r['run']==PRIMARY_PGO and r.get('test')=='full-worker
 idxg={(r['artifact_id'],r['round'],r['payload'],r['transport'],r['file']):r for r in pgo}
 for r in pgo:
  if r['file']=='full-worker-pgo-pgo.log':add(r,idxg.get((r['artifact_id'],r['round'],r['payload'],r['transport'],'full-worker-pgo-baseline.log')),'PGO-whole-fixture','profile-use-vs-baseline')
+bridge=[r for r in records if r['run']==PRIMARY_BRIDGE and r.get('test')=='full-worker-controlled-peer']
+idxb={(r['artifact_id'],r['round'],r['payload'],r['transport'],r['file']):r for r in bridge}
+for r in bridge:
+ if r['file']=='bridge-production.log':add(r,idxb.get((r['artifact_id'],r['round'],r['payload'],r['transport'],'bridge-reference.log')),'production-bridge','PR2-f53-vs-selected-reference')
 
 groups=collections.defaultdict(list)
 for r in pairs:groups[tuple((k,r.get(k)) for k in ['family','kernel','arch','transport','payload','window','candidate'])].append(r)
