@@ -36,7 +36,10 @@ jobs:
           done
           cp target/audit-v2/builds.json target/audit-lts/builds.json
       - name: Run A/A and ABBA in actual Linux 6.18 with pinned virtual CPUs
-        run: python3 experiments/audit/lts.py
+        run: sudo python3 experiments/audit/lts.py
+      - name: Make owned VM evidence readable
+        if: always()
+        run: sudo chown -R "$(id -u):$(id -g)" target/audit-lts
       - uses: actions/upload-artifact@v4
         if: always()
         with:

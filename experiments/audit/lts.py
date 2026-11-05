@@ -29,8 +29,13 @@ with (O/'guest.log').open('w') as log:
  p=subprocess.Popen(cmd,stdout=log,stderr=subprocess.STDOUT)
  try:
   deadline=time.monotonic()+10
-  while not qmp.exists():assert time.monotonic()<deadline;time.sleep(.05)
-  s=socket.socket(socket.AF_UNIX);s.connect(str(qmp));f=s.makefile('rwb',buffering=0);json.loads(f.readline())
+  s=socket.socket(socket.AF_UNIX)
+  while True:
+   assert p.poll() is None,'QEMU failed; see retained guest.log'
+   assert time.monotonic()<deadline,'QMP startup deadline'
+   try:s.connect(str(qmp));break
+   except (FileNotFoundError,ConnectionRefusedError):time.sleep(.05)
+  f=s.makefile('rwb',buffering=0);json.loads(f.readline())
   def call(name):
    f.write((json.dumps({'execute':name})+'\n').encode())
    while True:
