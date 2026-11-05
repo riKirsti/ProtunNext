@@ -24,40 +24,54 @@ struct Done {
     completion: DataCompletion,
     transmit: bool,
 }
+struct Batch {
+    work: Vec<Work>,
+    done: Vec<Done>,
+}
+impl Batch {
+    fn new(capacity: usize) -> Self {
+        Self {
+            work: Vec::with_capacity(capacity),
+            done: Vec::with_capacity(capacity),
+        }
+    }
+}
 pub(crate) struct Pool {
-    senders: Vec<SyncSender<Work>>,
-    receive: Receiver<Done>,
+    senders: Vec<SyncSender<Batch>>,
+    receive: Receiver<(usize, Batch)>,
+    batches: [Batch; 2],
     workers: Vec<JoinHandle<()>>,
     slots: [Option<Done>; 64],
     results: Vec<(Result<Output>, Packet)>,
 }
 impl Pool {
     pub(crate) fn new() -> Result<Self> {
-        let (done_tx, receive) = mpsc::sync_channel(64);
+        let (done_tx, receive) = mpsc::sync_channel(2);
         let mut result = Self {
             senders: Vec::with_capacity(2),
             receive,
+            batches: std::array::from_fn(|_| Batch::new(32)),
             workers: Vec::with_capacity(2),
             slots: std::array::from_fn(|_| None),
             results: Vec::with_capacity(64),
         };
         for index in 0..2 {
-            let (sender, jobs) = mpsc::sync_channel::<Work>(32);
+            let (sender, jobs) = mpsc::sync_channel::<Batch>(1);
             let done = done_tx.clone();
             let worker = thread::Builder::new()
                 .name(format!("next-crypto-{index}"))
                 .spawn(move || {
-                    while let Ok(mut work) = jobs.recv() {
-                        let completion = work.job.run(work.packet.data_mut());
-                        if done
-                            .send(Done {
+                    while let Ok(mut batch) = jobs.recv() {
+                        for mut work in batch.work.drain(..) {
+                            let completion = work.job.run(work.packet.data_mut());
+                            batch.done.push(Done {
                                 order: work.order,
                                 packet: work.packet,
                                 completion,
                                 transmit: work.transmit,
-                            })
-                            .is_err()
-                        {
+                            });
+                        }
+                        if done.send((index, batch)).is_err() {
                             break;
                         }
                     }
@@ -77,7 +91,16 @@ impl Pool {
     ) -> Result<&mut Vec<(Result<Output>, Packet)>> {
         assert!(input.len() <= 63 && self.results.is_empty());
         let count = input.len();
-        let mut pending = 0;
+        // A sparse batch has too little cryptographic work to amortize even one
+        // wake-up. Retain the exact synchronous API instead of dispatching it.
+        if transmit && count < 8 {
+            for mut packet in input.drain(..) {
+                let length = packet.data().len();
+                let result = session.encrypt_in_place(packet.wireguard_buffer()?, length);
+                self.results.push((result, packet));
+            }
+            return Ok(&mut self.results);
+        }
         // At an established session every item is a detached job. On the TX cold
         // path retain the original handshake queue API, without changing ordering.
         let mut inline = Vec::new();
@@ -100,15 +123,12 @@ impl Pool {
             };
             match job {
                 Ok(job) => {
-                    self.senders[order % 2]
-                        .send(Work {
-                            order,
-                            packet,
-                            job,
-                            transmit,
-                        })
-                        .map_err(|_| Error::Invalid("crypto worker stopped"))?;
-                    pending += 1;
+                    self.batches[order % 2].work.push(Work {
+                        order,
+                        packet,
+                        job,
+                        transmit,
+                    });
                 }
                 Err(e) => inline.push((
                     order,
@@ -117,14 +137,27 @@ impl Pool {
                 )),
             }
         }
-        for _ in 0..pending {
-            let done = self
+        let mut submitted = 0;
+        for index in 0..2 {
+            if !self.batches[index].work.is_empty() {
+                let batch = std::mem::replace(&mut self.batches[index], Batch::new(0));
+                self.senders[index]
+                    .send(batch)
+                    .map_err(|_| Error::Invalid("crypto worker stopped"))?;
+                submitted += 1;
+            }
+        }
+        for _ in 0..submitted {
+            let (index, mut batch) = self
                 .receive
                 .recv()
                 .map_err(|_| Error::Invalid("crypto completion stopped"))?;
-            let order = done.order;
-            assert!(self.slots[order].is_none());
-            self.slots[order] = Some(done);
+            for done in batch.done.drain(..) {
+                let order = done.order;
+                assert!(self.slots[order].is_none());
+                self.slots[order] = Some(done);
+            }
+            self.batches[index] = batch;
         }
         let mut inline = inline.into_iter().peekable();
         for order in 0..count {
@@ -175,37 +208,39 @@ mod tests {
         let mut input = Vec::with_capacity(63);
         let mut previous = None;
         for size in [64, 1280, 65503] {
-            for order in 0..63 {
-                let mut packet = buffers.take().unwrap();
-                let mut ip = ip_packet(size);
-                ip[size - 1] = order;
-                packet.writable()[..size].copy_from_slice(&ip);
-                packet.set_len(size).unwrap();
-                input.push(packet);
-            }
-            for (order, (result, packet)) in pool
-                .batch(&mut a, &mut input, true)
-                .unwrap()
-                .drain(..)
-                .enumerate()
-            {
-                assert_eq!(result.unwrap(), Output::Network(size + 32));
-                let counter = u64::from_le_bytes(packet.data()[8..16].try_into().unwrap());
-                if let Some(prev) = previous {
-                    assert_eq!(counter, prev + 1);
+            for count in [1, 7, 8, 63] {
+                for order in 0..count {
+                    let mut packet = buffers.take().unwrap();
+                    let mut ip = ip_packet(size);
+                    ip[size - 1] = order;
+                    packet.writable()[..size].copy_from_slice(&ip);
+                    packet.set_len(size).unwrap();
+                    input.push(packet);
                 }
-                previous = Some(counter);
-                let mut plain = vec![0; (size + 32).max(148)];
-                assert_eq!(
-                    b.decrypt(packet.data(), &mut plain).unwrap(),
-                    Output::Tunnel(size)
-                );
-                assert_eq!(plain[size - 1], order as u8);
-                assert!(b.decrypt(packet.data(), &mut plain).is_err());
-                buffers.recycle(packet).unwrap();
+                for (order, (result, packet)) in pool
+                    .batch(&mut a, &mut input, true)
+                    .unwrap()
+                    .drain(..)
+                    .enumerate()
+                {
+                    assert_eq!(result.unwrap(), Output::Network(size + 32));
+                    let counter = u64::from_le_bytes(packet.data()[8..16].try_into().unwrap());
+                    if let Some(prev) = previous {
+                        assert_eq!(counter, prev + 1);
+                    }
+                    previous = Some(counter);
+                    let mut plain = vec![0; (size + 32).max(148)];
+                    assert_eq!(
+                        b.decrypt(packet.data(), &mut plain).unwrap(),
+                        Output::Tunnel(size)
+                    );
+                    assert_eq!(plain[size - 1], order as u8);
+                    assert!(b.decrypt(packet.data(), &mut plain).is_err());
+                    buffers.recycle(packet).unwrap();
+                }
+                assert!(input.is_empty());
+                assert_eq!(buffers.available(), 63);
             }
-            assert!(input.is_empty());
-            assert_eq!(buffers.available(), 63);
         }
     }
     #[test]
@@ -244,22 +279,23 @@ mod tests {
     fn shutdown_joins_workers_with_owned_work_in_flight() {
         let (a, _) = pair();
         let mut buffers = PacketPool::new(63, 2048).unwrap();
-        let pool = Pool::new().unwrap();
+        let mut pool = Pool::new().unwrap();
         for order in 0..63 {
             let mut packet = buffers.take().unwrap();
             packet.writable()[..1280].copy_from_slice(&ip_packet(1280));
             packet.set_len(1280).unwrap();
             packet.wireguard_buffer().unwrap();
             let job = a.tunnel.prepare_data_transmit(1280).unwrap().unwrap();
-            pool.senders[order % 2]
-                .send(Work {
-                    order,
-                    packet,
-                    job,
-                    transmit: true,
-                })
-                .ok()
-                .unwrap();
+            pool.batches[order % 2].work.push(Work {
+                order,
+                packet,
+                job,
+                transmit: true,
+            });
+        }
+        for index in 0..2 {
+            let batch = std::mem::replace(&mut pool.batches[index], Batch::new(0));
+            pool.senders[index].send(batch).ok().unwrap();
         }
         drop(pool); // completion capacity covers the entire bounded batch
     }
