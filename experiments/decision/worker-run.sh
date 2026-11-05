@@ -16,6 +16,19 @@ for round in 0 1 2 3; do
   run_case decision-worker stealth "$variant" 64 "$round" 1 1 1 0
   run_case decision-worker stealth "$variant" 2048 "$round" 1 16 0 0
  done
+ for limit in 1 8 16 32; do
+  run_case decision-worker udp "batch-limit$limit-compact-inplace" 1200 "$round" 1 32 0 0
+ done
+ for proto in tcp stealth; do
+  run_case decision-worker "$proto" batch-buffered-compact-copy 1200 "$round" 1 32 0 0
+  run_case decision-worker "$proto" batch-buffered-full-inplace 1200 "$round" 1 32 0 0
+ done
+ for variant in portable-compact-inplace batch-compact-inplace uring-offload-compact-inplace; do
+  run_case decision-worker udp "$variant" 64 "$round" 1 1 1 0
+ done
+ for variant in batch-buffered-compact-inplace-tls12 batch-unbuffered-compact-inplace-tls12; do
+  run_case decision-worker stealth "$variant" 1200 "$round" 1 32 0 0
+ done
  run_case decision-worker udp batch-offload-compact-inplace 1200 "$round" 1 32 0 1
  run_case decision-worker stealth batch-unbuffered-compact-inplace 1200 "$round" 1 32 0 1
 done

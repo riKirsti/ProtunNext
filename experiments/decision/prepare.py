@@ -13,6 +13,7 @@ p=r/'src/decision.rs';s=p.read_text();s=s.replace('if args.get(1).map(String::as
 (r/'src/bin/decision.rs').write_text('fn main() { protun_next::decision::run(); }\n')
 p=r/'Cargo.toml';p.write_text(p.read_text()+'\n[[bin]]\nname="decision"\npath="src/bin/decision.rs"\n')
 shutil.copy(root/'experiments/decision/worker.rs',r/'src/decision_worker.rs')
+p=r/'tests/common/mod.rs';s=p.read_text().replace('pub fn server() -> Arc<ServerConfig> {','pub fn server() -> Arc<ServerConfig> {let versions=[if std::env::var("BENCH_TLS12").as_deref()==Ok("1"){&rustls::version::TLS12}else{&rustls::version::TLS13}];').replace('.with_safe_default_protocol_versions()', '.with_protocol_versions(&versions)');p.write_text(s)
 p=r/'src/lib.rs';p.write_text(p.read_text()+'\n#[cfg(target_os="linux")] pub mod decision_worker;\n')
 (r/'src/bin/decision-worker.rs').write_text('fn main(){protun_next::decision_worker::run();}\n')
 p=r/'Cargo.toml';p.write_text(p.read_text()+'\n[[bin]]\nname="decision-worker"\npath="src/bin/decision-worker.rs"\n')
