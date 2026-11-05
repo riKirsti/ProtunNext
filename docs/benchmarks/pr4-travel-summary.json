@@ -1,0 +1,1070 @@
+{
+  "physical_target": "Cudy TR3000 v1, ARM64, OpenWrt Linux 6.12.112",
+  "baseline": "ae9c9e86da8509261812813c9438e7ea625e19f5",
+  "candidate": "0dff6615a98e62397817783e8b60a0cef68afe0e",
+  "controlled": {
+    "environment": {
+      "kernel": "6.12.112",
+      "machine": "aarch64",
+      "sources": {
+        "main": {
+          "sha": "ae9c9e86da8509261812813c9438e7ea625e19f5",
+          "archive_sha256": "b7391f96d175f42908b6b7757b071822f3c217f795a3ea3795f7bcbe49afc2c8",
+          "effective_sources_sha256": "c732ef4eb69e86b9b78c831b17058dc14af24450fe97fe0c307e85518589cc71"
+        },
+        "erase": {
+          "sha": "0dff6615a98e62397817783e8b60a0cef68afe0e",
+          "archive_sha256": "8b4a4eaa170fdd52628791ec48c9ffaa676c6e44d039faba461f540f6720b097",
+          "effective_sources_sha256": "c8fb86274188b8e1012cce62a8d286f58c170a6f45a6e6f3f1e68b92fbd5d78d"
+        }
+      },
+      "binaries": {
+        "main": "58a2e57b97a828740b8f7782717f2bb94e53801fdb30a02572cddbe29bc2ae5a",
+        "erase": "cb61edd60c525f43a24b2ac108d875ef7e5ee8f617cd7277e5238f0fe7ef1cd0"
+      },
+      "nsrun_sha256": "9945b833491099df75711e8b7cd72ca108db4652bfa2e1b4ba676fbc6b2c9ae2",
+      "warm_seconds": 1,
+      "measured_seconds": 5,
+      "client_cpus": [
+        0
+      ],
+      "peer_cpus": [
+        1
+      ],
+      "load_cpus": [
+        1
+      ],
+      "scope": "Travel private network namespaces; client on core 0; fixed baseline peer and generator share core 1. Not WAN traffic or isolated whole-system CPU."
+    },
+    "observed_samples": 72,
+    "expected_samples": 72,
+    "errors": [],
+    "blocks": [
+      {
+        "block": "udp-0",
+        "protocol": "udp",
+        "shape": "burst",
+        "rate_pps": 0,
+        "control": {
+          "Mbps": {
+            "baseline": 121.99669252486413,
+            "candidate": 138.30460034241239,
+            "change_percent": 13.367499954332395
+          },
+          "CPU_ns_per_byte": {
+            "baseline": 33.452171491854536,
+            "candidate": 33.25702599881084,
+            "change_percent": -0.5833567279517671
+          },
+          "CPU_core_percent": {
+            "baseline": 50.98942747902806,
+            "candidate": 57.49257746973655,
+            "change_percent": 12.753918434136647
+          },
+          "peak_RSS_MiB": {
+            "baseline": 2.4765625,
+            "candidate": 2.6015625,
+            "change_percent": 5.0473186119873725
+          }
+        },
+        "result": {
+          "Mbps": {
+            "baseline": 148.1593593252086,
+            "candidate": 105.74334766768412,
+            "change_percent": -28.628641383648056
+          },
+          "CPU_ns_per_byte": {
+            "baseline": 32.78399646487457,
+            "candidate": 33.868270096672184,
+            "change_percent": 3.3073259782690823
+          },
+          "CPU_core_percent": {
+            "baseline": 60.70473010284714,
+            "candidate": 44.764967563384594,
+            "change_percent": -26.257859169223032
+          },
+          "peak_RSS_MiB": {
+            "baseline": 2.5382931526729235,
+            "candidate": 2.4765625,
+            "change_percent": -2.431974912272006
+          }
+        },
+        "AA_pass": false,
+        "auxiliary_limited": false,
+        "rate_achieved": true,
+        "validity": "inconclusive-control/load",
+        "capacity_ranking": false,
+        "auxiliary_shared_core_limited": false
+      },
+      {
+        "block": "udp-1",
+        "protocol": "udp",
+        "shape": "sliding",
+        "rate_pps": 0,
+        "control": {
+          "Mbps": {
+            "baseline": 162.19919902137684,
+            "candidate": 113.11215377957534,
+            "change_percent": -30.263432580411287
+          },
+          "CPU_ns_per_byte": {
+            "baseline": 32.55180323217106,
+            "candidate": 33.021208292757684,
+            "change_percent": 1.442024754323623
+          },
+          "CPU_core_percent": {
+            "baseline": 65.99252023939171,
+            "candidate": 46.68315923985164,
+            "change_percent": -29.259923593604608
+          },
+          "peak_RSS_MiB": {
+            "baseline": 2.6633292612642263,
+            "candidate": 2.7265624999999996,
+            "change_percent": 2.374217850396687
+          }
+        },
+        "result": {
+          "Mbps": {
+            "baseline": 174.437970036038,
+            "candidate": 116.1700519086551,
+            "change_percent": -33.40323102553019
+          },
+          "CPU_ns_per_byte": {
+            "baseline": 32.155428205714,
+            "candidate": 33.08122086763208,
+            "change_percent": 2.879117814868848
+          },
+          "CPU_core_percent": {
+            "baseline": 70.10390268372704,
+            "candidate": 48.03741599534515,
+            "change_percent": -31.47683059520181
+          },
+          "peak_RSS_MiB": {
+            "baseline": 2.6633292612642263,
+            "candidate": 2.7265624999999996,
+            "change_percent": 2.374217850396687
+          }
+        },
+        "AA_pass": false,
+        "auxiliary_limited": false,
+        "rate_achieved": true,
+        "validity": "inconclusive-control/load",
+        "capacity_ranking": false,
+        "auxiliary_shared_core_limited": false
+      },
+      {
+        "block": "udp-2",
+        "protocol": "udp",
+        "shape": "burst",
+        "rate_pps": 10000,
+        "control": {
+          "Mbps": {
+            "baseline": 92.14102516619856,
+            "candidate": 95.48053706458093,
+            "change_percent": 3.624348537862221
+          },
+          "CPU_ns_per_byte": {
+            "baseline": 33.20242242598673,
+            "candidate": 32.88096069945457,
+            "change_percent": -0.9681875689906416
+          },
+          "CPU_core_percent": {
+            "baseline": 38.21880155733734,
+            "candidate": 39.24201893448257,
+            "change_percent": 2.677261806888831
+          },
+          "peak_RSS_MiB": {
+            "baseline": 2.413253302889328,
+            "candidate": 2.4765625,
+            "change_percent": 2.6233962690478174
+          }
+        },
+        "result": {
+          "Mbps": {
+            "baseline": 87.21592617009337,
+            "candidate": 95.17173057387706,
+            "change_percent": 9.121962872088108
+          },
+          "CPU_ns_per_byte": {
+            "baseline": 33.69716220679797,
+            "candidate": 33.20604744221472,
+            "change_percent": -1.4574365686027324
+          },
+          "CPU_core_percent": {
+            "baseline": 36.73503929181331,
+            "candidate": 39.50185157888391,
+            "change_percent": 7.531807071422425
+          },
+          "peak_RSS_MiB": {
+            "baseline": 2.5382931526729235,
+            "candidate": 2.413253302889328,
+            "change_percent": -4.926139033701594
+          }
+        },
+        "AA_pass": true,
+        "auxiliary_limited": false,
+        "rate_achieved": false,
+        "validity": "inconclusive-control/load",
+        "capacity_ranking": false,
+        "auxiliary_shared_core_limited": false
+      },
+      {
+        "block": "tcp-0",
+        "protocol": "tcp",
+        "shape": "burst",
+        "rate_pps": 0,
+        "control": {
+          "Mbps": {
+            "baseline": 133.8494373553859,
+            "candidate": 108.30485535896547,
+            "change_percent": -19.08456434418666
+          },
+          "CPU_ns_per_byte": {
+            "baseline": 33.57914949538418,
+            "candidate": 34.46567248327544,
+            "change_percent": 2.6400995892201573
+          },
+          "CPU_core_percent": {
+            "baseline": 56.17940684444397,
+            "candidate": 46.65730805162739,
+            "change_percent": -16.94944700854971
+          },
+          "peak_RSS_MiB": {
+            "baseline": 1.7265625,
+            "candidate": 1.7265625,
+            "change_percent": 0.0
+          }
+        },
+        "result": {
+          "Mbps": {
+            "baseline": 99.22391529956043,
+            "candidate": 120.17888245076738,
+            "change_percent": 21.118867450395573
+          },
+          "CPU_ns_per_byte": {
+            "baseline": 34.2533918463545,
+            "candidate": 33.93209867138769,
+            "change_percent": -0.9379893717036514
+          },
+          "CPU_core_percent": {
+            "baseline": 42.45886802999201,
+            "candidate": 50.94213157838375,
+            "change_percent": 19.97995693714527
+          },
+          "peak_RSS_MiB": {
+            "baseline": 1.7265625,
+            "candidate": 1.7265625,
+            "change_percent": 0.0
+          }
+        },
+        "AA_pass": false,
+        "auxiliary_limited": false,
+        "rate_achieved": true,
+        "validity": "inconclusive-control/load",
+        "capacity_ranking": false,
+        "auxiliary_shared_core_limited": false
+      },
+      {
+        "block": "tcp-1",
+        "protocol": "tcp",
+        "shape": "sliding",
+        "rate_pps": 0,
+        "control": {
+          "Mbps": {
+            "baseline": 123.69450237620963,
+            "candidate": 149.39115319812834,
+            "change_percent": 20.774286915164453
+          },
+          "CPU_ns_per_byte": {
+            "baseline": 34.14194290847082,
+            "candidate": 33.85397168474834,
+            "change_percent": -0.8434529472868157
+          },
+          "CPU_core_percent": {
+            "baseline": 52.78765401332187,
+            "candidate": 63.21615450220827,
+            "change_percent": 19.755567251112517
+          },
+          "peak_RSS_MiB": {
+            "baseline": 1.7265625,
+            "candidate": 1.7265625,
+            "change_percent": 0.0
+          }
+        },
+        "result": {
+          "Mbps": {
+            "baseline": 127.62958054924276,
+            "candidate": 123.77819546346218,
+            "change_percent": -3.017627315867122
+          },
+          "CPU_ns_per_byte": {
+            "baseline": 33.737129420877295,
+            "candidate": 34.02869739426748,
+            "change_percent": 0.8642346826631897
+          },
+          "CPU_core_percent": {
+            "baseline": 53.820104063397594,
+            "candidate": 52.648789047038875,
+            "change_percent": -2.1763521954156095
+          },
+          "peak_RSS_MiB": {
+            "baseline": 1.7265625,
+            "candidate": 1.7265625,
+            "change_percent": 0.0
+          }
+        },
+        "AA_pass": false,
+        "auxiliary_limited": false,
+        "rate_achieved": true,
+        "validity": "inconclusive-control/load",
+        "capacity_ranking": false,
+        "auxiliary_shared_core_limited": false
+      },
+      {
+        "block": "tcp-2",
+        "protocol": "tcp",
+        "shape": "burst",
+        "rate_pps": 10000,
+        "control": {
+          "Mbps": {
+            "baseline": 95.9987333084621,
+            "candidate": 85.73257086105191,
+            "change_percent": -10.694060321007647
+          },
+          "CPU_ns_per_byte": {
+            "baseline": 33.68430432870189,
+            "candidate": 34.560386180718574,
+            "change_percent": 2.6008607554058427
+          },
+          "CPU_core_percent": {
+            "baseline": 40.418928492115285,
+            "candidate": 37.005779158981795,
+            "change_percent": -8.444432993317253
+          },
+          "peak_RSS_MiB": {
+            "baseline": 1.7265625,
+            "candidate": 1.7265625,
+            "change_percent": 0.0
+          }
+        },
+        "result": {
+          "Mbps": {
+            "baseline": 85.7729073813335,
+            "candidate": 95.99866583428668,
+            "change_percent": 11.921897910596634
+          },
+          "CPU_ns_per_byte": {
+            "baseline": 34.00391329208412,
+            "candidate": 34.01893194684189,
+            "change_percent": 0.04416743046238292
+          },
+          "CPU_core_percent": {
+            "baseline": 36.45608156707057,
+            "candidate": 40.82033935745216,
+            "change_percent": 11.97127503226696
+          },
+          "peak_RSS_MiB": {
+            "baseline": 1.7265625,
+            "candidate": 1.7265625,
+            "change_percent": 0.0
+          }
+        },
+        "AA_pass": false,
+        "auxiliary_limited": false,
+        "rate_achieved": false,
+        "validity": "inconclusive-control/load",
+        "capacity_ranking": false,
+        "auxiliary_shared_core_limited": false
+      },
+      {
+        "block": "stealth-0",
+        "protocol": "stealth",
+        "shape": "burst",
+        "rate_pps": 0,
+        "control": {
+          "Mbps": {
+            "baseline": 78.23808530451215,
+            "candidate": 102.0487498327322,
+            "change_percent": 30.433598209294168
+          },
+          "CPU_ns_per_byte": {
+            "baseline": 43.92378918358326,
+            "candidate": 43.09153956758421,
+            "change_percent": -1.8947582425564158
+          },
+          "CPU_core_percent": {
+            "baseline": 42.92325725234625,
+            "candidate": 54.96592656010697,
+            "change_percent": 28.05628015824091
+          },
+          "peak_RSS_MiB": {
+            "baseline": 2.3515625,
+            "candidate": 2.3515625,
+            "change_percent": 0.0
+          }
+        },
+        "result": {
+          "Mbps": {
+            "baseline": 99.22774706456082,
+            "candidate": 104.54888560400803,
+            "change_percent": 5.362550996935478
+          },
+          "CPU_ns_per_byte": {
+            "baseline": 46.460297727860045,
+            "candidate": 43.04682651815809,
+            "change_percent": -7.3470713203265925
+          },
+          "CPU_core_percent": {
+            "baseline": 57.625519569221304,
+            "candidate": 56.25543717449067,
+            "change_percent": -2.377561894404878
+          },
+          "peak_RSS_MiB": {
+            "baseline": 2.3515625,
+            "candidate": 2.413253302889328,
+            "change_percent": 2.6233962690478396
+          }
+        },
+        "AA_pass": false,
+        "auxiliary_limited": false,
+        "rate_achieved": true,
+        "validity": "inconclusive-control/load",
+        "capacity_ranking": false,
+        "auxiliary_shared_core_limited": false
+      },
+      {
+        "block": "stealth-1",
+        "protocol": "stealth",
+        "shape": "sliding",
+        "rate_pps": 0,
+        "control": {
+          "Mbps": {
+            "baseline": 85.86300873533735,
+            "candidate": 116.60321030881222,
+            "change_percent": 35.80144933917695
+          },
+          "CPU_ns_per_byte": {
+            "baseline": 44.49319397744248,
+            "candidate": 44.615653934685156,
+            "change_percent": 0.27523301047966964
+          },
+          "CPU_core_percent": {
+            "baseline": 47.75260157288188,
+            "candidate": 65.02830315434629,
+            "change_percent": 36.177508685254686
+          },
+          "peak_RSS_MiB": {
+            "baseline": 2.413253302889328,
+            "candidate": 2.413253302889328,
+            "change_percent": 0.0
+          }
+        },
+        "result": {
+          "Mbps": {
+            "baseline": 115.06312453823008,
+            "candidate": 87.50106521015167,
+            "change_percent": -23.953859621568718
+          },
+          "CPU_ns_per_byte": {
+            "baseline": 47.69036959192417,
+            "candidate": 44.594333490026564,
+            "change_percent": -6.491952418045177
+          },
+          "CPU_core_percent": {
+            "baseline": 68.59169415288393,
+            "candidate": 48.77420207549224,
+            "change_percent": -28.891970554365532
+          },
+          "peak_RSS_MiB": {
+            "baseline": 2.380967523435851,
+            "candidate": 2.3515625,
+            "change_percent": -1.2350031298796638
+          }
+        },
+        "AA_pass": false,
+        "auxiliary_limited": false,
+        "rate_achieved": true,
+        "validity": "inconclusive-control/load",
+        "capacity_ranking": false,
+        "auxiliary_shared_core_limited": false
+      },
+      {
+        "block": "stealth-2",
+        "protocol": "stealth",
+        "shape": "burst",
+        "rate_pps": 10000,
+        "control": {
+          "Mbps": {
+            "baseline": 91.19885825137489,
+            "candidate": 74.7960226975377,
+            "change_percent": -17.985790467491857
+          },
+          "CPU_ns_per_byte": {
+            "baseline": 43.02822953040088,
+            "candidate": 43.94713169146081,
+            "change_percent": 2.135579760284334
+          },
+          "CPU_core_percent": {
+            "baseline": 49.03143123009058,
+            "candidate": 41.08675049479346,
+            "change_percent": -16.203240525480457
+          },
+          "peak_RSS_MiB": {
+            "baseline": 2.3515625,
+            "candidate": 2.3515625,
+            "change_percent": 0.0
+          }
+        },
+        "result": {
+          "Mbps": {
+            "baseline": 90.32504793753557,
+            "candidate": 70.85290215642797,
+            "change_percent": -21.5578582306135
+          },
+          "CPU_ns_per_byte": {
+            "baseline": 46.266225474717,
+            "candidate": 44.01557481986896,
+            "change_percent": -4.864565094202344
+          },
+          "CPU_core_percent": {
+            "baseline": 52.23559132286934,
+            "candidate": 38.945202970920114,
+            "change_percent": -25.443166269145955
+          },
+          "peak_RSS_MiB": {
+            "baseline": 2.408202332978377,
+            "candidate": 2.3515625,
+            "change_percent": -2.3519549085531777
+          }
+        },
+        "AA_pass": false,
+        "auxiliary_limited": false,
+        "rate_achieved": false,
+        "validity": "inconclusive-control/load",
+        "capacity_ranking": false,
+        "auxiliary_shared_core_limited": false
+      }
+    ]
+  },
+  "low_rate": {
+    "environment": {
+      "kernel": "6.12.112",
+      "machine": "aarch64",
+      "sources": {
+        "main": {
+          "sha": "ae9c9e86da8509261812813c9438e7ea625e19f5",
+          "archive_sha256": "b7391f96d175f42908b6b7757b071822f3c217f795a3ea3795f7bcbe49afc2c8",
+          "effective_sources_sha256": "c732ef4eb69e86b9b78c831b17058dc14af24450fe97fe0c307e85518589cc71"
+        },
+        "erase": {
+          "sha": "0dff6615a98e62397817783e8b60a0cef68afe0e",
+          "archive_sha256": "8b4a4eaa170fdd52628791ec48c9ffaa676c6e44d039faba461f540f6720b097",
+          "effective_sources_sha256": "c8fb86274188b8e1012cce62a8d286f58c170a6f45a6e6f3f1e68b92fbd5d78d"
+        }
+      },
+      "binaries": {
+        "main": "58a2e57b97a828740b8f7782717f2bb94e53801fdb30a02572cddbe29bc2ae5a",
+        "erase": "cb61edd60c525f43a24b2ac108d875ef7e5ee8f617cd7277e5238f0fe7ef1cd0"
+      },
+      "nsrun_sha256": "9945b833491099df75711e8b7cd72ca108db4652bfa2e1b4ba676fbc6b2c9ae2",
+      "warm_seconds": 1,
+      "measured_seconds": 5,
+      "client_cpus": [
+        0,
+        1
+      ],
+      "peer_cpus": [
+        0
+      ],
+      "load_cpus": [
+        0
+      ],
+      "scope": "Travel shared-core fixed-rate cost check, not capacity",
+      "host_driver_sha256": "dd944164db4d32ccd954fb10b5ed206e0729b64ff9be334443f89180f41c853a"
+    },
+    "observed_samples": 24,
+    "expected_samples": 24,
+    "errors": [],
+    "blocks": [
+      {
+        "block": "udp-2",
+        "protocol": "udp",
+        "shape": "burst",
+        "rate_pps": 1000,
+        "control": {
+          "Mbps": {
+            "baseline": 9.599869411012193,
+            "candidate": 9.59985514995647,
+            "change_percent": -0.0001485546845758634
+          },
+          "CPU_ns_per_byte": {
+            "baseline": 34.21261015901329,
+            "candidate": 34.2496590314274,
+            "change_percent": 0.10829010777579917
+          },
+          "CPU_core_percent": {
+            "baseline": 4.105348132053768,
+            "candidate": 4.109494070082364,
+            "change_percent": 0.10098870778398883
+          },
+          "peak_RSS_MiB": {
+            "baseline": 2.413253302889328,
+            "candidate": 2.3515625,
+            "change_percent": -2.5563335110933894
+          }
+        },
+        "result": {
+          "Mbps": {
+            "baseline": 9.59986328506942,
+            "candidate": 9.599865857925423,
+            "change_percent": 2.680096504725782e-05
+          },
+          "CPU_ns_per_byte": {
+            "baseline": 33.41842381113315,
+            "candidate": 34.067144340019425,
+            "change_percent": 1.941206241660498
+          },
+          "CPU_core_percent": {
+            "baseline": 4.0100374943452595,
+            "candidate": 4.087830072356978,
+            "change_percent": 1.9399464000378286
+          },
+          "peak_RSS_MiB": {
+            "baseline": 2.2882090985979078,
+            "candidate": 2.3515625,
+            "change_percent": 2.7686893405376223
+          }
+        },
+        "AA_pass": true,
+        "auxiliary_limited": false,
+        "rate_achieved": true,
+        "validity": "usable",
+        "capacity_ranking": false,
+        "auxiliary_shared_core_limited": false
+      },
+      {
+        "block": "tcp-2",
+        "protocol": "tcp",
+        "shape": "burst",
+        "rate_pps": 1000,
+        "control": {
+          "Mbps": {
+            "baseline": 9.599867595775205,
+            "candidate": 9.599857526003424,
+            "change_percent": -0.0001048949027748769
+          },
+          "CPU_ns_per_byte": {
+            "baseline": 34.988189801364484,
+            "candidate": 34.204579337507035,
+            "change_percent": -2.2396427717643497
+          },
+          "CPU_core_percent": {
+            "baseline": 4.198404376546003,
+            "candidate": 4.10408353465754,
+            "change_percent": -2.2465878326389466
+          },
+          "peak_RSS_MiB": {
+            "baseline": 1.6628883768630562,
+            "candidate": 1.7265625,
+            "change_percent": 3.8291279212054663
+          }
+        },
+        "result": {
+          "Mbps": {
+            "baseline": 9.599823976876886,
+            "candidate": 9.599863232525772,
+            "change_percent": 0.00040892050710006345
+          },
+          "CPU_ns_per_byte": {
+            "baseline": 35.02069529333523,
+            "candidate": 34.50406902466703,
+            "change_percent": -1.4752027746476992
+          },
+          "CPU_core_percent": {
+            "baseline": 4.20220668636274,
+            "candidate": 4.140249568817634,
+            "change_percent": -1.4743948160896858
+          },
+          "peak_RSS_MiB": {
+            "baseline": 1.7265625,
+            "candidate": 1.7265625,
+            "change_percent": 0.0
+          }
+        },
+        "AA_pass": true,
+        "auxiliary_limited": false,
+        "rate_achieved": true,
+        "validity": "usable",
+        "capacity_ranking": false,
+        "auxiliary_shared_core_limited": false
+      },
+      {
+        "block": "stealth-2",
+        "protocol": "stealth",
+        "shape": "burst",
+        "rate_pps": 1000,
+        "control": {
+          "Mbps": {
+            "baseline": 9.599870628177554,
+            "candidate": 9.599871068610636,
+            "change_percent": 4.587906432540478e-06
+          },
+          "CPU_ns_per_byte": {
+            "baseline": 47.82372180808211,
+            "candidate": 46.81470701401624,
+            "change_percent": -2.1098625450253983
+          },
+          "CPU_core_percent": {
+            "baseline": 5.738628003508298,
+            "candidate": 5.616133348471588,
+            "change_percent": -2.1345634350549147
+          },
+          "peak_RSS_MiB": {
+            "baseline": 2.3515625,
+            "candidate": 2.3515625,
+            "change_percent": 0.0
+          }
+        },
+        "result": {
+          "Mbps": {
+            "baseline": 9.599864936932192,
+            "candidate": 9.59985920270288,
+            "change_percent": -5.973239570744582e-05
+          },
+          "CPU_ns_per_byte": {
+            "baseline": 49.54515369256245,
+            "candidate": 46.810718504457014,
+            "change_percent": -5.519077012200125
+          },
+          "CPU_core_percent": {
+            "baseline": 5.945117602887999,
+            "candidate": 5.616626074521615,
+            "change_percent": -5.525400005658598
+          },
+          "peak_RSS_MiB": {
+            "baseline": 2.3515625,
+            "candidate": 2.2882090985979078,
+            "change_percent": -2.6940981327135516
+          }
+        },
+        "AA_pass": true,
+        "auxiliary_limited": false,
+        "rate_achieved": true,
+        "validity": "usable",
+        "capacity_ranking": false,
+        "auxiliary_shared_core_limited": false
+      }
+    ]
+  },
+  "wan": {
+    "udp": {
+      "baseline": {
+        "Mbps": 175.59559759716632,
+        "CPU_ns_per_byte": 32.30149810595364,
+        "CPU_core_percent": 70.8833577549751,
+        "peak_RSS_MiB": 7.039838504672889
+      },
+      "candidate": {
+        "Mbps": 192.1399874093095,
+        "CPU_ns_per_byte": 31.177169416862135,
+        "CPU_core_percent": 74.85185078799915,
+        "peak_RSS_MiB": 7.136247290461913
+      },
+      "change_percent": {
+        "Mbps": 9.42187050161567,
+        "CPU_ns_per_byte": -3.4807323344680285,
+        "CPU_core_percent": 5.598624499056726,
+        "peak_RSS_MiB": 1.36947439525823
+      },
+      "control_complete": false,
+      "control_change_percent": null
+    },
+    "tcp": {
+      "baseline": {
+        "Mbps": 173.8363947689816,
+        "CPU_ns_per_byte": 31.228343324844385,
+        "CPU_core_percent": 67.83630212862096,
+        "peak_RSS_MiB": 2.615216141880055
+      },
+      "candidate": {
+        "Mbps": 194.79936880770765,
+        "CPU_ns_per_byte": 30.406078497355313,
+        "CPU_core_percent": 74.01002717063987,
+        "peak_RSS_MiB": 2.615111116634196
+      },
+      "change_percent": {
+        "Mbps": 12.05902484723329,
+        "CPU_ns_per_byte": -2.6330722028244824,
+        "CPU_core_percent": 9.100916247340884,
+        "peak_RSS_MiB": -0.004015929856704403
+      },
+      "control_complete": true,
+      "control_change_percent": {
+        "Mbps": 10.920515946784404,
+        "CPU_ns_per_byte": -4.129381436093893,
+        "CPU_core_percent": 6.32071067901927,
+        "peak_RSS_MiB": -0.6719001059044327
+      }
+    },
+    "stealth": {
+      "baseline": {
+        "Mbps": 140.44177069120926,
+        "CPU_ns_per_byte": 40.21062433517726,
+        "CPU_core_percent": 70.54917791841567,
+        "peak_RSS_MiB": 3.208484464446376
+      },
+      "candidate": {
+        "Mbps": 162.01358966938147,
+        "CPU_ns_per_byte": 36.880461944102926,
+        "CPU_core_percent": 74.67273796052282,
+        "peak_RSS_MiB": 3.199197287015916
+      },
+      "change_percent": {
+        "Mbps": 15.359973654563497,
+        "CPU_ns_per_byte": -8.281797276549675,
+        "CPU_core_percent": 5.8449441421921655,
+        "peak_RSS_MiB": -0.28945683026899705
+      },
+      "control_complete": true,
+      "control_change_percent": {
+        "Mbps": 9.194619052916941,
+        "CPU_ns_per_byte": -2.3320535592741165,
+        "CPU_core_percent": 6.658453229388028,
+        "peak_RSS_MiB": 3.6151998212436975
+      }
+    }
+  },
+  "restoration": {
+    "mode": true,
+    "identity": true,
+    "packages": true,
+    "links": true,
+    "rules": true,
+    "default": true,
+    "limits": true,
+    "configs": true,
+    "final_mode_direct": true,
+    "owned_stages_absent": true,
+    "owned_binaries_not_running": true
+  },
+  "completed_body_sha256": "2aa720bbba4fe59c980d62a1763575f43ebf214f28a5af2beadb970865d001b0",
+  "wan_failures": [
+    {
+      "build": "erase",
+      "protocol": "udp",
+      "role": "aa",
+      "slot": 0,
+      "size": 100000000,
+      "warmups": [
+        {
+          "requested_bytes": 12000000,
+          "valid": false,
+          "local_port": 21403,
+          "error": "SSLEOFError: [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1010)",
+          "seconds": 0.2440619000008155
+        },
+        {
+          "requested_bytes": 12000000,
+          "valid": false,
+          "local_port": 21404,
+          "error": "SSLEOFError: [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1010)",
+          "seconds": 0.26426939999873866
+        },
+        {
+          "requested_bytes": 12000000,
+          "valid": false,
+          "local_port": 21405,
+          "error": "SSLEOFError: [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1010)",
+          "seconds": 0.27260069999829284
+        }
+      ],
+      "warmup_forward_counts": {
+        "in": 676,
+        "out": 5460
+      },
+      "warmup_state": {
+        "sequence": 3,
+        "state": "TunnelEstablished",
+        "elapsed": {
+          "secs": 0,
+          "nanos": 41324723
+        },
+        "mono_timestamp": {
+          "secs": 23430,
+          "nanos": 770719680
+        },
+        "stats_generation": 0,
+        "statistics": {
+          "handshake_age": {
+            "secs": 0,
+            "nanos": 0
+          },
+          "sent_bytes": 152,
+          "received_bytes": 0,
+          "estimated_loss": 0.0,
+          "handshake_rtt": {
+            "secs": 0,
+            "nanos": 39000000
+          }
+        },
+        "counters": {
+          "tun_reads": 2,
+          "network_reads": 1,
+          "decrypted_packets": 0,
+          "invalid_packets": 0,
+          "outbound_filtered": 0,
+          "inbound_filtered": 0,
+          "pool_pressure": 0,
+          "polls": 2,
+          "tun_backpressure": 0,
+          "network_backpressure": 0,
+          "io": {
+            "receive_calls": 3,
+            "send_calls": 3,
+            "received_datagrams": 1,
+            "sent_datagrams": 4,
+            "max_receive_batch": 1,
+            "max_send_batch": 2,
+            "truncated_datagrams": 0,
+            "gso_datagrams": 2,
+            "gro_datagrams": 0,
+            "kernel_fallbacks": 0,
+            "enobufs": 0,
+            "received_bytes": 92,
+            "sent_bytes": 396,
+            "receive_would_block": 2,
+            "send_would_block": 0,
+            "receive_interrupted": 0,
+            "send_interrupted": 0
+          },
+          "to_network_high_water": 3,
+          "to_tun_high_water": 0,
+          "pool_reserved_bytes": 405758,
+          "outer_eof": 0,
+          "outer_io_errors": 0,
+          "in_place_encryptions": 2,
+          "in_place_decryptions": 0,
+          "successful_crypto_copy_bytes": 0,
+          "pool_recycle_wipe_bytes": 0,
+          "to_network_bytes_high_water": 0,
+          "to_tun_bytes_high_water": 0
+        },
+        "tun_present": true,
+        "interface_error": null
+      },
+      "valid": false,
+      "error": "RuntimeError: warmup failed"
+    },
+    {
+      "build": "erase",
+      "protocol": "udp",
+      "role": "aa",
+      "slot": 1,
+      "size": 100000000,
+      "warmups": [
+        {
+          "requested_bytes": 12000000,
+          "valid": false,
+          "local_port": 21406,
+          "error": "SSLEOFError: [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1010)",
+          "seconds": 0.2239186000006157
+        },
+        {
+          "requested_bytes": 12000000,
+          "valid": false,
+          "local_port": 21407,
+          "error": "SSLEOFError: [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1010)",
+          "seconds": 0.23767180000140797
+        },
+        {
+          "requested_bytes": 12000000,
+          "valid": false,
+          "local_port": 21408,
+          "error": "SSLEOFError: [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1010)",
+          "seconds": 0.2534737000023597
+        }
+      ],
+      "warmup_forward_counts": {
+        "in": 676,
+        "out": 5460
+      },
+      "warmup_state": {
+        "sequence": 3,
+        "state": "TunnelEstablished",
+        "elapsed": {
+          "secs": 0,
+          "nanos": 31409759
+        },
+        "mono_timestamp": {
+          "secs": 23433,
+          "nanos": 441156154
+        },
+        "stats_generation": 0,
+        "statistics": {
+          "handshake_age": {
+            "secs": 0,
+            "nanos": 0
+          },
+          "sent_bytes": 152,
+          "received_bytes": 0,
+          "estimated_loss": 0.0,
+          "handshake_rtt": {
+            "secs": 0,
+            "nanos": 29000000
+          }
+        },
+        "counters": {
+          "tun_reads": 2,
+          "network_reads": 1,
+          "decrypted_packets": 0,
+          "invalid_packets": 0,
+          "outbound_filtered": 0,
+          "inbound_filtered": 0,
+          "pool_pressure": 0,
+          "polls": 2,
+          "tun_backpressure": 0,
+          "network_backpressure": 0,
+          "io": {
+            "receive_calls": 3,
+            "send_calls": 3,
+            "received_datagrams": 1,
+            "sent_datagrams": 4,
+            "max_receive_batch": 1,
+            "max_send_batch": 2,
+            "truncated_datagrams": 0,
+            "gso_datagrams": 2,
+            "gro_datagrams": 0,
+            "kernel_fallbacks": 0,
+            "enobufs": 0,
+            "received_bytes": 92,
+            "sent_bytes": 396,
+            "receive_would_block": 2,
+            "send_would_block": 0,
+            "receive_interrupted": 0,
+            "send_interrupted": 0
+          },
+          "to_network_high_water": 3,
+          "to_tun_high_water": 0,
+          "pool_reserved_bytes": 405758,
+          "outer_eof": 0,
+          "outer_io_errors": 0,
+          "in_place_encryptions": 2,
+          "in_place_decryptions": 0,
+          "successful_crypto_copy_bytes": 0,
+          "pool_recycle_wipe_bytes": 0,
+          "to_network_bytes_high_water": 0,
+          "to_tun_bytes_high_water": 0
+        },
+        "tun_present": true,
+        "interface_error": null
+      },
+      "valid": false,
+      "error": "RuntimeError: warmup failed"
+    }
+  ],
+  "low_rate_max_auxiliary_combined_cores": 0.06683904832742268,
+  "kernel_reference_Mbps": [
+    305.4058165683116,
+    369.808518234286
+  ]
+}
