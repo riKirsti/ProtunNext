@@ -2,6 +2,7 @@
 #[path = "../../../tests/common/mod.rs"]
 mod common;
 mod ktls;
+mod speed;
 use std::{
     io::{Read, Write},
     net::{TcpListener, TcpStream},
@@ -103,6 +104,9 @@ fn run(tls13: bool) -> std::io::Result<serde_json::Value> {
     }
 }
 fn main() {
+    if speed::run(&std::env::args().collect::<Vec<_>>()) {
+        return;
+    }
     let tls13 = std::env::args().nth(1).as_deref() != Some("tls12");
     if !tls13 {
         println!(

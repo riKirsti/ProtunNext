@@ -17,11 +17,26 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo build --locked --release --manifest-path experiments/ktls/Cargo.toml
       - name: Exercise native kTLS
+        shell: bash
         run: |
+          set -euo pipefail
           mkdir -p target/ktls-results
           uname -a >target/ktls-results/kernel.txt
           sudo unshare --net sh -c 'ip link set lo up; experiments/ktls/target/release/ktls-next-probe tls12' | tee target/ktls-results/tls12.log
           sudo unshare --net sh -c 'ip link set lo up; experiments/ktls/target/release/ktls-next-probe tls13' | tee target/ktls-results/tls13.log
+      - name: Screen bounded outer TLS component with separate fixed peer
+        shell: bash
+        run: |
+          set -euo pipefail
+          for round in 0 1; do
+            for size in 1280 16384 65536; do
+              order='unbuffered ktls'
+              if [ "$round" = 1 ]; then order='ktls unbuffered'; fi
+              for backend in $order; do
+                sudo unshare --net sh -c "ip link set lo up; NEXT_TLS_PEER_CPUS=0 NEXT_TLS_CLIENT_CPUS=2,3 experiments/ktls/target/release/ktls-next-probe bench-client $backend $size 1" | tee -a target/ktls-results/speed.log
+              done
+            done
+          done
       - uses: actions/upload-artifact@v4
         if: always()
         with:
