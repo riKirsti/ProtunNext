@@ -18,4 +18,11 @@ for name,ref in refs.items():
   import importlib.util
   spec=importlib.util.spec_from_file_location('parallel_overlay',root/'experiments/parallel/overlay.py');module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
   state[name]['experimental_overlay_sha256']=module.apply(dest)
+ # Hash the actual effective source, including synthetic harness and any overlay.
+ # A git SHA alone does not identify an experiment that transforms an archive.
+ files=sorted([*dest.rglob('*.rs'),*dest.rglob('Cargo.toml'),*dest.rglob('Cargo.lock')])
+ digest=hashlib.sha256()
+ for file in files:
+  digest.update(file.relative_to(dest).as_posix().encode()+b'\0'+file.read_bytes().replace(b'\r\n',b'\n')+b'\0')
+ state[name]['effective_sources_sha256']=digest.hexdigest()
 (out/'builds.json').write_text(json.dumps(state,indent=2),encoding='utf-8');print(json.dumps(state))

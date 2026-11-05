@@ -481,11 +481,18 @@ fn client(peer_bin: &str, proto: &str, size: usize, window: usize, seconds: f64,
     )
     .unwrap();
     emit(
-        serde_json::json!({"role":"client","protocol":proto,"size":size,"window":window,"flows":flows,"seconds":elapsed,"client_cpu_seconds":used,"client_cpu_ns_per_byte":used*1e9/bytes as f64,"client_rss_kib":rss(),"load":metric,"peer":peer_metric,"cold_ms":cold,"counters":counters,"state":format!("{:?}",before.state),"kernel":std::fs::read_to_string("/proc/sys/kernel/osrelease").unwrap().trim(),"arch":std::env::consts::ARCH,"scope":"IPv4 UDP echo through actual Connection/TUN/WireGuard worker; peer and generator are separate processes built from frozen main. Process CPU includes synchronous system time, not all asynchronous kernel work. Not a TCP/HTTPS, NIC or Proton WAN acceptance test."}),
+        serde_json::json!({"effective_sources_sha256":option_env!("NEXT_BUILD_ID").unwrap_or("unstamped-local-build"),"role":"client","protocol":proto,"size":size,"window":window,"flows":flows,"seconds":elapsed,"client_cpu_seconds":used,"client_cpu_ns_per_byte":used*1e9/bytes as f64,"client_rss_kib":rss(),"load":metric,"peer":peer_metric,"cold_ms":cold,"counters":counters,"state":format!("{:?}",before.state),"kernel":std::fs::read_to_string("/proc/sys/kernel/osrelease").unwrap().trim(),"arch":std::env::consts::ARCH,"scope":"IPv4 UDP echo through actual Connection/TUN/WireGuard worker; peer and generator are separate processes built from frozen main. Process CPU includes synchronous system time, not all asynchronous kernel work. Not a TCP/HTTPS, NIC or Proton WAN acceptance test."}),
     );
 }
 pub fn run() {
     let a: Vec<_> = std::env::args().collect();
+    if a[1] == "identity" {
+        println!(
+            "{}",
+            serde_json::json!({"effective_sources_sha256":option_env!("NEXT_BUILD_ID").unwrap_or("unstamped-local-build")})
+        );
+        return;
+    }
     match a[1].as_str() {
         "peer" => peer(&a[2], a[3].parse().unwrap()),
         "load" => load(

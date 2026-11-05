@@ -3,6 +3,11 @@ import argparse,hashlib,itertools,json,os,pathlib,signal,subprocess,time
 p=argparse.ArgumentParser();p.add_argument('--profile-only',action='store_true');p.add_argument('--rounds',type=int,default=8);a=p.parse_args()
 root=pathlib.Path(__file__).resolve().parents[2];out=root/'target/next/results';out.mkdir(parents=True,exist_ok=True)
 state=json.loads((root/'target/next/builds.json').read_text());binaries={name:root/'target/next/bin'/name for name in state}
+digests={k:hashlib.sha256(v.read_bytes()).hexdigest()for k,v in binaries.items()}
+assert len(set(digests.values()))==len(digests),'refuse A/A comparisons: experiment binaries must differ'
+for name,binary in binaries.items():
+ identity=json.loads(subprocess.check_output([str(binary),'identity'],text=True))
+ assert identity['effective_sources_sha256']==state[name]['effective_sources_sha256'],(name,identity,state[name])
 cpus=sorted(os.sched_getaffinity(0));assert len(cpus)>=4,'need two client CPUs and independent peer/load CPUs'
 env=os.environ.copy();env.update(NEXT_PEER_CPUS=str(cpus[0]),NEXT_LOAD_CPUS=str(cpus[1]),NEXT_CLIENT_CPUS=','.join(map(str,cpus[2:4])))
 (out/'environment.json').write_text(json.dumps({'sources':state,'allowed_cpus':cpus,'client_cpus':cpus[2:4],'peer_cpu':cpus[0],'load_cpu':cpus[1],'kernel':os.uname().release,'machine':os.uname().machine,'binaries':{k:hashlib.sha256(v.read_bytes()).hexdigest()for k,v in binaries.items()},'scope':'native host; CPU pinning does not isolate interrupts/asynchronous kernel work; synthetic IPv4 UDP echo; fixed frozen-baseline peer and load processes'},indent=2))
@@ -19,6 +24,7 @@ def timed(label,proto,size,window,round_id,flows):
  rows=[json.loads(line.split('NEXT_JSON ',1)[1])for line in stdout.splitlines()if line.startswith('NEXT_JSON ')]
  row={'build':label,'protocol':proto,'size':size,'window':window,'flows':flows,'round':round_id,'exit':c.returncode,'wall':time.monotonic()-t,'stdout':stdout,'stderr':stderr,'metrics':rows};save(row)
  assert c.returncode==0 and len(rows)==1,row
+ assert rows[0]['effective_sources_sha256']==state[label]['effective_sources_sha256'],row
  print(json.dumps({k:row[k]for k in ['build','protocol','size','window','flows','round','exit']}),flush=True)
 if not a.profile_only:
  orders=list(itertools.permutations(binaries))
@@ -34,6 +40,8 @@ else:
    stem=out/(label+'-'+proto);ready=stem.with_suffix('.ready');go=stem.with_suffix('.go');assert not ready.exists()and not go.exists()
    e=env|{'NEXT_PROFILE_READY':str(ready),'NEXT_PROFILE_GO':str(go)}
    binary=root/'target/next/profile-bin'/label
+   identity=json.loads(subprocess.check_output([str(binary),'identity'],text=True))
+   assert identity['effective_sources_sha256']==state[label]['effective_sources_sha256'],(label,identity)
    with stem.with_suffix('.stdout').open('w')as stdout,stem.with_suffix('.stderr').open('w')as stderr:
     c=subprocess.Popen(args(binary,proto,1200,32,10,1),env=e,stdout=stdout,stderr=stderr,start_new_session=True)
     profiler=None

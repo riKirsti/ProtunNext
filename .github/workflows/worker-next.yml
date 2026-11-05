@@ -27,11 +27,12 @@ jobs:
           set -euo pipefail
           python3 experiments/next/prepare.py
           mkdir -p target/next/bin target/next/profile-bin target/next/results
-          export CARGO_TARGET_DIR="$PWD/target/next/cargo"
           for name in baseline gro candidate; do
+            export CARGO_TARGET_DIR="$PWD/target/next/cargo-$name"
+            export NEXT_BUILD_ID="$(python3 -c "import json; print(json.load(open('target/next/builds.json'))['$name']['effective_sources_sha256'])")"
             source="$(python3 -c "import json; print(json.load(open('target/next/builds.json'))['$name']['path'])")"
             cargo build --locked --release --no-default-features --features unix --bin next-probe --manifest-path "$source/Cargo.toml" >"target/next/results/build-$name.log" 2>&1
-            cp target/next/cargo/release/next-probe "target/next/bin/$name"
+            cp "$CARGO_TARGET_DIR/release/next-probe" "target/next/bin/$name"
           done
           cargo test --locked --lib --no-default-features --features unix >target/next/results/unit.log 2>&1
           uname -a >target/next/results/hardware.txt
@@ -44,12 +45,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          export CARGO_TARGET_DIR="$PWD/target/next/profile-cargo"
           export RUSTFLAGS='-Cforce-frame-pointers=yes -Cdebuginfo=1'
           for name in baseline candidate; do
+            export CARGO_TARGET_DIR="$PWD/target/next/profile-cargo-$name"
+            export NEXT_BUILD_ID="$(python3 -c "import json; print(json.load(open('target/next/builds.json'))['$name']['effective_sources_sha256'])")"
             source="$(python3 -c "import json; print(json.load(open('target/next/builds.json'))['$name']['path'])")"
             cargo build --locked --release --no-default-features --features unix --bin next-probe --manifest-path "$source/Cargo.toml" >"target/next/results/profile-build-$name.log" 2>&1
-            cp target/next/profile-cargo/release/next-probe "target/next/profile-bin/$name"
+            cp "$CARGO_TARGET_DIR/release/next-probe" "target/next/profile-bin/$name"
             objdump -Cd "target/next/profile-bin/$name" >"target/next/results/assembly-$name.txt"
           done
       - name: Profile client-only processes
