@@ -2,6 +2,7 @@ name: worker-next-experiments
 on:
   push:
     branches: [performance/worker-next]
+    paths: ['src/**', 'experiments/next/**', '.github/workflows/worker-next.yml']
   workflow_dispatch:
 permissions: {contents: read}
 concurrency:
@@ -62,6 +63,12 @@ jobs:
           test -n "${perf_bin:-}"
           sudo sysctl kernel.perf_event_paranoid=-1
           sudo env NEXT_PERF="$perf_bin" python3 experiments/next/run.py --profile-only
+      - name: Make owned measurement files readable by the artifact uploader
+        if: always()
+        run: |
+          if [ -d target/next/results ]; then
+            sudo chown -R "$(id -u):$(id -g)" target/next/results
+          fi
       - uses: actions/upload-artifact@v4
         if: always()
         with:
