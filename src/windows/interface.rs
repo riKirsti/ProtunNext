@@ -38,6 +38,8 @@ impl Interface {
         config: AdapterConfig,
         socket: SocketConfig,
     ) -> std::result::Result<Arc<Self>, ProTunFatalError> {
+        super::version::require_supported()
+            .map_err(|error| ProTunFatalError::WintunInterfaceCreationFailed(error.to_string()))?;
         if config.mtu < 76 || config.mtu > 65503 || (config.is_ipv6_enabled && config.mtu < 1280) {
             return Err(ProTunFatalError::WintunIpAddressSetupFailed(
                 "Windows interface MTU".into(),

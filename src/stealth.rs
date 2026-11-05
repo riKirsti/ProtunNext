@@ -114,7 +114,14 @@ mod policy {
         }
     }
     // Intentionally crate-private; all public entry points couple it to WireGuard.
-    pub(crate) fn client(sni: String) -> Result<rustls::ClientConnection> {
+    pub(crate) fn client(sni: String) -> Result<crate::tls::ClientConnection> {
+        crate::tls::ClientConnection::new(
+            config()?,
+            ServerName::try_from(sni).map_err(|_| Error::Invalid("Stealth SNI"))?,
+        )
+        .map_err(|e| Error::Protocol(e.to_string()))
+    }
+    fn config() -> Result<Arc<rustls::ClientConfig>> {
         let provider = Arc::new(rustls::crypto::ring::default_provider());
         let config = rustls::ClientConfig::builder_with_provider(provider.clone())
             .with_safe_default_protocol_versions()
@@ -122,11 +129,7 @@ mod policy {
             .dangerous()
             .with_custom_certificate_verifier(Arc::new(InnerWireguardIdentity { provider }))
             .with_no_client_auth();
-        rustls::ClientConnection::new(
-            Arc::new(config),
-            ServerName::try_from(sni).map_err(|_| Error::Invalid("Stealth SNI"))?,
-        )
-        .map_err(|e| Error::Protocol(e.to_string()))
+        Ok(Arc::new(config))
     }
 }
 #[cfg(any(unix, windows))]

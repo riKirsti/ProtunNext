@@ -33,13 +33,20 @@ pub struct FramedIo<S> {
 }
 impl<S: Read + Write> FramedIo<S> {
     pub fn new(io: S, queue_limit: usize) -> Result<Self> {
+        Self::with_scratch(io, queue_limit, 16384)
+    }
+    #[cfg(not(any(windows, target_vendor = "apple")))]
+    pub(crate) fn borrowing(io: S, queue_limit: usize) -> Result<Self> {
+        Self::with_scratch(io, queue_limit, 0)
+    }
+    fn with_scratch(io: S, queue_limit: usize, scratch: usize) -> Result<Self> {
         Ok(Self {
             io,
             encoder: Encoder::default(),
             decoder: Decoder::new(65536)?,
             pending: PacketQueue::new(queue_limit)?,
             limit: queue_limit,
-            scratch: vec![0; 16384].into_boxed_slice(),
+            scratch: vec![0; scratch].into_boxed_slice(),
         })
     }
     pub fn queue(&mut self, mut packet: Packet) -> std::result::Result<(), Rejected> {
@@ -106,15 +113,26 @@ impl<S: Read + Write> FramedIo<S> {
         })
     }
     pub fn receive(&mut self, output: &mut Packet) -> Result<Receive> {
+        self.receive_using(output, |io, decoder, scratch| {
+            let capacity = scratch.len().min(decoder.remaining());
+            if capacity == 0 {
+                return Err(Error::Full);
+            }
+            let n = io.read(&mut scratch[..capacity])?;
+            decoder.feed(&scratch[..n])?;
+            Ok(n)
+        })
+    }
+    pub(crate) fn receive_using(
+        &mut self,
+        output: &mut Packet,
+        mut read: impl FnMut(&mut S, &mut Decoder, &mut [u8]) -> Result<usize>,
+    ) -> Result<Receive> {
         for _ in 0..64 {
             if self.decoder.decode_into(output)? {
                 return Ok(Receive::Packet);
             }
-            let capacity = self.scratch.len().min(self.decoder.remaining());
-            if capacity == 0 {
-                return Err(Error::Full);
-            }
-            match self.io.read(&mut self.scratch[..capacity]) {
+            match read(&mut self.io, &mut self.decoder, &mut self.scratch) {
                 Ok(0) if self.decoder.buffered() == 0 => return Ok(Receive::Eof),
                 Ok(0) => {
                     return Err(io::Error::new(
@@ -123,10 +141,12 @@ impl<S: Read + Write> FramedIo<S> {
                     )
                     .into());
                 }
-                Ok(n) => self.decoder.feed(&self.scratch[..n])?,
-                Err(e) if e.kind() == io::ErrorKind::WouldBlock => return Ok(Receive::WouldBlock),
-                Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
-                Err(e) => return Err(e.into()),
+                Ok(_) => {}
+                Err(Error::Io(e)) if e.kind() == io::ErrorKind::WouldBlock => {
+                    return Ok(Receive::WouldBlock);
+                }
+                Err(Error::Io(e)) if e.kind() == io::ErrorKind::Interrupted => continue,
+                Err(e) => return Err(e),
             }
         }
         // Caller must reschedule without relying on another edge-triggered event.

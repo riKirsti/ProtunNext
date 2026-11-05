@@ -6,10 +6,12 @@ use std::{
     io::{self, Read, Write},
     os::fd::{AsRawFd, RawFd},
 };
-pub(crate) struct TunDevice(pub File);
+pub(crate) struct TunDevice {
+    file: File,
+}
 impl TunDevice {
     pub(crate) fn new(file: File) -> Self {
-        Self(file)
+        Self { file }
     }
     pub(crate) fn register(
         &self,
@@ -33,14 +35,14 @@ impl TunDevice {
 }
 impl AsRawFd for TunDevice {
     fn as_raw_fd(&self) -> RawFd {
-        self.0.as_raw_fd()
+        self.file.as_raw_fd()
     }
 }
 impl Read for TunDevice {
     fn read(&mut self, bytes: &mut [u8]) -> io::Result<usize> {
         #[cfg(not(target_vendor = "apple"))]
         {
-            self.0.read(bytes)
+            self.file.read(bytes)
         }
         #[cfg(target_vendor = "apple")]
         {
@@ -75,7 +77,7 @@ impl Write for TunDevice {
     fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
         #[cfg(not(target_vendor = "apple"))]
         {
-            self.0.write(bytes)
+            self.file.write(bytes)
         }
         #[cfg(target_vendor = "apple")]
         {
@@ -134,7 +136,7 @@ mod tests {
         let (device, peer) = UnixDatagram::pair().unwrap();
         peer.set_read_timeout(Some(Duration::from_secs(1))).unwrap();
         let owned: OwnedFd = device.into();
-        let mut device = TunDevice(File::from(owned));
+        let mut device = TunDevice::new(File::from(owned));
         for payload in [vec![0x45u8; 20], vec![0x60u8; 40]] {
             let mut expected = family_header(payload[0]).unwrap().to_vec();
             expected.extend_from_slice(&payload);

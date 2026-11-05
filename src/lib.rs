@@ -1,5 +1,14 @@
 //! Independent packet engine. Control operations do not traverse the packet path.
 //! See docs/parity.json for verified support, rather than inferring it from types.
+#[cfg(all(windows, not(target_arch = "x86_64")))]
+compile_error!("Windows production builds require x86_64");
+#[cfg(all(target_vendor = "apple", not(target_arch = "aarch64")))]
+compile_error!("Apple production and simulator builds require ARM64");
+#[cfg(all(
+    target_os = "linux",
+    not(any(target_arch = "x86_64", target_arch = "aarch64"))
+))]
+compile_error!("Linux production builds require x64 or ARM64");
 #[cfg(feature = "uniffi")]
 uniffi::setup_scaffolding!();
 pub mod addressing;
@@ -16,6 +25,8 @@ mod engine;
 pub mod framing;
 #[cfg(unix)]
 pub mod linux;
+#[cfg(any(target_os = "linux", target_os = "android"))]
+mod linux_batch;
 #[cfg(unix)]
 mod linux_network;
 #[cfg(any(unix, windows))]
@@ -26,6 +37,7 @@ mod path_probe;
 pub use linux as unix;
 pub mod natpmp;
 pub mod packet;
+pub mod performance;
 #[cfg(any(unix, windows))]
 mod platform;
 pub mod routing;
@@ -33,6 +45,9 @@ pub mod session;
 pub mod stealth;
 pub mod stream;
 pub mod tls;
+#[cfg(any(windows, target_vendor = "apple"))]
+mod tls_buffered;
+pub mod tls_unbuffered;
 pub mod transport;
 #[cfg(unix)]
 mod tun_device;

@@ -24,11 +24,12 @@ impl<T: Read + Write> Duplex for T {}
 
 #[test]
 fn windows_native_udp_tcp_tls_and_stealth_exchange_real_noise_without_a_tun() {
-    for mode in 0..4 {
+    for mode in 0..8 {
+        let udp_mode = matches!(mode, 0 | 6);
         let udp = UdpSocket::bind("127.0.0.1:0").unwrap();
         udp.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
         let tcp = TcpListener::bind("127.0.0.1:0").unwrap();
-        let endpoint = if mode == 0 {
+        let endpoint = if udp_mode {
             udp.local_addr().unwrap()
         } else {
             tcp.local_addr().unwrap()
@@ -45,7 +46,7 @@ fn windows_native_udp_tcp_tls_and_stealth_exchange_real_noise_without_a_tun() {
             .unwrap();
             let mut input = [0; 65535];
             let mut output = [0; 65535];
-            if mode == 0 {
+            if udp_mode {
                 let (n, remote) = udp.recv_from(&mut input).unwrap();
                 let Output::Network(n) = crypto.decrypt(&input[..n], &mut output).unwrap() else {
                     panic!("WG response")
@@ -60,7 +61,7 @@ fn windows_native_udp_tcp_tls_and_stealth_exchange_real_noise_without_a_tun() {
                 socket
                     .set_write_timeout(Some(Duration::from_secs(5)))
                     .unwrap();
-                let socket: Box<dyn Duplex> = if mode >= 2 {
+                let socket: Box<dyn Duplex> = if (2..=5).contains(&mode) {
                     Box::new(rustls::StreamOwned::new(
                         rustls::ServerConnection::new(common::server()).unwrap(),
                         socket,
@@ -88,8 +89,11 @@ fn windows_native_udp_tcp_tls_and_stealth_exchange_real_noise_without_a_tun() {
             "[Interface]\nPrivateKey={}\nAddress=10.2.0.2/32\n[Peer]\nPublicKey={}\nEndpoint={endpoint}\nAllowedIPs=0.0.0.0/0\n",
             STANDARD.encode([7;32]), STANDARD.encode(Session::public_key([9;32])))).unwrap();
         let transport = match mode {
-            0 => Transport::Udp,
-            1 => Transport::Tcp,
+            0 | 6 => Transport::Udp,
+            1 | 7 => Transport::Tcp,
+            5 => Transport::Tls(Box::new(
+                protun_next::tls::client_with_roots("localhost", common::roots()).unwrap(),
+            )),
             2 => Transport::Tls(Box::new(
                 protun_next::tls::client_with_roots("localhost", common::roots()).unwrap(),
             )),
