@@ -1,0 +1,394 @@
+{
+  "runs": [
+    {
+      "id": 42094127615,
+      "name": "packet-erasure-actual-lts",
+      "head_sha": "9b469d5f20e35e5f63ff60f579ed9d5a87403206",
+      "status": "completed",
+      "conclusion": "success",
+      "html_url": "https://github.com/riKirsti/ProtunNext/actions/runs/42094127615",
+      "created_at": "2026-11-05T19:27:55Z",
+      "updated_at": "2026-11-05T19:43:14Z",
+      "jobs": [
+        {
+          "id": 127479604114,
+          "name": "lts (6.12.115, 2)",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-11-05T19:27:58Z",
+          "completed_at": "2026-11-05T19:38:41Z"
+        },
+        {
+          "id": 127479604673,
+          "name": "lts (6.18.60, 2)",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-11-05T19:27:58Z",
+          "completed_at": "2026-11-05T19:37:50Z"
+        },
+        {
+          "id": 127479604707,
+          "name": "lts (6.18.60, 1)",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-11-05T19:27:58Z",
+          "completed_at": "2026-11-05T19:38:25Z"
+        },
+        {
+          "id": 127479604784,
+          "name": "lts (6.12.115, 3)",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-11-05T19:27:58Z",
+          "completed_at": "2026-11-05T19:43:13Z"
+        },
+        {
+          "id": 127479604806,
+          "name": "lts (6.18.60, 3)",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-11-05T19:27:58Z",
+          "completed_at": "2026-11-05T19:38:38Z"
+        },
+        {
+          "id": 127479604826,
+          "name": "lts (6.12.115, 1)",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-11-05T19:27:58Z",
+          "completed_at": "2026-11-05T19:43:05Z"
+        }
+      ],
+      "artifacts": [
+        {
+          "id": 13447561543,
+          "name": "erasure-6.18.60-2",
+          "size_in_bytes": 57834,
+          "digest": "sha256:6aa31d89645036f676d5ff8d6830cc4b5431e3cc484fe8a70399b1ee01efc037"
+        },
+        {
+          "id": 13447522404,
+          "name": "erasure-6.12.115-3",
+          "size_in_bytes": 58014,
+          "digest": "sha256:0fcb47140e19ae1fd1db70cb9fce3858441757760e78a272b970c8af4d021782"
+        },
+        {
+          "id": 13447363328,
+          "name": "erasure-6.12.115-1",
+          "size_in_bytes": 57800,
+          "digest": "sha256:cb60d941e9e3bee1633b311c9eddd049f6632a2006ea640a543d9a0166684a2f"
+        },
+        {
+          "id": 13446912762,
+          "name": "erasure-6.12.115-2",
+          "size_in_bytes": 58072,
+          "digest": "sha256:1a1100714aa12452a88b3723a0e82b8708bdf402f2a0c641ab5615351440b72d"
+        },
+        {
+          "id": 13446842848,
+          "name": "erasure-6.18.60-3",
+          "size_in_bytes": 57701,
+          "digest": "sha256:63d90fbcdc6d3d3c6569ab159eedca505c3d6975750d3a1370693761fc94ac38"
+        },
+        {
+          "id": 13446747909,
+          "name": "erasure-6.18.60-1",
+          "size_in_bytes": 57647,
+          "digest": "sha256:41fcca4bdaf6958f044f8a4745aaa806297d373272442370aaf217b95c64d3b4"
+        }
+      ]
+    },
+    {
+      "id": 42094127669,
+      "name": "packet-erasure-release-verification",
+      "head_sha": "9b469d5f20e35e5f63ff60f579ed9d5a87403206",
+      "status": "completed",
+      "conclusion": "failure",
+      "html_url": "https://github.com/riKirsti/ProtunNext/actions/runs/42094127669",
+      "created_at": "2026-11-05T19:27:55Z",
+      "updated_at": "2026-11-05T19:29:59Z",
+      "jobs": [
+        {
+          "id": 127479603979,
+          "name": "release (ubuntu-24.04-arm)",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-11-05T19:28:00Z",
+          "completed_at": "2026-11-05T19:29:38Z"
+        },
+        {
+          "id": 127479604536,
+          "name": "release (ubuntu-24.04)",
+          "status": "completed",
+          "conclusion": "failure",
+          "started_at": "2026-11-05T19:27:58Z",
+          "completed_at": "2026-11-05T19:29:58Z"
+        }
+      ],
+      "artifacts": [
+        {
+          "id": 13446287041,
+          "name": "erasure-codegen-ubuntu-24.04-arm",
+          "size_in_bytes": 427332,
+          "digest": "sha256:c7ad74c55fb52b595fc73634e0741d379332884182b7086a7392dd0e39d841e4"
+        },
+        {
+          "id": 13445604428,
+          "name": "erasure-codegen-ubuntu-24.04",
+          "size_in_bytes": 469049,
+          "digest": "sha256:1bbcb3287651839a27d5900453860c53931c75e3426b20621bd2557faf804acd"
+        }
+      ]
+    },
+    {
+      "id": 42094765660,
+      "name": "packet-erasure-release-verification",
+      "head_sha": "b2276b3c48062f9c1fa0c5345cf0d7c3775bd74c",
+      "status": "completed",
+      "conclusion": "success",
+      "html_url": "https://github.com/riKirsti/ProtunNext/actions/runs/42094765660",
+      "created_at": "2026-11-05T19:31:54Z",
+      "updated_at": "2026-11-05T19:33:37Z",
+      "jobs": [
+        {
+          "id": 127481793198,
+          "name": "release (ubuntu-24.04)",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-11-05T19:31:57Z",
+          "completed_at": "2026-11-05T19:33:36Z"
+        },
+        {
+          "id": 127481793627,
+          "name": "release (ubuntu-24.04-arm)",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-11-05T19:31:59Z",
+          "completed_at": "2026-11-05T19:33:36Z"
+        }
+      ],
+      "artifacts": [
+        {
+          "id": 13446947213,
+          "name": "erasure-codegen-ubuntu-24.04",
+          "size_in_bytes": 474266,
+          "digest": "sha256:dbe62601252705ff0d93d7c7dfcf664c3b14ed73fa8feb07f6ecaf9b45a6f6e6"
+        },
+        {
+          "id": 13446287569,
+          "name": "erasure-codegen-ubuntu-24.04-arm",
+          "size_in_bytes": 430875,
+          "digest": "sha256:542caef3bb52a41dab14fd65bde020232301fa88f63112015ad810af9cd0b07d"
+        }
+      ]
+    },
+    {
+      "id": 42095069945,
+      "name": "packet-erasure-release-verification",
+      "head_sha": "6a7d1a34f7c17dc4c38c774f033bf2e9de4a1301",
+      "status": "completed",
+      "conclusion": "success",
+      "html_url": "https://github.com/riKirsti/ProtunNext/actions/runs/42095069945",
+      "created_at": "2026-11-05T19:33:47Z",
+      "updated_at": "2026-11-05T19:36:20Z",
+      "jobs": [
+        {
+          "id": 127482832920,
+          "name": "release (ubuntu-24.04-arm)",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-11-05T19:33:52Z",
+          "completed_at": "2026-11-05T19:36:19Z"
+        },
+        {
+          "id": 127482833215,
+          "name": "release (ubuntu-24.04)",
+          "status": "completed",
+          "conclusion": "success",
+          "started_at": "2026-11-05T19:33:50Z",
+          "completed_at": "2026-11-05T19:36:17Z"
+        }
+      ],
+      "artifacts": [
+        {
+          "id": 13446677730,
+          "name": "erasure-codegen-ubuntu-24.04",
+          "size_in_bytes": 944332,
+          "digest": "sha256:93d5c908ff4a1558bb96da7c1166bc6020d9c37d658ae4a58193f20375969529"
+        },
+        {
+          "id": 13446657685,
+          "name": "erasure-codegen-ubuntu-24.04-arm",
+          "size_in_bytes": 857878,
+          "digest": "sha256:44176d71730bd54b211fd6fc0373d2b9feb528bdbdb556900f001aa3302953d0"
+        }
+      ]
+    },
+    {
+      "id": 42094765524,
+      "name": "packet-erasure-actual-lts",
+      "head_sha": "b2276b3c48062f9c1fa0c5345cf0d7c3775bd74c",
+      "status": "completed",
+      "conclusion": "cancelled",
+      "html_url": "https://github.com/riKirsti/ProtunNext/actions/runs/42094765524",
+      "created_at": "2026-11-05T19:31:54Z",
+      "updated_at": "2026-11-05T19:33:30Z",
+      "jobs": [
+        {
+          "id": 127481792526,
+          "name": "lts (6.18.60, 1)",
+          "status": "completed",
+          "conclusion": "cancelled",
+          "started_at": "2026-11-05T19:31:57Z",
+          "completed_at": "2026-11-05T19:33:26Z"
+        },
+        {
+          "id": 127481792912,
+          "name": "lts (6.18.60, 2)",
+          "status": "completed",
+          "conclusion": "cancelled",
+          "started_at": "2026-11-05T19:31:58Z",
+          "completed_at": "2026-11-05T19:33:24Z"
+        },
+        {
+          "id": 127481792992,
+          "name": "lts (6.12.115, 3)",
+          "status": "completed",
+          "conclusion": "cancelled",
+          "started_at": "2026-11-05T19:31:57Z",
+          "completed_at": "2026-11-05T19:33:29Z"
+        },
+        {
+          "id": 127481793229,
+          "name": "lts (6.12.115, 2)",
+          "status": "completed",
+          "conclusion": "cancelled",
+          "started_at": "2026-11-05T19:31:57Z",
+          "completed_at": "2026-11-05T19:33:28Z"
+        },
+        {
+          "id": 127481793234,
+          "name": "lts (6.18.60, 3)",
+          "status": "completed",
+          "conclusion": "cancelled",
+          "started_at": "2026-11-05T19:31:57Z",
+          "completed_at": "2026-11-05T19:33:24Z"
+        },
+        {
+          "id": 127481793257,
+          "name": "lts (6.12.115, 1)",
+          "status": "completed",
+          "conclusion": "cancelled",
+          "started_at": "2026-11-05T19:31:57Z",
+          "completed_at": "2026-11-05T19:33:23Z"
+        }
+      ],
+      "artifacts": [
+        {
+          "id": 13448020008,
+          "name": "erasure-6.18.60-1",
+          "size_in_bytes": 4329,
+          "digest": "sha256:3ea9ee4a7c5d78cacf759371b148abe9edb01500e0ae3b9462443b7f0542a1f8"
+        },
+        {
+          "id": 13447665663,
+          "name": "erasure-6.12.115-1",
+          "size_in_bytes": 4429,
+          "digest": "sha256:1ff3d133338e27b0f0dccde9cae13b8a05faa9b24b3485921b7fad5c67dcc952"
+        },
+        {
+          "id": 13446942454,
+          "name": "erasure-6.18.60-2",
+          "size_in_bytes": 4959,
+          "digest": "sha256:2797ffb79566e372ca22dce5d36270b288ba96877f8eab46b3ecef421f203108"
+        },
+        {
+          "id": 13446142645,
+          "name": "erasure-6.18.60-3",
+          "size_in_bytes": 4408,
+          "digest": "sha256:ba08bd558e55a2e431ce4c268ffae42d777ae0f26fc6a33af7d1b9b670257e34"
+        }
+      ]
+    },
+    {
+      "id": 42095069794,
+      "name": "packet-erasure-actual-lts",
+      "head_sha": "6a7d1a34f7c17dc4c38c774f033bf2e9de4a1301",
+      "status": "completed",
+      "conclusion": "cancelled",
+      "html_url": "https://github.com/riKirsti/ProtunNext/actions/runs/42095069794",
+      "created_at": "2026-11-05T19:33:47Z",
+      "updated_at": "2026-11-05T19:35:48Z",
+      "jobs": [
+        {
+          "id": 127482833836,
+          "name": "lts (6.18.60, 1)",
+          "status": "completed",
+          "conclusion": "cancelled",
+          "started_at": "2026-11-05T19:33:50Z",
+          "completed_at": "2026-11-05T19:35:48Z"
+        },
+        {
+          "id": 127482834320,
+          "name": "lts (6.18.60, 2)",
+          "status": "completed",
+          "conclusion": "cancelled",
+          "started_at": "2026-11-05T19:33:50Z",
+          "completed_at": "2026-11-05T19:35:21Z"
+        },
+        {
+          "id": 127482834444,
+          "name": "lts (6.18.60, 3)",
+          "status": "completed",
+          "conclusion": "cancelled",
+          "started_at": "2026-11-05T19:33:50Z",
+          "completed_at": "2026-11-05T19:35:16Z"
+        },
+        {
+          "id": 127482834462,
+          "name": "lts (6.12.115, 1)",
+          "status": "completed",
+          "conclusion": "cancelled",
+          "started_at": "2026-11-05T19:33:48Z",
+          "completed_at": "2026-11-05T19:34:06Z"
+        },
+        {
+          "id": 127482834467,
+          "name": "lts (6.12.115, 2)",
+          "status": "completed",
+          "conclusion": "cancelled",
+          "started_at": "2026-11-05T19:33:48Z",
+          "completed_at": "2026-11-05T19:34:06Z"
+        },
+        {
+          "id": 127482834860,
+          "name": "lts (6.12.115, 3)",
+          "status": "completed",
+          "conclusion": "cancelled",
+          "started_at": "2026-11-05T19:33:48Z",
+          "completed_at": "2026-11-05T19:34:06Z"
+        }
+      ],
+      "artifacts": [
+        {
+          "id": 13447730537,
+          "name": "erasure-6.18.60-3",
+          "size_in_bytes": 4396,
+          "digest": "sha256:72be412b709d7e01fd7c21c0643e9401545820fd9bd89d96a4f84542755a69ec"
+        },
+        {
+          "id": 13446987283,
+          "name": "erasure-6.18.60-1",
+          "size_in_bytes": 4414,
+          "digest": "sha256:1d36adb6a54920a5036ba3cb60b1915a0fbe221e424bc2ab87c40a45aa9c53c1"
+        }
+      ]
+    }
+  ],
+  "interpretation": "Only run 42094127615 supplies the six actual-kernel performance allocations. First x64 codegen pilot failed on an indirect-call parser limitation; both architectures passed the corrected checker and then real barrier-free negative controls. Two redundant LTS triggers were canceled after verifier-only or workflow-filter edits; no measurements from them enter the report.",
+  "baseline": "c4b2554398ffcbf35cdaa9c8797504d8df146bd9",
+  "measured_candidate": "9b469d5f20e35e5f63ff60f579ed9d5a87403206",
+  "release_verifier": "6a7d1a34f7c17dc4c38c774f033bf2e9de4a1301",
+  "final_pr_head": "254b63a18e4fdf94fe8344f3e36c7b7ab48de9d7",
+  "final_pr_head_difference": "Documentation only after the release verifier commit; all production and measurement Rust/Cargo sources match the measured candidate."
+}
