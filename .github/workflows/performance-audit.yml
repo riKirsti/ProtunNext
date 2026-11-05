@@ -1,0 +1,56 @@
+name: performance-test-audit
+on:
+  workflow_dispatch:
+    inputs:
+      full:
+        type: boolean
+        default: false
+        description: Three allocations per architecture and full workload set
+permissions: {contents: read}
+jobs:
+  native:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, ubuntu-24.04-arm]
+        replicate: ${{ fromJSON(inputs.full && '[1,2,3]' || '[1]') }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 0}
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build distinct runtimes with one fixed corrected endpoint
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 experiments/audit/prepare.py
+          mkdir -p target/audit-v2/bin target/audit-v2/results
+          for name in erase main gro parallel ktls; do
+            export CARGO_TARGET_DIR="$PWD/target/audit-v2/cargo-$name"
+            export NEXT_BUILD_ID="$(python3 -c "import json; print(json.load(open('target/audit-v2/builds.json'))['$name']['effective_sources_sha256'])")"
+            source="$(python3 -c "import json; print(json.load(open('target/audit-v2/builds.json'))['$name']['path'])")"
+            cargo build --locked --release --no-default-features --features unix --bin next-probe --manifest-path "$source/Cargo.toml" >"target/audit-v2/results/build-$name.log" 2>&1
+            cp "$CARGO_TARGET_DIR/release/next-probe" "target/audit-v2/bin/$name"
+            if [ "$name" = erase ]; then sudo python3 experiments/audit/run.py --smoke; fi
+          done
+          uname -a >target/audit-v2/results/hardware.txt
+          lscpu >>target/audit-v2/results/hardware.txt
+          cat /proc/stat >target/audit-v2/results/stat-before.txt
+      - name: A/A controls, warmed ABBA blocks and load/CPU sensitivity
+        env: {FULL: '${{ inputs.full }}'}
+        run: |
+          if [ "$FULL" = true ]; then
+            sudo python3 experiments/audit/run.py
+          else
+            sudo python3 experiments/audit/run.py --quick
+          fi
+          cat /proc/stat >target/audit-v2/results/stat-after.txt
+      - name: Make results readable
+        if: always()
+        run: sudo chown -R "$(id -u):$(id -g)" target/audit-v2/results
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: performance-audit-${{ matrix.os }}-${{ matrix.replicate }}
+          path: target/audit-v2/results/

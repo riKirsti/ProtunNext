@@ -15,7 +15,7 @@ use std::{
     net::{TcpListener, TcpStream, UdpSocket},
     os::fd::{AsFd, AsRawFd},
     process::{Child, Command, Stdio},
-    sync::atomic::{AtomicBool, Ordering},
+    sync::atomic::{AtomicBool, AtomicU64, Ordering},
     thread,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
@@ -69,6 +69,16 @@ impl Drop for OwnedChild {
     }
 }
 static STOP: AtomicBool = AtomicBool::new(false);
+static PEER_CPU_START: AtomicU64 = AtomicU64::new(0);
+static PEER_WALL_START: AtomicU64 = AtomicU64::new(0);
+fn monotonic_ns() -> u64 {
+    let mut t: libc::timespec = unsafe { std::mem::zeroed() };
+    assert_eq!(
+        unsafe { libc::clock_gettime(libc::CLOCK_MONOTONIC, &mut t) },
+        0
+    );
+    t.tv_sec as u64 * 1_000_000_000 + t.tv_nsec as u64
+}
 extern "C" fn stop(_: libc::c_int) {
     STOP.store(true, Ordering::Relaxed);
 }
@@ -94,12 +104,26 @@ fn echo(p: &mut [u8]) {
     p[10..12].copy_from_slice(&(!(sum as u16)).to_be_bytes());
 }
 trait Duplex: Read + Write + Send {
+    fn fd(&self) -> i32;
+    fn pending_write(&self) -> bool {
+        false
+    }
     fn metadata(&self) -> Option<String> {
         None
     }
 }
-impl Duplex for TcpStream {}
+impl Duplex for TcpStream {
+    fn fd(&self) -> i32 {
+        self.as_raw_fd()
+    }
+}
 impl Duplex for rustls::StreamOwned<rustls::ServerConnection, TcpStream> {
+    fn fd(&self) -> i32 {
+        self.sock.as_raw_fd()
+    }
+    fn pending_write(&self) -> bool {
+        self.conn.wants_write()
+    }
     fn metadata(&self) -> Option<String> {
         Some(format!(
             "{:?}/{:?}",
@@ -118,7 +142,7 @@ enum Peer {
     Stream(FramedIo<Box<dyn Duplex>>),
 }
 impl Peer {
-    fn receive(&mut self, p: &mut Packet, pool: &mut PacketPool) -> bool {
+    fn receive(&mut self, p: &mut Packet, pool: &mut PacketPool) -> Receive {
         match self {
             Self::Udp {
                 socket, rx, first, ..
@@ -126,28 +150,48 @@ impl Peer {
                 if let Some(v) = first.take() {
                     p.writable()[..v.len()].copy_from_slice(&v);
                     p.set_len(v.len()).unwrap();
-                    true
+                    Receive::Packet
                 } else {
-                    matches!(rx.receive(socket, p, pool).unwrap(), Receive::Packet)
+                    rx.receive(socket, p, pool).unwrap()
                 }
             }
-            Self::Stream(s) => match s.receive(p) {
-                Ok(Receive::Packet) => true,
-                Ok(_) => false,
+            Self::Stream(stream) => match stream.receive(p) {
+                Ok(r) => r,
                 Err(crate::Error::Io(e))
-                    if matches!(
-                        e.kind(),
-                        std::io::ErrorKind::WouldBlock
-                            | std::io::ErrorKind::TimedOut
-                            | std::io::ErrorKind::Interrupted
-                            | std::io::ErrorKind::UnexpectedEof
-                    ) =>
+                    if STOP.load(Ordering::Relaxed)
+                        && matches!(
+                            e.kind(),
+                            std::io::ErrorKind::UnexpectedEof
+                                | std::io::ErrorKind::ConnectionReset
+                                | std::io::ErrorKind::BrokenPipe
+                        ) =>
                 {
-                    false
+                    Receive::Eof
                 }
                 Err(e) => panic!("peer receive {e}"),
             },
         }
+    }
+    fn wait(&self, pending: bool) {
+        let fd = match self {
+            Self::Udp { socket, .. } => socket.as_raw_fd(),
+            Self::Stream(s) => s.io().fd(),
+        };
+        let tls_pending = matches!(self,Self::Stream(s) if s.io().pending_write() || s.pending()>0);
+        let mut poll = libc::pollfd {
+            fd,
+            events: libc::POLLIN
+                | if pending || tls_pending {
+                    libc::POLLOUT
+                } else {
+                    0
+                },
+            revents: 0,
+        };
+        let n = unsafe { libc::poll(&mut poll, 1, 100) };
+        assert!(
+            n >= 0 || std::io::Error::last_os_error().kind() == std::io::ErrorKind::Interrupted
+        );
     }
     fn queue(&mut self, data: &[u8], q: &mut PacketQueue, pool: &mut PacketPool) {
         let mut p = pool.take().unwrap();
@@ -158,24 +202,19 @@ impl Peer {
             Self::Stream(s) => s.queue(p).ok().unwrap(),
         }
     }
-    fn flush(&mut self, q: &mut PacketQueue, pool: &mut PacketPool) {
+    fn flush(&mut self, q: &mut PacketQueue, pool: &mut PacketPool) -> bool {
         match self {
-            Self::Udp { socket, tx, .. } => {
-                while tx.flush(socket, q, pool).unwrap() {
-                    thread::yield_now();
-                }
-            }
+            Self::Udp { socket, tx, .. } => tx.flush(socket, q, pool).unwrap(),
             Self::Stream(s) => {
-                while s.pending() > 0 {
-                    s.flush(pool).unwrap();
+                for _ in 0..64 {
+                    match s.flush(pool).unwrap() {
+                        crate::stream::Flush::Progress => {}
+                        _ => break,
+                    }
                 }
                 match s.io_mut().flush() {
                     Ok(()) => {}
-                    Err(e)
-                        if matches!(
-                            e.kind(),
-                            std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
-                        ) => {}
+                    Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => return true,
                     Err(e)
                         if STOP.load(Ordering::Relaxed)
                             && matches!(
@@ -186,6 +225,7 @@ impl Peer {
                             ) => {}
                     Err(e) => panic!("peer flush {e}"),
                 }
+                s.pending() > 0 || s.io().pending_write()
             }
         }
     }
@@ -194,8 +234,14 @@ impl Peer {
 fn peer(proto: &str, window: usize) {
     pin("NEXT_PEER_CPUS");
     unsafe {
-        libc::signal(libc::SIGTERM, stop as libc::sighandler_t);
+        libc::signal(libc::SIGTERM, stop as *const () as libc::sighandler_t);
     }
+    thread::spawn(|| {
+        if std::io::stdin().read_exact(&mut [0; 1]).is_ok() {
+            PEER_CPU_START.store((cpu() * 1e9) as u64, Ordering::Release);
+            PEER_WALL_START.store(monotonic_ns(), Ordering::Release);
+        }
+    });
     let udp = proto == "udp";
     let u = UdpSocket::bind("127.0.0.1:0").unwrap();
     u.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
@@ -246,7 +292,6 @@ fn peer(proto: &str, window: usize) {
     let mut wire = vec![0; 65535];
     let mut q = PacketQueue::new(64).unwrap();
     let start = Instant::now();
-    let c = cpu();
     let mut count = 0u64;
     let mut handshakes = 0u64;
     let mut timer = Instant::now();
@@ -260,8 +305,14 @@ fn peer(proto: &str, window: usize) {
         }
         let mut got = false;
         for _ in 0..32 {
-            if !peer.receive(&mut p, &mut pool) {
-                break;
+            match peer.receive(&mut p, &mut pool) {
+                Receive::Packet => {}
+                Receive::WouldBlock => break,
+                Receive::Yield => continue,
+                Receive::Eof => {
+                    assert!(STOP.load(Ordering::Relaxed), "peer unexpected EOF");
+                    break;
+                }
             }
             got = true;
             match s.decrypt(p.data(), &mut out).unwrap() {
@@ -286,9 +337,9 @@ fn peer(proto: &str, window: usize) {
                 _ => {}
             }
         }
-        peer.flush(&mut q, &mut pool);
-        if !got {
-            thread::yield_now();
+        let pending = peer.flush(&mut q, &mut pool);
+        if !got || pending {
+            peer.wait(pending);
         }
     }
     let tls = match &mut peer {
@@ -296,7 +347,7 @@ fn peer(proto: &str, window: usize) {
         _ => None,
     };
     emit(
-        serde_json::json!({"role":"peer","cpu_seconds":cpu()-c,"rss_kib":rss(),"packets":count,"handshakes":handshakes,"tls":tls}),
+        serde_json::json!({"effective_sources_sha256":option_env!("NEXT_BUILD_ID").unwrap_or("unstamped-local-build"),"role":"peer","cpu_seconds":(cpu()*1e9-PEER_CPU_START.load(Ordering::Acquire) as f64)/1e9,"seconds":(monotonic_ns()-PEER_WALL_START.load(Ordering::Acquire)) as f64/1e9,"timed":PEER_CPU_START.load(Ordering::Acquire)!=0,"rss_kib":rss(),"packets":count,"handshakes":handshakes,"tls":tls}),
     );
 }
 fn wait_file(key: &str) {
@@ -330,44 +381,164 @@ fn load(size: usize, window: usize, seconds: f64, flows: usize) {
     println!("NEXT_READY {}", cold.elapsed().as_secs_f64() * 1000.0);
     std::io::stdout().flush().unwrap();
     std::io::stdin().read_exact(&mut [0; 1]).unwrap();
+    // Warm the actual data path (including buffer promotion and crypto workers).
+    let shape = std::env::var("NEXT_LOAD_SHAPE").unwrap_or_else(|_| "burst".into());
+    let warm = std::env::var("NEXT_WARM_SECONDS")
+        .ok()
+        .map(|x| x.parse().unwrap())
+        .unwrap_or(1.0);
+    let _ = pump(&sockets, &mut body, &mut recv, window, warm, &shape, false);
+    println!("NEXT_WARM");
+    std::io::stdout().flush().unwrap();
+    std::io::stdin().read_exact(&mut [0; 1]).unwrap();
     let c = cpu();
     let start = Instant::now();
-    let mut packets = 0usize;
-    let mut latencies = Vec::new();
-    while start.elapsed().as_secs_f64() < seconds {
-        let t = Instant::now();
-        for j in 0..window {
-            body[..8].copy_from_slice(&((packets + j) as u64).to_le_bytes());
-            sockets[j % flows].send(&body).unwrap();
-        }
-        let mut seen = 0u64;
-        for j in 0..window {
-            let n = sockets[j % flows].recv(&mut recv).unwrap();
-            assert_eq!(n, size);
-            let seq = u64::from_le_bytes(recv[..8].try_into().unwrap()) as usize;
-            assert!(seq >= packets && seq < packets + window);
-            let bit = 1u64 << (seq - packets);
-            assert_eq!(seen & bit, 0, "duplicate response");
-            seen |= bit;
-            assert!(recv[8..n].iter().all(|b| *b == 0x5a));
-        }
-        packets += window;
-        if window == 1 {
-            latencies.push(t.elapsed().as_secs_f64() * 1e6);
-        }
-    }
+    let (packets, mut latencies) = pump(
+        &sockets,
+        &mut body,
+        &mut recv,
+        window,
+        seconds,
+        &shape,
+        window == 1,
+    );
     let elapsed = start.elapsed().as_secs_f64();
+    let used = cpu() - c;
+    // Tell the parent immediately: sorting/serializing latency data is outside
+    // BOTH the generator and client measurement intervals.
+    println!("NEXT_DONE");
+    std::io::stdout().flush().unwrap();
     latencies.sort_by(f64::total_cmp);
     emit(
-        serde_json::json!({"role":"load","bytes":packets*size,"packets":packets,"seconds":elapsed,"Mbps":packets as f64*size as f64*8.0/elapsed/1e6,"cpu_seconds":cpu()-c,"rss_kib":rss(),"p99_us":if latencies.is_empty(){None}else{Some(latencies[(latencies.len()-1)*99/100])}}),
+        serde_json::json!({"effective_sources_sha256":option_env!("NEXT_BUILD_ID").unwrap_or("unstamped-local-build"),"role":"load","shape":shape,"bytes":packets*size,"packets":packets,"seconds":elapsed,"Mbps":packets as f64*size as f64*8.0/elapsed/1e6,"cpu_seconds":used,"rss_kib":rss(),"p99_us":if latencies.is_empty(){None}else{Some(latencies[(latencies.len()-1)*99/100])}}),
     );
 }
+fn pump(
+    sockets: &[UdpSocket],
+    body: &mut [u8],
+    recv: &mut [u8],
+    window: usize,
+    seconds: f64,
+    shape: &str,
+    latency: bool,
+) -> (usize, Vec<f64>) {
+    assert!(seconds.is_finite() && seconds > 0.0 && seconds <= 30.0);
+    assert!(shape == "burst" || shape == "sliding");
+    let mut latencies = Vec::with_capacity(if latency { 1_000_000 } else { 0 });
+    let start = Instant::now();
+    let mut packets = 0;
+    if shape == "burst" || window == 1 {
+        while start.elapsed().as_secs_f64() < seconds {
+            let t = Instant::now();
+            for j in 0..window {
+                body[..8].copy_from_slice(&((packets + j) as u64).to_le_bytes());
+                sockets[j % sockets.len()].send(body).unwrap();
+            }
+            let mut seen = 0u64;
+            for j in 0..window {
+                let n = sockets[j % sockets.len()].recv(recv).unwrap();
+                assert_eq!(n, body.len());
+                let seq = u64::from_le_bytes(recv[..8].try_into().unwrap()) as usize;
+                assert!(seq >= packets && seq < packets + window);
+                let bit = 1u64 << (seq - packets);
+                assert_eq!(seen & bit, 0, "duplicate response");
+                seen |= bit;
+                assert!(recv[8..n].iter().all(|&b| b == 0x5a));
+            }
+            packets += window;
+            if let Ok(rate) = std::env::var("NEXT_RATE_PPS") {
+                let rate: f64 = rate.parse().unwrap();
+                assert!(rate.is_finite() && rate > 0.0);
+                let due = Duration::from_secs_f64(packets as f64 / rate);
+                if let Some(delay) = due.checked_sub(start.elapsed()) {
+                    thread::sleep(delay);
+                }
+            }
+            if latency {
+                assert!(
+                    latencies.len() < latencies.capacity(),
+                    "latency storage exhausted"
+                );
+                latencies.push(t.elapsed().as_secs_f64() * 1e6);
+            }
+        }
+    } else {
+        let mut pending = std::collections::HashMap::with_capacity(window * 2);
+        let mut sequence = 0u64;
+        for socket in sockets {
+            socket.set_nonblocking(true).unwrap();
+        }
+        for j in 0..window {
+            body[..8].copy_from_slice(&sequence.to_le_bytes());
+            sockets[j % sockets.len()].send(body).unwrap();
+            assert!(pending.insert(sequence, j % sockets.len()).is_none());
+            sequence += 1;
+        }
+        let mut poll: Vec<_> = sockets
+            .iter()
+            .map(|s| libc::pollfd {
+                fd: s.as_raw_fd(),
+                events: libc::POLLIN,
+                revents: 0,
+            })
+            .collect();
+        let mut last = Instant::now();
+        while !pending.is_empty() {
+            let mut progress = false;
+            for (flow, socket) in sockets.iter().enumerate() {
+                for _ in 0..64 {
+                    let n = match socket.recv(recv) {
+                        Ok(n) => n,
+                        Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => break,
+                        Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+                        Err(e) => panic!("generator {e}"),
+                    };
+                    assert_eq!(n, body.len());
+                    let seq = u64::from_le_bytes(recv[..8].try_into().unwrap());
+                    assert_eq!(
+                        pending.remove(&seq),
+                        Some(flow),
+                        "unknown, duplicate or wrong-flow response"
+                    );
+                    assert!(recv[8..n].iter().all(|&b| b == 0x5a));
+                    packets += 1;
+                    progress = true;
+                    last = Instant::now();
+                    if start.elapsed().as_secs_f64() < seconds {
+                        body[..8].copy_from_slice(&sequence.to_le_bytes());
+                        socket.send(body).unwrap();
+                        assert!(pending.insert(sequence, flow).is_none());
+                        sequence += 1;
+                    }
+                }
+            }
+            assert!(
+                last.elapsed() < Duration::from_secs(5),
+                "sliding window stalled"
+            );
+            if !progress {
+                let n = unsafe { libc::poll(poll.as_mut_ptr(), poll.len() as _, 100) };
+                assert!(
+                    n >= 0
+                        || std::io::Error::last_os_error().kind()
+                            == std::io::ErrorKind::Interrupted
+                );
+            }
+        }
+        for socket in sockets {
+            socket.set_nonblocking(false).unwrap();
+        }
+    }
+    (packets, latencies)
+}
+
 fn client(peer_bin: &str, proto: &str, size: usize, window: usize, seconds: f64, flows: usize) {
     // Start the fixed peer before restricting this process and its future worker.
     let mut peer = OwnedChild(
         Command::new(peer_bin)
             .args(["peer", proto, &window.to_string()])
             .stdout(Stdio::piped())
+            .stdin(Stdio::piped())
             .spawn()
             .unwrap(),
     );
@@ -434,24 +605,33 @@ fn client(peer_bin: &str, proto: &str, size: usize, window: usize, seconds: f64,
         .expect("load did not become ready")
         .parse()
         .unwrap();
+    generator.0.stdin.as_mut().unwrap().write_all(b"W").unwrap();
+    line.clear();
+    load_out.read_line(&mut line).unwrap();
+    assert_eq!(line.trim(), "NEXT_WARM");
     if let Ok(path) = std::env::var("NEXT_PROFILE_READY") {
         std::fs::write(path, std::process::id().to_string()).unwrap();
         wait_file("NEXT_PROFILE_GO");
     }
+    peer.0.stdin.take().unwrap().write_all(b"G").unwrap();
     let c = cpu();
     let start = Instant::now();
     generator.0.stdin.take().unwrap().write_all(b"G").unwrap();
+    line.clear();
+    load_out.read_line(&mut line).unwrap();
+    assert_eq!(line.trim(), "NEXT_DONE");
+    let used = cpu() - c;
+    let elapsed = start.elapsed().as_secs_f64();
     let mut rest = String::new();
     load_out.read_to_string(&mut rest).unwrap();
     assert!(generator.0.wait().unwrap().success());
-    let used = cpu() - c;
-    let elapsed = start.elapsed().as_secs_f64();
     let before = con.snapshot();
-    con.disconnect();
-    // Tell the controlled peer to stop before waiting for transport teardown.
+    // Stop the controlled peer before closing the transport: teardown EOF is
+    // not a measurement failure after all application replies were validated.
     unsafe {
         libc::kill(peer.0.id() as libc::pid_t, libc::SIGTERM);
     }
+    con.disconnect();
     let counters = con.disconnect_and_wait().unwrap();
     assert_eq!(counters.invalid_packets, 0);
     if proto == "udp" && window > 1 {
@@ -481,7 +661,7 @@ fn client(peer_bin: &str, proto: &str, size: usize, window: usize, seconds: f64,
     )
     .unwrap();
     emit(
-        serde_json::json!({"effective_sources_sha256":option_env!("NEXT_BUILD_ID").unwrap_or("unstamped-local-build"),"role":"client","protocol":proto,"size":size,"window":window,"flows":flows,"seconds":elapsed,"client_cpu_seconds":used,"client_cpu_ns_per_byte":used*1e9/bytes as f64,"client_rss_kib":rss(),"load":metric,"peer":peer_metric,"cold_ms":cold,"counters":counters,"state":format!("{:?}",before.state),"kernel":std::fs::read_to_string("/proc/sys/kernel/osrelease").unwrap().trim(),"arch":std::env::consts::ARCH,"scope":"IPv4 UDP echo through actual Connection/TUN/WireGuard worker; peer and generator are separate processes built from frozen main. Process CPU includes synchronous system time, not all asynchronous kernel work. Not a TCP/HTTPS, NIC or Proton WAN acceptance test."}),
+        serde_json::json!({"effective_sources_sha256":option_env!("NEXT_BUILD_ID").unwrap_or("unstamped-local-build"),"role":"client","protocol":proto,"size":size,"window":window,"flows":flows,"seconds":elapsed,"client_cpu_seconds":used,"client_cpu_ns_per_byte":used*1e9/bytes as f64,"client_rss_kib":rss(),"load":metric,"peer":peer_metric,"cold_ms":cold,"counters":counters,"state":format!("{:?}",before.state),"kernel":std::fs::read_to_string("/proc/sys/kernel/osrelease").unwrap().trim(),"arch":std::env::consts::ARCH,"scope":"IPv4 UDP echo through actual Connection/TUN/WireGuard worker; peer and generator are fixed separate processes; their effective source identities are recorded. Process CPU includes synchronous system time, not all asynchronous kernel work. Not a TCP/HTTPS, NIC or Proton WAN acceptance test."}),
     );
 }
 pub fn run() {
