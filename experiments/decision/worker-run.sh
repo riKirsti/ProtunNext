@@ -19,5 +19,12 @@ for round in 0 1 2 3; do
  run_case decision-worker udp batch-offload-compact-inplace 1200 "$round" 1 32 0 1
  run_case decision-worker stealth batch-unbuffered-compact-inplace 1200 "$round" 1 32 0 1
 done
+for variant in batch-buffered-compact-inplace batch-unbuffered-compact-inplace; do
+ n=0
+ while [ "$n" -lt 300 ]; do
+  run_case decision-worker stealth "$variant" 64 "$n" 0 1 0 0
+  n=$((n+1))
+ done
+done
 echo "HOUR_WORKER_FINISHED $result"
 exit "$result"

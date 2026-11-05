@@ -1,9 +1,12 @@
 name: one-hour-real-worker
-on: workflow_dispatch
+on:
+  push:
+    branches: ['experiments/decision-hour-*']
 permissions:
   contents: read
 jobs:
   worker:
+    if: contains(github.event.head_commit.message, 'worker-fix')
     strategy:
       fail-fast: false
       matrix:
