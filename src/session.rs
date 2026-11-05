@@ -31,6 +31,8 @@ pub struct Statistics {
 pub struct Session {
     tunnel: Tunn<ChaCha20Rng, Loose>,
     now: Duration,
+    #[cfg(feature = "debug-counters")]
+    successful_crypto_copy_bytes: u64,
 }
 impl Session {
     pub fn new(
@@ -70,7 +72,12 @@ impl Session {
             rng,
         );
         private.zeroize();
-        Ok(Self { tunnel, now })
+        Ok(Self {
+            tunnel,
+            now,
+            #[cfg(feature = "debug-counters")]
+            successful_crypto_copy_bytes: 0,
+        })
     }
     pub fn public_key(mut private: [u8; 32]) -> [u8; 32] {
         let key = x25519::PublicKey::from(&x25519::StaticSecret::from(private)).to_bytes();
@@ -105,7 +112,14 @@ impl Session {
         if packet.len() > 65_503 || output.len() < packet.len().saturating_add(32).max(148) {
             return Err(Error::Invalid("WireGuard output capacity"));
         }
-        Self::output(self.tunnel.encapsulate(packet, output))
+        let result = Self::output(self.tunnel.encapsulate(packet, output));
+        #[cfg(feature = "debug-counters")]
+        if matches!(result, Ok(Output::Network(n)) if n >= 32 && output[..4] == [4, 0, 0, 0]) {
+            self.successful_crypto_copy_bytes = self
+                .successful_crypto_copy_bytes
+                .saturating_add(packet.len() as u64);
+        }
+        result
     }
     pub fn initiate(&mut self, output: &mut [u8]) -> Result<Output> {
         if output.len() < 148 {
@@ -124,7 +138,26 @@ impl Session {
         if output.len() < packet.len().max(148) {
             return Err(Error::Invalid("WireGuard output capacity"));
         }
-        Self::output(self.tunnel.decapsulate(None, packet, output))
+        let result = Self::output(self.tunnel.decapsulate(None, packet, output));
+        #[cfg(feature = "debug-counters")]
+        if matches!(result, Ok(Output::Tunnel(_))) && packet.len() >= 32 {
+            // Upstream copies ciphertext plus its tag, excluding the 16-byte header.
+            self.successful_crypto_copy_bytes = self
+                .successful_crypto_copy_bytes
+                .saturating_add((packet.len() - 16) as u64);
+        }
+        result
+    }
+    /// Plaintext must occupy buffer[16..16 + plaintext_len]; reserves header/tag space.
+    pub fn encrypt_in_place(&mut self, buffer: &mut [u8], plaintext_len: usize) -> Result<Output> {
+        if plaintext_len > 65_503 || buffer.len() < (plaintext_len + 32).max(148) {
+            return Err(Error::Invalid("in-place WireGuard capacity"));
+        }
+        Self::output(self.tunnel.encapsulate_in_place(buffer, plaintext_len))
+    }
+    /// Only data messages. Handshakes/cookies continue through the original API.
+    pub fn decrypt_data_in_place(&mut self, buffer: &mut [u8]) -> Result<Output> {
+        Self::output(self.tunnel.decapsulate_data_in_place(buffer))
     }
     /// Drain handshake-queued output without allocating a second packet representation.
     pub fn drain(&mut self, output: &mut [u8]) -> Result<Output> {
@@ -145,6 +178,10 @@ impl Session {
             estimated_loss: loss,
             handshake_rtt: rtt_ms.map(|ms| Duration::from_millis(ms as u64)),
         }
+    }
+    #[cfg(feature = "debug-counters")]
+    pub(crate) fn successful_crypto_copy_bytes(&self) -> u64 {
+        self.successful_crypto_copy_bytes
     }
 }
 
@@ -226,5 +263,73 @@ pub(crate) mod tests {
         a.advance(Duration::from_secs(1), &mut buf).unwrap();
         assert!(a.advance(Duration::ZERO, &mut buf).is_err());
         assert!(a.encrypt(&[0; 20], &mut []).is_err());
+    }
+    #[cfg(feature = "debug-counters")]
+    #[test]
+    fn successful_copy_accounting_distinguishes_ciphertext_tag_and_in_place() {
+        let (mut a, mut b) = pair();
+        let before_a = a.successful_crypto_copy_bytes();
+        let before_b = b.successful_crypto_copy_bytes();
+        let ip = ip_packet(1280);
+        let mut wire = [0; 2048];
+        let mut plain = [0; 2048];
+        let Output::Network(n) = a.encrypt(&ip, &mut wire).unwrap() else {
+            panic!("data");
+        };
+        let Output::Tunnel(m) = b.decrypt(&wire[..n], &mut plain).unwrap() else {
+            panic!("tunnel");
+        };
+        assert_eq!(&plain[..m], ip);
+        assert_eq!(a.successful_crypto_copy_bytes() - before_a, 1280);
+        assert_eq!(b.successful_crypto_copy_bytes() - before_b, 1296);
+        {
+            wire[16..16 + ip.len()].copy_from_slice(&ip);
+            let Output::Network(n) = a.encrypt_in_place(&mut wire, ip.len()).unwrap() else {
+                panic!("in-place data");
+            };
+            assert!(matches!(
+                b.decrypt_data_in_place(&mut wire[..n]),
+                Ok(Output::Tunnel(1280))
+            ));
+            assert_eq!(a.successful_crypto_copy_bytes() - before_a, 1280);
+            assert_eq!(b.successful_crypto_copy_bytes() - before_b, 1296);
+        }
+    }
+    #[test]
+    fn in_place_interoperates_with_copy_path_and_preserves_authentication_and_replay() {
+        let (mut a, mut b) = pair();
+        for size in [20, 1280, 1420, 16_000, 65_503] {
+            let ip = ip_packet(size);
+            let mut wire = vec![0; 65_535];
+            wire[16..16 + ip.len()].copy_from_slice(&ip);
+            let Output::Network(n) = a.encrypt_in_place(&mut wire, ip.len()).unwrap() else {
+                panic!("data");
+            };
+            let mut bad = wire[..n].to_vec();
+            bad[n - 1] ^= 1;
+            assert!(b.decrypt_data_in_place(&mut bad).is_err());
+            let mut good = wire[..n].to_vec();
+            let Output::Tunnel(m) = b.decrypt_data_in_place(&mut good).unwrap() else {
+                panic!("tunnel");
+            };
+            assert_eq!(&good[16..16 + m], ip);
+            assert!(b.decrypt_data_in_place(&mut wire[..n]).is_err());
+            let Output::Network(n) = b.encrypt(&ip, &mut wire).unwrap() else {
+                panic!("copy data");
+            };
+            let Output::Tunnel(m) = a.decrypt_data_in_place(&mut wire[..n]).unwrap() else {
+                panic!("in-place tunnel");
+            };
+            assert_eq!(&wire[16..16 + m], ip);
+            wire[16..16 + ip.len()].copy_from_slice(&ip);
+            let Output::Network(n) = a.encrypt_in_place(&mut wire, ip.len()).unwrap() else {
+                panic!("in-place data");
+            };
+            let mut plain = vec![0; 65_535];
+            let Output::Tunnel(m) = b.decrypt(&wire[..n], &mut plain).unwrap() else {
+                panic!("copy tunnel");
+            };
+            assert_eq!(&plain[..m], ip);
+        }
     }
 }

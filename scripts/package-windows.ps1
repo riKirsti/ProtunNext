@@ -1,14 +1,13 @@
 #requires -Version 7.2
 param(
     [string]$OutputDirectory = (Join-Path $PSScriptRoot '../target/windows-package'),
-    [string]$BuildDirectory = (Join-Path $PSScriptRoot '../target/release'),
-    [ValidateSet('amd64','x86','arm64','arm')][string]$Architecture = 'amd64'
+    [string]$BuildDirectory = (Join-Path $PSScriptRoot '../target/release')
 )
 $ErrorActionPreference = 'Stop'
 $releaseRoot = [IO.Path]::GetFullPath($BuildDirectory)
 $nativeLibrary = Join-Path $releaseRoot 'protun_next.dll'
 if (!(Test-Path -LiteralPath $nativeLibrary)) { throw 'Build protun_next.dll first or set BuildDirectory' }
-$expectedMachine = @{ amd64=0x8664; x86=0x014c; arm64=0xaa64; arm=0x01c4 }[$Architecture]
+$expectedMachine = 0x8664 # native Windows x64 only
 function Assert-PackageArchitecture([byte[]]$Bytes) {
     if ($Bytes.Length -lt 64 -or $Bytes[0] -ne 0x4d -or $Bytes[1] -ne 0x5a) { throw 'Invalid PE image' }
     $pe = [BitConverter]::ToInt32($Bytes, 0x3c)
@@ -38,7 +37,7 @@ function Read-PackageEntry([string]$Name) {
 }
 $verificationFile = Join-Path $packageRoot ('.wintun-verify-' + [Guid]::NewGuid().ToString('N') + '.dll')
 try {
-    $driver = Read-PackageEntry "wintun/bin/$Architecture/wintun.dll"
+    $driver = Read-PackageEntry 'wintun/bin/amd64/wintun.dll'
     Assert-PackageArchitecture $driver
     [IO.File]::WriteAllBytes($verificationFile, $driver)
     $signature = Get-AuthenticodeSignature -LiteralPath $verificationFile
@@ -60,7 +59,7 @@ try {
             Copy-Item -LiteralPath $source -Destination (Join-Path $packageRoot $name)
         }
     }
-    Write-Output "Prepared $Architecture development package in $packageRoot; no driver loaded or installed"
+    Write-Output "Prepared native x64 development package in $packageRoot; no driver loaded or installed"
 } finally {
     $archive.Dispose()
     $memory.Dispose()

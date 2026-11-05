@@ -3,7 +3,41 @@
 This is development evidence, not live service or release acceptance.
 [Implementation coverage](parity-scope.md) and [the requirement ledger](parity.json)
 separate executable code from the physical-device/Proton Plus tests deferred by
-the user. No router was contacted or modified in this work.
+the user. Historical checkpoints below describe their own source revision.
+
+## November 5 platform TLS revision
+
+The [current selection](tls-selection-20261105.md) keeps unbuffered TLS on
+Linux/Android and restores bounded buffered TLS on Windows/Apple. The newer
+[CI campaign](benchmarks/decision-hour-20261104.md) and
+[Travel rerun](benchmarks/travel-decision-20261105.md) retain successful and
+failed transfers, actual LTS versions, repeated comparisons, regression checks
+and the experimental io_uring overflow diagnosis. These measurements predate
+this platform-selection code change; they justify the selection, not a new
+claim of device or Plus acceptance. Validation of this revision is recorded in
+the PR checks and current TLS-selection document. Historical checkpoints below
+describe their own revisions, including their then-pending checks.
+
+## November 3 performance and platform revision
+
+The [recorded TLS comparison](tls-selection-20261103.md) was completed on Travel
+before production changes. It selected unbuffered TLS for sustained bulk traffic,
+while recording small-transfer regressions and five unexplained cold-request
+failures. It is an adapter comparison, not a measured speedup over v3.0.5.
+The two isolated router cohorts and final audit occupied 17 minutes 23 seconds;
+Travel remained Direct, with saved configuration, key and installed packages
+unchanged and all experiment-owned artifacts removed. Home was untouched.
+
+The revision targets the [current platform contract](supported-platforms.md).
+Local Windows checks pass 64 tests including nine TLS regressions; strict full,
+no-account and ARM64-musl Clippy and vendor/code-coverage checks also pass.
+CI has passed Linux, Windows, Xcode 27, Android native/AAR, real namespace TUN
+and ARM64-musl jobs. The macOS 26 job has not obtained a hosted runner, and
+the new 6.12/6.18 guest checks are being rerun after correcting their missing
+dummy network driver and hardware-acceleration permissions. Those checks are
+pending, not passes. No release/device/Plus acceptance or merge is claimed.
+
+The remaining sections preserve earlier checkpoints and their limitations.
 
 ## Current local checks
 

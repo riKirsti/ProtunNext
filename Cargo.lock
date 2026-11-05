@@ -2438,8 +2438,6 @@ dependencies = [
 [[package]]
 name = "proton-boringtun"
 version = "4.9.0"
-source = "sparse+https://rust-registry.proton.me/index/"
-checksum = "0c10f0be52e40d51a36de1aa072bbd417b59042432c852fc3657a8772d678b34"
 dependencies = [
  "aead",
  "blake2",

@@ -11,10 +11,24 @@ pub struct Counters {
     pub polls: u64,
     pub tun_backpressure: u64,
     pub network_backpressure: u64,
+    pub io: crate::performance::IoCounters,
+    /// Queue occupancy in packets, measured before flushing a work batch.
+    pub to_network_high_water: u64,
+    pub to_tun_high_water: u64,
+    pub pool_reserved_bytes: u64,
+    pub outer_eof: u64,
+    pub outer_io_errors: u64,
+    pub in_place_encryptions: u64,
+    pub in_place_decryptions: u64,
+    /// Byte accounting is populated only by debug-counters builds.
+    pub successful_crypto_copy_bytes: u64,
+    pub pool_recycle_wipe_bytes: u64,
+    pub to_network_bytes_high_water: u64,
+    pub to_tun_bytes_high_water: u64,
 }
 pub enum Transport {
     Udp,
     Tcp,
-    Tls(Box<rustls::ClientConnection>),
+    Tls(Box<crate::tls::ClientConnection>),
     Stealth(crate::stealth::SniStrategy),
 }

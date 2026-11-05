@@ -1,0 +1,187 @@
+--- upstream/Cargo.toml
++++ patched/Cargo.toml
+@@ -24,7 +24,7 @@
+ autoexamples = false
+ autotests = false
+ autobenches = false
+-description = "Fork of CloudFlare BoringTUN: an implementation of the WireGuard® protocol designed for portability and speed"
++description = "Fork of CloudFlare BoringTUN: an implementation of the WireGuardÂ® protocol designed for portability and speed"
+ documentation = "https://docs.rs/boringtun/0.7.1/boringtun/"
+ readme = "README.md"
+ license = "BSD-3-Clause"
+@@ -34,6 +34,7 @@
+ [features]
+ default = []
+ disable-queuing = []
++in-place = []
+ 
+ [lib]
+ name = "proton_boringtun"
+--- upstream/src/noise/mod.rs
++++ patched/src/noise/mod.rs
+@@ -350,6 +350,45 @@
+         self.format_handshake_initiation(dst, false)
+     }
+ 
++    /// Data-path variant with plaintext already at buffer[16..16 + packet_len].
++    /// Handshake queuing and all timers/statistics retain the standard path's rules.
++    #[cfg(feature = "in-place")]
++    pub fn encapsulate_in_place<'a>(&mut self, buffer: &'a mut [u8], packet_len: usize) -> TunnResult<'a> {
++        assert!(buffer.len() >= (packet_len + DATA_OVERHEAD_SZ).max(HANDSHAKE_INIT_SZ));
++        let current = self.current;
++        if let Some(ref session) = self.sessions[current % N_SESSIONS] {
++            let packet = session.format_packet_data_in_place(packet_len, buffer);
++            self.timer_tick(TimerName::TimeLastPacketSent);
++            if packet_len != 0 { self.timer_tick(TimerName::TimeLastDataPacketSent); }
++            self.tx_bytes += packet_len;
++            return TunnResult::WriteToNetwork(packet);
++        }
++        self.queue_packet(&buffer[16..16+packet_len]);
++        self.format_handshake_initiation(buffer, false)
++    }
++
++    /// Only for data messages. Handshakes and cookie replies use decapsulate.
++    #[cfg(feature = "in-place")]
++    pub fn decapsulate_data_in_place<'a>(&mut self, buffer: &'a mut [u8]) -> TunnResult<'a> {
++        // RateLimiter::verify_packet applies MAC/rate limiting only to handshake
++        // messages; its data path is exactly this shared parser (see upstream).
++        let (receiver, counter) = match tunn_parse_incoming_packet(buffer) {
++            Ok(Packet::PacketData(packet)) => (packet.receiver_idx, packet.counter),
++            Ok(_) => return TunnResult::Err(WireGuardError::InvalidPacket),
++            Err(e) => return TunnResult::Err(e),
++        };
++        let idx = receiver as usize % N_SESSIONS;
++        let len = match self.sessions[idx].as_ref() {
++            Some(session) => match session.receive_packet_data_in_place(receiver, counter, &mut buffer[16..]) {
++                Ok(packet) => packet.len(), Err(e) => return TunnResult::Err(e),
++            },
++            None => return TunnResult::Err(WireGuardError::NoCurrentSession),
++        };
++        self.set_current_session(receiver as usize);
++        self.timer_tick(TimerName::TimeLastPacketReceived);
++        self.validate_decapsulated_packet(&mut buffer[16..16+len])
++    }
++
+     /// Receives a UDP datagram from the network and parses it.
+     /// Returns TunnResult.
+     ///
+--- upstream/src/noise/session.rs
++++ patched/src/noise/session.rs
+@@ -194,7 +194,18 @@
+     /// dst - pre-allocated space to hold the encapsulating UDP packet to send over the network
+     /// returns the size of the formatted packet
+     pub(super) fn format_packet_data<'a>(&self, src: &[u8], dst: &'a mut [u8]) -> &'a mut [u8] {
+-        if dst.len() < src.len() + super::DATA_OVERHEAD_SZ {
++        assert!(dst.len() >= src.len() + super::DATA_OVERHEAD_SZ);
++        dst[DATA_OFFSET..DATA_OFFSET + src.len()].copy_from_slice(src);
++        self.seal_packet_data(src.len(), dst)
++    }
++
++    #[cfg(feature = "in-place")]
++    pub(super) fn format_packet_data_in_place<'a>(&self, src_len: usize, dst: &'a mut [u8]) -> &'a mut [u8] {
++        self.seal_packet_data(src_len, dst)
++    }
++
++    fn seal_packet_data<'a>(&self, src_len: usize, dst: &'a mut [u8]) -> &'a mut [u8] {
++        if dst.len() < src_len + super::DATA_OVERHEAD_SZ {
+             panic!("The destination buffer is too small");
+         }
+ 
+@@ -212,16 +223,15 @@
+         let n = {
+             let mut nonce = [0u8; 12];
+             nonce[4..12].copy_from_slice(&sending_key_counter.to_le_bytes());
+-            data[..src.len()].copy_from_slice(src);
+             self.sender
+                 .seal_in_place_separate_tag(
+                     Nonce::assume_unique_for_key(nonce),
+                     Aad::from(&[]),
+-                    &mut data[..src.len()],
++                    &mut data[..src_len],
+                 )
+                 .map(|tag| {
+-                    data[src.len()..src.len() + AEAD_SIZE].copy_from_slice(tag.as_ref());
+-                    src.len() + AEAD_SIZE
++                    data[src_len..src_len + AEAD_SIZE].copy_from_slice(tag.as_ref());
++                    src_len + AEAD_SIZE
+                 })
+                 .unwrap()
+         };
+@@ -249,21 +259,32 @@
+         // Don't reuse counters, in case this is a replay attack we want to quickly check the counter without running expensive decryption
+         self.receiving_counter_quick_check(packet.counter)?;
+ 
++        dst[..ct_len].copy_from_slice(packet.encrypted_encapsulated_packet);
++        self.open_packet_data(packet.counter, &mut dst[..ct_len])
++    }
++
++    #[cfg(feature = "in-place")]
++    pub(super) fn receive_packet_data_in_place<'a>(&self, receiver: u32, counter: u64, dst: &'a mut [u8]) -> Result<&'a mut [u8], WireGuardError> {
++        if receiver != self.receiving_index { return Err(WireGuardError::WrongIndex); }
++        self.receiving_counter_quick_check(counter)?;
++        self.open_packet_data(counter, dst)
++    }
++
++    fn open_packet_data<'a>(&self, counter: u64, dst: &'a mut [u8]) -> Result<&'a mut [u8], WireGuardError> {
+         let ret = {
+             let mut nonce = [0u8; 12];
+-            nonce[4..12].copy_from_slice(&packet.counter.to_le_bytes());
+-            dst[..ct_len].copy_from_slice(packet.encrypted_encapsulated_packet);
++            nonce[4..12].copy_from_slice(&counter.to_le_bytes());
+             self.receiver
+                 .open_in_place(
+                     Nonce::assume_unique_for_key(nonce),
+                     Aad::from(&[]),
+-                    &mut dst[..ct_len],
++                    dst,
+                 )
+                 .map_err(|_| WireGuardError::InvalidAeadTag)?
+         };
+ 
+         // After decryption is done, check counter again, and mark as received
+-        self.receiving_counter_mark(packet.counter)?;
++        self.receiving_counter_mark(counter)?;
+         Ok(ret)
+     }
+ 
+@@ -277,6 +298,40 @@
+ #[cfg(test)]
+ mod tests {
+     use super::*;
++    #[cfg(feature = "in-place")]
++    #[test]
++    fn copy_and_in_place_emit_identical_wire_bytes_and_commit_replay_only_after_authentication() {
++        use core::convert::TryInto;
++        type S = Session<proton_os_interface::lock::Loose>;
++        let copy_sender = S::new(7, 9, [1;32], [2;32]);
++        let inplace_sender = S::new(7, 9, [1;32], [2;32]);
++        let copy_receiver = S::new(9, 7, [2;32], [1;32]);
++        let inplace_receiver = S::new(9, 7, [2;32], [1;32]);
++        for size in [0,20,64,1280,1420,16_000,65_503] {
++            let body: Vec<u8> = (0..size).map(|n| (n%251) as u8).collect();
++            let mut copy = vec![0;size+32];
++            let mut inplace = vec![0;size+32];
++            inplace[16..16+size].copy_from_slice(&body);
++            copy_sender.format_packet_data(&body,&mut copy);
++            inplace_sender.format_packet_data_in_place(size,&mut inplace);
++            assert_eq!(copy,inplace,"wire bytes differ for {size}");
++            let counter = u64::from_le_bytes(copy[8..16].try_into().unwrap());
++            let packet = PacketData { receiver_idx:9, counter, encrypted_encapsulated_packet:&copy[16..] };
++            let mut plain = vec![0;size+16];
++            assert_eq!(copy_receiver.receive_packet_data(packet,&mut plain).unwrap(),body);
++            assert_eq!(inplace_receiver.receive_packet_data_in_place(9,counter,&mut inplace[16..]).unwrap(),body);
++        }
++        let mut valid=vec![0;96];valid[16..80].fill(7);
++        inplace_sender.format_packet_data_in_place(64,&mut valid);
++        let counter=u64::from_le_bytes(valid[8..16].try_into().unwrap());
++        let mut bad=valid.clone();bad[95]^=1;
++        let before=inplace_receiver.current_packet_cnt();
++        assert!(inplace_receiver.receive_packet_data_in_place(9,counter,&mut bad[16..]).is_err());
++        assert_eq!(before,inplace_receiver.current_packet_cnt());
++        let mut replay=valid.clone();
++        assert!(inplace_receiver.receive_packet_data_in_place(9,counter,&mut valid[16..]).is_ok());
++        assert!(inplace_receiver.receive_packet_data_in_place(9,counter,&mut replay[16..]).is_err());
++    }
+     #[test]
+     fn test_replay_counter() {
+         let mut c: ReceivingKeyCounterValidator = Default::default();

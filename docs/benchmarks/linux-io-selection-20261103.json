@@ -1,0 +1,111 @@
+{
+  "source_commit": "83f025231535a3ef0731123988e9dae8621cef4a",
+  "server": "US-NY#601",
+  "measured_valid_downloads": 6,
+  "elapsed_seconds": 129.34400000000096,
+  "combined_router_window_span_seconds": 991.888262,
+  "target": {
+    "host": "cdn.kernel.org",
+    "ip": "151.101.193.176",
+    "url": "https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-6.12.112.tar.xz"
+  },
+  "rows": [
+    {
+      "mode": "batch",
+      "round": 0,
+      "Mbps": 83.64136,
+      "cpu_ns_per_byte": 38.2,
+      "rss_kib": 4876,
+      "io_uring_completions": 0,
+      "io_uring_submissions": 0,
+      "enobufs": 0,
+      "kernel_fallbacks": 0
+    },
+    {
+      "mode": "uring",
+      "round": 0,
+      "Mbps": 54.734832,
+      "cpu_ns_per_byte": 49.0,
+      "rss_kib": 5072,
+      "io_uring_completions": 35513,
+      "io_uring_submissions": 562,
+      "enobufs": 561,
+      "kernel_fallbacks": 0
+    },
+    {
+      "mode": "uring",
+      "round": 1,
+      "Mbps": 139.752584,
+      "cpu_ns_per_byte": 34.4,
+      "rss_kib": 5620,
+      "io_uring_completions": 21948,
+      "io_uring_submissions": 881,
+      "enobufs": 880,
+      "kernel_fallbacks": 0
+    },
+    {
+      "mode": "batch",
+      "round": 1,
+      "Mbps": 61.565368,
+      "cpu_ns_per_byte": 43.8,
+      "rss_kib": 4516,
+      "io_uring_completions": 0,
+      "io_uring_submissions": 0,
+      "enobufs": 0,
+      "kernel_fallbacks": 0
+    },
+    {
+      "mode": "batch",
+      "round": 2,
+      "Mbps": 89.878912,
+      "cpu_ns_per_byte": 39.2,
+      "rss_kib": 4668,
+      "io_uring_completions": 0,
+      "io_uring_submissions": 0,
+      "enobufs": 0,
+      "kernel_fallbacks": 0
+    },
+    {
+      "mode": "uring",
+      "round": 2,
+      "Mbps": 89.274632,
+      "cpu_ns_per_byte": 41.0,
+      "rss_kib": 5044,
+      "io_uring_completions": 25499,
+      "io_uring_submissions": 595,
+      "enobufs": 594,
+      "kernel_fallbacks": 0
+    }
+  ],
+  "pairs": [
+    {
+      "round": 0,
+      "uring_goodput_change_pct": -34.560088453846284,
+      "uring_cpu_change_pct": 28.272251308900522
+    },
+    {
+      "round": 1,
+      "uring_goodput_change_pct": 126.99869835911647,
+      "uring_cpu_change_pct": -21.461187214611865
+    },
+    {
+      "round": 2,
+      "uring_goodput_change_pct": -0.672326785620192,
+      "uring_cpu_change_pct": 4.591836734693877
+    }
+  ],
+  "decision": "No repeatable io_uring advantage established. Select the simpler mmsg backend; remove the alternate release engine. Not a universal ranking of the technologies.",
+  "limitations": [
+    "Three paired 50 MB downloads on one peer, same frozen reference executable, no offload in either mode.",
+    "Wide throughput variation. io_uring wins one of three pairs, consumes more CPU in two, and reports buffer exhaustion in every session.",
+    "Observed worker counters prove actual multishot use, with no compatibility fallback. No causal attribution for speed variability.",
+    "This compares the current implementations, not every possible ring buffer sizing/receive strategy."
+  ],
+  "cleanup": {
+    "all_checks_passed": true,
+    "direct_mode_retained": true,
+    "installed_packages_unchanged": true,
+    "temporary_artifacts_removed": true,
+    "independent_audit_passed": true
+  }
+}

@@ -1,3 +1,12 @@
+Current support: Android 16/17, minimum/NDK API 36, compile/target SDK 37,
+AGP 9.1.1 with built-in Kotlin, Gradle 9.3.1 and JDK 17. CI pins NDK r30 LTS.
+The AAR uses compile SDK 37 and its library tests target 37 through `testOptions`;
+the consuming application sets its own `defaultConfig.targetSdk = 37`.
+See the [library test DSL](https://developer.android.com/reference/tools/gradle-api/9.1/com/android/build/api/dsl/TestOptions).
+The application supplies the agreed 16 KB environment; no runtime page-size
+inspection or additional page-size gate is performed. The previous API-25 build
+evidence below is historical and does not certify this new platform contract.
+
 # Android development library
 
 This independent service layer calls the actual Rust compatibility connection.

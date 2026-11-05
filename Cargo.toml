@@ -24,7 +24,6 @@ windows = ["uniffi", "local-agent"]
 test_utils = ["local-agent", "muon/login", "tokio/net", "tokio/io-util"]
 real-connection-tests = ["test_utils"]
 debug-counters = []
-mio = []
 control-plane = ["dep:futures", "dep:proton-vpn-netstack", "dep:tokio"]
 local-agent = ["control-plane", "dep:proton-vpn-local-agent", "dep:muon", "dep:proton-vpn-rcrl", "dep:rand", "dep:httpdate", "dep:x509-parser", "dep:cookie_store", "dep:url"]
 
@@ -35,7 +34,7 @@ thiserror = "2"
 zeroize = { version = "1", features = ["derive"] }
 getrandom = "0.4"
 base64 = "0.22"
-proton-boringtun = { version = "=4.9.0", registry = "proton", default-features = false }
+proton-boringtun = { version = "=4.9.0", path = "vendor/proton-boringtun", default-features = false, features = ["in-place"] }
 rand_chacha = "0.10"
 rustls = { version = "=0.23.46", default-features = false, features = ["std", "ring", "tls12"] }
 webpki-roots = "1"
@@ -64,7 +63,7 @@ socket2 = "0.6"
 mio = { version = "1", features = ["net", "os-poll", "os-ext"] }
 socket2 = "0.6"
 libloading = "0.8"
-windows-sys = { version = "0.52", features = ["Win32_Foundation", "Win32_Networking_WinSock", "Win32_NetworkManagement_IpHelper", "Win32_NetworkManagement_Ndis", "Win32_System_Threading", "Win32_System_WindowsProgramming", "Win32_System_LibraryLoader", "Win32_Security"] }
+windows-sys = { version = "0.52", features = ["Win32_Foundation", "Win32_Networking_WinSock", "Win32_NetworkManagement_IpHelper", "Win32_NetworkManagement_Ndis", "Win32_System_Threading", "Win32_System_SystemInformation", "Win32_System_WindowsProgramming", "Win32_System_LibraryLoader", "Win32_Security"] }
 
 [profile.release]
 lto = "thin"

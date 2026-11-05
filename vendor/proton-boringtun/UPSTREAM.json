@@ -1,0 +1,26 @@
+{
+  "package": "proton-boringtun",
+  "version": "4.9.0",
+  "registry": "https://rust-registry.proton.me/index/",
+  "archive_sha256": "0c10f0be52e40d51a36de1aa072bbd417b59042432c852fc3657a8772d678b34",
+  "files": {
+    ".cargo_vcs_info.json": "2dfe0cc13e08c36537aaaee4cb1cfb462d8bb8ec1d3033ce1af842b3e97353a8",
+    "CHANGELOG.md": "4a74c52cd89141deddfaecdd252139514875794b62117b2f46a889fe2a891af0",
+    "Cargo.toml": "a89bdfa78948fcce6a490b05ea003191f2f784e9c524eb3ba62142f314d44435",
+    "Cargo.toml.orig": "3bc4cc5a76543e5f240b656c9dcb64a153d0aa7f531822680e25b0ab915e6300",
+    "LICENSE.md": "6dbef24708bad8c727bd80cca58ba8aa1637cdcb2cc6e9a31ea49235717e9391",
+    "README.md": "eff8da9f74a436a2f82f291a1e5247bfc2aceb91ad3ccb15e3e99cd2dbd4ed84",
+    "benches/crypto_benches/blake2s_benching.rs": "cca7a3ac5f8bd39a2c9a28d6acf6143bef2bc79b69afb366d82ad54970641fab",
+    "benches/crypto_benches/chacha20poly1305_benching.rs": "455cdb7da30cbc81282537261a36e3945474934bf792db7e7b2945edcd1271d6",
+    "benches/crypto_benches/main.rs": "5ea22ea39656a5308858abb211473343cdf9ad570adc61aa0fd69ef3287a6007",
+    "benches/crypto_benches/x25519_public_key_benching.rs": "b34793c71c7015a87efebdc4df1b82501eed4ad09476db525d1d16c89ef4cd7c",
+    "benches/crypto_benches/x25519_shared_key_benching.rs": "ca388148975d54e66e5b01cd918e49b886a78297b92d369b29c20d3ef631ebee",
+    "src/lib.rs": "a0822671004b56927be39c2496a4dbab921ba90d3d1cd865da6b7fa939419701",
+    "src/noise/errors.rs": "ebe5b6118e3b17342eb107341c0ae182f123caec89dd5bbcdc1af52f66be7c0a",
+    "src/noise/handshake.rs": "b289110d2bac3d54a63bfb102736b94fecc5f593974ed74267c9ea35789cd0eb",
+    "src/noise/mod.rs": "09f55b3de00afa3939f0e13a94125eec4e263381a3a2ca5f393128cc47cca359",
+    "src/noise/rate_limiter.rs": "548b5a57ba936c4bdd788a32465ced08a162b067d4ef4b4d1d5dc37af862d089",
+    "src/noise/session.rs": "49d9728fbcc8b1d9b12556f0ca098d3f419868908b14cbb5ce147d644397584c",
+    "src/noise/timers.rs": "10b031e76d5cf0fb0bba83020f64926e87fef76c7fcb7829b28531300f8f17a4"
+  }
+}

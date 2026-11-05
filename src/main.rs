@@ -33,9 +33,10 @@ fn run() -> protun_next::Result<()> {
                     .parse()
                     .map_err(|_| protun_next::Error::Invalid("TUN descriptor"))?;
                 let stop = std::sync::atomic::AtomicBool::new(false);
-                let counters = match command {
-                    "run-udp" => protun_next::linux::run_udp(fd, &config, &args[4], &stop),
-                    "run-tcp" => protun_next::linux::run_tcp(fd, &config, &args[4], &stop),
+                use protun_next::transport::Transport;
+                let transport = match command {
+                    "run-udp" => Transport::Udp,
+                    "run-tcp" => Transport::Tcp,
                     "run-stealth" => {
                         let sni = match args.get(5).map(String::as_str) {
                             None | Some("random") => protun_next::stealth::SniStrategy::Random,
@@ -44,16 +45,12 @@ fn run() -> protun_next::Result<()> {
                                 protun_next::stealth::SniStrategy::Explicit(name.to_owned())
                             }
                         };
-                        protun_next::linux::run_stealth(fd, &config, &args[4], &sni, &stop)
+                        Transport::Stealth(sni)
                     }
-                    _ => protun_next::linux::run_tls(
-                        fd,
-                        &config,
-                        &args[4],
-                        protun_next::tls::client(&args[5])?,
-                        &stop,
-                    ),
-                }?;
+                    _ => Transport::Tls(Box::new(protun_next::tls::client(&args[5])?)),
+                };
+                let counters =
+                    protun_next::linux::run_transport_fd(fd, &config, &args[4], transport, &stop)?;
                 println!(
                     "{}",
                     serde_json::to_string(&counters)

@@ -7,7 +7,6 @@ use crate::{
     linux_network,
     network::{Datagram, Network, Stream},
     stream::FramedIo,
-    tls::TlsIo,
 };
 use std::{
     fs::File,
@@ -55,9 +54,11 @@ pub(crate) fn duplicate_nonblocking(fd: i32) -> Result<File> {
             return Err(std::io::Error::last_os_error().into());
         }
         let tun_flags = i16::from_ne_bytes([info[libc::IFNAMSIZ], info[libc::IFNAMSIZ + 1]]) as i32;
-        if tun_flags & (libc::IFF_TUN | libc::IFF_NO_PI) != (libc::IFF_TUN | libc::IFF_NO_PI) {
+        if tun_flags & (libc::IFF_TUN | libc::IFF_NO_PI) != (libc::IFF_TUN | libc::IFF_NO_PI)
+            || tun_flags & libc::IFF_VNET_HDR != 0
+        {
             return Err(Error::Invalid(
-                "descriptor must be TUN without packet-info header",
+                "descriptor must be raw TUN without packet-info or vnet headers",
             ));
         }
     }
@@ -108,6 +109,16 @@ pub fn run_udp(
         None,
     )
 }
+/// Run a chosen transport with the platform's production packet policy.
+pub fn run_transport_fd(
+    tun_fd: i32,
+    config: &WireguardConfig,
+    bind_device: &str,
+    transport: Transport,
+    stop: &AtomicBool,
+) -> Result<Counters> {
+    run_transport(Some(tun_fd), config, bind_device, transport, stop, None)
+}
 pub fn run_tcp(
     tun_fd: i32,
     config: &WireguardConfig,
@@ -128,7 +139,7 @@ pub fn run_tls(
     tun_fd: i32,
     config: &WireguardConfig,
     bind_device: &str,
-    connection: rustls::ClientConnection,
+    connection: crate::tls::ClientConnection,
     stop: &AtomicBool,
 ) -> Result<Counters> {
     run_transport(
@@ -208,7 +219,7 @@ pub(crate) fn run_owned(
                 return Err(std::io::Error::from(std::io::ErrorKind::PermissionDenied).into());
             }
             socket.connect(config.endpoint)?;
-            run(tun_file, config, Datagram(socket), stop, observer)
+            run(tun_file, config, Datagram::new(socket), stop, observer)
         }
         other => {
             if config.mtu > 16_351 {
@@ -230,7 +241,7 @@ pub(crate) fn run_owned(
                 Transport::Tls(connection) => run(
                     tun_file,
                     config,
-                    Stream(FramedIo::new(TlsIo::new(socket, *connection), 64)?),
+                    Stream(crate::tls::framed(socket, *connection)?),
                     stop,
                     observer,
                 ),
@@ -239,7 +250,7 @@ pub(crate) fn run_owned(
                     run(
                         tun_file,
                         config,
-                        Stream(FramedIo::new(TlsIo::new(socket, connection), 64)?),
+                        Stream(crate::tls::framed(socket, connection)?),
                         stop,
                         observer,
                     )

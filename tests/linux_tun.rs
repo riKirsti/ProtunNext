@@ -28,6 +28,26 @@ fn echo_ipv4(packet: &mut [u8], spoof: bool) {
     let header = (packet[0] & 15) as usize * 4;
     assert!(header >= 20 && packet.len() >= header + 8);
     assert_eq!(packet[9], 17);
+    let sum = |bytes: &[u8], seed: u32| {
+        let mut value = seed;
+        for pair in bytes.chunks(2) {
+            value += u16::from_be_bytes([pair[0], *pair.get(1).unwrap_or(&0)]) as u32;
+        }
+        while value > 0xffff {
+            value = (value & 0xffff) + (value >> 16);
+        }
+        value
+    };
+    assert_eq!(sum(&packet[..header], 0), 0xffff, "outbound IPv4 checksum");
+    if packet[header + 6..header + 8] != [0, 0] {
+        // Independent RFC 768 pseudoheader check at the receiving peer.
+        let pseudo = sum(&packet[12..20], 17 + (packet.len() - header) as u32);
+        assert_eq!(
+            sum(&packet[header..], pseudo),
+            0xffff,
+            "outbound UDP checksum"
+        );
+    }
     for n in 0..4 {
         packet.swap(12 + n, 16 + n);
     }
@@ -53,6 +73,9 @@ fn echo_ipv4(packet: &mut [u8], spoof: bool) {
 #[test]
 #[ignore = "requires a disposable network namespace and CAP_NET_ADMIN; never run on a router"]
 fn actual_udp_tcp_tls_engine_tun_roundtrips() {
+    tun_roundtrips();
+}
+fn tun_roundtrips() {
     assert_eq!(
         std::env::var("PROTUN_NEXT_NETNS_TEST").as_deref(),
         Ok("1"),
@@ -65,7 +88,8 @@ fn actual_udp_tcp_tls_engine_tun_roundtrips() {
         .unwrap();
     let mut request = [0u8; 40];
     request[..3].copy_from_slice(b"pn0");
-    request[16..18].copy_from_slice(&((libc::IFF_TUN | libc::IFF_NO_PI) as i16).to_ne_bytes());
+    let flags = libc::IFF_TUN | libc::IFF_NO_PI;
+    request[16..18].copy_from_slice(&(flags as i16).to_ne_bytes());
     // SAFETY: valid TUN descriptor and 40-byte ifreq storage, private test namespace.
     let configured = unsafe { libc::ioctl(tun.as_raw_fd(), libc::TUNSETIFF, request.as_mut_ptr()) };
     assert_eq!(configured, 0);
@@ -73,12 +97,20 @@ fn actual_udp_tcp_tls_engine_tun_roundtrips() {
     ip(&["addr", "add", "10.2.0.2/32", "dev", "pn0"]);
     ip(&["link", "set", "pn0", "mtu", "1500", "up"]);
     ip(&["route", "add", "10.2.0.3/32", "dev", "pn0"]);
-    for mode in 0..8 {
+    for mode in [0, 1, 2, 3, 4, 5, 6, 7, 15, 16, 17, 18, 19] {
+        let scenario = match mode {
+            16 => 4,
+            17 => 5,
+            18 => 6,
+            19 => 7,
+            _ => mode,
+        };
+        let udp_mode = matches!(mode, 0 | 8 | 9 | 10 | 13 | 15);
         let peer = UdpSocket::bind("127.0.0.1:0").unwrap();
         peer.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         listener.set_nonblocking(true).unwrap();
-        let endpoint = if mode == 0 {
+        let endpoint = if udp_mode {
             peer.local_addr().unwrap()
         } else {
             listener.local_addr().unwrap()
@@ -87,7 +119,7 @@ fn actual_udp_tcp_tls_engine_tun_roundtrips() {
         let now = linux::boottime().unwrap();
         let (release, wait_release) = std::sync::mpsc::channel();
         let reference = thread::spawn(move || {
-            let mut transport = if mode == 0 {
+            let mut transport = if udp_mode {
                 Reference::Udp(peer)
             } else {
                 let deadline = std::time::Instant::now() + Duration::from_secs(5);
@@ -104,7 +136,7 @@ fn actual_udp_tcp_tls_engine_tun_roundtrips() {
                 tcp.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
                 tcp.set_write_timeout(Some(Duration::from_secs(5))).unwrap();
                 tcp.set_nodelay(true).unwrap();
-                let io: Box<dyn Duplex> = if mode >= 2 && mode != 7 {
+                let io: Box<dyn Duplex> = if mode >= 2 && !matches!(mode, 7 | 14) {
                     Box::new(rustls::StreamOwned::new(
                         rustls::ServerConnection::new(common::server()).unwrap(),
                         tcp,
@@ -120,11 +152,12 @@ fn actual_udp_tcp_tls_engine_tun_roundtrips() {
             let mut wire = pool.take().unwrap();
             let mut out = [0; 65535];
             let mut reply = [0; 65535];
+            let mut echoes = if mode == 15 { 3 } else { 1 };
             loop {
                 transport.receive(&mut wire);
                 let result = match session.decrypt(wire.data(), &mut out) {
                     Ok(result) => result,
-                    Err(_) if mode == 4 => {
+                    Err(_) if scenario == 4 => {
                         // The TLS peer has no trusted certificate/name, but the
                         // wrong configured WG key must prevent authentication.
                         wait_release.recv_timeout(Duration::from_secs(10)).unwrap();
@@ -135,19 +168,23 @@ fn actual_udp_tcp_tls_engine_tun_roundtrips() {
                 match result {
                     Output::Network(n) => transport.send(&out[..n], &mut pool),
                     Output::Tunnel(n) => {
-                        echo_ipv4(&mut out[..n], mode == 5);
+                        echo_ipv4(&mut out[..n], scenario == 5);
                         let Output::Network(n) = session.encrypt(&out[..n], &mut reply).unwrap()
                         else {
                             panic!("echo encrypt")
                         };
                         transport.send(&reply[..n], &mut pool);
-                        if mode == 7 {
+                        echoes -= 1;
+                        if echoes > 0 {
+                            continue;
+                        }
+                        if scenario == 7 {
                             return;
                         }
                         wait_release.recv_timeout(Duration::from_secs(10)).unwrap();
                         return;
                     }
-                    Output::None if mode == 6 => {
+                    Output::None if scenario == 6 => {
                         wait_release.recv_timeout(Duration::from_secs(10)).unwrap();
                         return;
                     }
@@ -158,19 +195,22 @@ fn actual_udp_tcp_tls_engine_tun_roundtrips() {
         let text = format!(
             "[Interface]\nPrivateKey={}\nAddress=10.2.0.2/32\nMTU=1280\n[Peer]\nPublicKey={}\nEndpoint={endpoint}\nAllowedIPs=10.2.0.3/32\n",
             STANDARD.encode([7; 32]),
-            STANDARD.encode(Session::public_key(if mode == 4 {
+            STANDARD.encode(Session::public_key(if scenario == 4 {
                 [11; 32]
             } else {
                 [9; 32]
             }))
         );
         let mut config = WireguardConfig::parse(&text).unwrap();
-        if mode == 6 {
+        if scenario == 6 {
             config.allowed_ips = vec!["10.2.0.4/32".into()];
         }
         let transport = match mode {
-            0 => linux::Transport::Udp,
-            1 | 7 => linux::Transport::Tcp,
+            0 | 8 | 9 | 10 | 13 | 15 => linux::Transport::Udp,
+            1 | 7 | 14 => linux::Transport::Tcp,
+            12 => linux::Transport::Tls(Box::new(
+                tls::client_with_roots("localhost", common::roots()).unwrap(),
+            )),
             2 => linux::Transport::Tls(Box::new(
                 tls::client_with_roots("localhost", common::roots()).unwrap(),
             )),
@@ -205,7 +245,7 @@ fn actual_udp_tcp_tls_engine_tun_roundtrips() {
             );
         }
         let app = UdpSocket::bind("10.2.0.2:0").unwrap();
-        app.set_read_timeout(Some(if (4..=6).contains(&mode) {
+        app.set_read_timeout(Some(if (4..=6).contains(&scenario) {
             Duration::from_millis(500)
         } else {
             Duration::from_secs(8)
@@ -214,10 +254,38 @@ fn actual_udp_tcp_tls_engine_tun_roundtrips() {
         // The caller-owned interface MTU exceeds the worker's initial 1280.
         // A full 1500-byte IP packet must survive without a truncated tail.
         let payload = [0x5a; 1472];
+        if mode == 15 {
+            let segment_size: libc::c_int = 500;
+            assert_eq!(
+                // SAFETY: scalar setting on an owned socket in a disposable namespace.
+                unsafe {
+                    libc::setsockopt(
+                        app.as_raw_fd(),
+                        libc::SOL_UDP,
+                        libc::UDP_SEGMENT,
+                        (&segment_size as *const libc::c_int).cast(),
+                        size_of::<libc::c_int>() as _,
+                    )
+                },
+                0
+            );
+        }
         app.send_to(&payload, "10.2.0.3:9000").unwrap();
         let mut response = [0; 1500];
         let received = app.recv_from(&mut response);
-        if mode == 7 {
+        if mode == 15 {
+            let (n, from) = received.as_ref().unwrap();
+            assert_eq!(*n, 500);
+            assert_eq!(&response[..*n], &payload[..500]);
+            assert_eq!(*from, "10.2.0.3:9000".parse().unwrap());
+            for count in [500, 472] {
+                let (n, from) = app.recv_from(&mut response).unwrap();
+                assert_eq!(n, count);
+                assert_eq!(&response[..n], &payload[..count]);
+                assert_eq!(from, "10.2.0.3:9000".parse().unwrap());
+            }
+        }
+        if scenario == 7 {
             let (n, _) = received.unwrap();
             assert_eq!(
                 &response[..n],
@@ -246,14 +314,14 @@ fn actual_udp_tcp_tls_engine_tun_roundtrips() {
             .statistics
             .as_ref()
             .expect("real session statistics");
-        if mode == 4 {
+        if scenario == 4 {
             assert_ne!(snapshot.state, State::TunnelEstablished);
             assert!(statistics.handshake_age.is_none());
             assert_eq!(statistics.received_bytes, 0);
         } else {
             assert_eq!(snapshot.state, State::TunnelEstablished);
             assert!(statistics.handshake_age.is_some());
-            if mode == 6 {
+            if scenario == 6 {
                 assert_eq!(statistics.sent_bytes, 0);
             } else {
                 assert!(statistics.received_bytes > 0 && statistics.sent_bytes > 0);
@@ -268,13 +336,13 @@ fn actual_udp_tcp_tls_engine_tun_roundtrips() {
         );
         release.send(()).unwrap();
         reference.join().unwrap();
-        if mode >= 4 {
+        if (4..=6).contains(&scenario) {
             let error = received.unwrap_err();
             assert!(matches!(
                 error.kind(),
                 std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
             ));
-            match mode {
+            match scenario {
                 4 => assert_eq!(
                     counters.decrypted_packets, 0,
                     "untrusted TLS cannot authenticate a WG peer"
@@ -291,7 +359,11 @@ fn actual_udp_tcp_tls_engine_tun_roundtrips() {
             continue;
         }
         let (n, source) = received.unwrap();
-        assert_eq!(&response[..n], payload);
+        if mode == 15 {
+            assert_eq!(n, 500);
+        } else {
+            assert_eq!(&response[..n], payload);
+        }
         assert_eq!(source, "10.2.0.3:9000".parse().unwrap());
         assert!(counters.decrypted_packets >= 1);
         assert!(counters.tun_reads >= 1);
