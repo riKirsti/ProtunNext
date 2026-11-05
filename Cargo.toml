@@ -31,7 +31,7 @@ local-agent = ["control-plane", "dep:proton-vpn-local-agent", "dep:muon", "dep:p
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
-zeroize = { version = "1", features = ["derive"] }
+zeroize = { version = "1.9.1", features = ["derive"] }
 getrandom = "0.4"
 base64 = "0.22"
 proton-boringtun = { version = "=4.9.0", path = "vendor/proton-boringtun", default-features = false, features = ["in-place"] }
