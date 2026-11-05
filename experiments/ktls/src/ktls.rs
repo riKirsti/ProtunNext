@@ -113,9 +113,15 @@ pub struct Ktls {
     pub tickets: u64,
 }
 impl Ktls {
-    pub fn connect(mut socket: TcpStream, config: Arc<rustls::ClientConfig>) -> io::Result<Self> {
-        let mut conn = UnbufferedClientConnection::new(config, "localhost".try_into().unwrap())
+    pub fn connect(socket: TcpStream, config: Arc<rustls::ClientConfig>) -> io::Result<Self> {
+        let conn = UnbufferedClientConnection::new(config, "localhost".try_into().unwrap())
             .map_err(io::Error::other)?;
+        Self::from_connection(socket, conn)
+    }
+    pub fn from_connection(
+        mut socket: TcpStream,
+        mut conn: UnbufferedClientConnection,
+    ) -> io::Result<Self> {
         let mut input = vec![0u8; 65536];
         let mut used = 0;
         let mut output = vec![0u8; 65536];
@@ -411,6 +417,12 @@ impl Write for Ktls {
     }
     fn flush(&mut self) -> io::Result<()> {
         self.socket.flush()
+    }
+    fn write_vectored(&mut self, bytes: &[io::IoSlice<'_>]) -> io::Result<usize> {
+        if self.write_closed {
+            return Err(io::ErrorKind::BrokenPipe.into());
+        }
+        self.socket.write_vectored(bytes)
     }
 }
 impl Drop for Ktls {
