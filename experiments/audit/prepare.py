@@ -9,17 +9,13 @@ import tempfile
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 OUT = ROOT / "target/erasure-audit"
-BASELINE = "c4b2554398ffcbf35cdaa9c8797504d8df146bd9"
+BASELINE = "ae9c9e86da8509261812813c9438e7ea625e19f5"
 
 
-def prepare(candidate="HEAD"):
+def prepare(candidate="HEAD", baseline=BASELINE):
     OUT.mkdir(parents=True, exist_ok=True)
-    resolved = subprocess.check_output(
-        ["git", "rev-parse", "bench-pr3-main-20261105^{commit}"], cwd=ROOT, text=True
-    ).strip()
-    assert resolved == BASELINE, "baseline tag moved"
     state = {}
-    for name, ref in {"main": BASELINE, "erase": candidate}.items():
+    for name, ref in {"main": baseline, "erase": candidate}.items():
         sha = subprocess.check_output(["git", "rev-parse", f"{ref}^{{commit}}"], cwd=ROOT, text=True).strip()
         dest = pathlib.Path(tempfile.mkdtemp(prefix=name + "-", dir=OUT))
         archive = subprocess.check_output(["git", "archive", sha], cwd=ROOT)
@@ -43,5 +39,6 @@ def prepare(candidate="HEAD"):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--candidate", default="HEAD")
+    parser.add_argument("--baseline", default=BASELINE)
     args = parser.parse_args()
-    print(json.dumps(prepare(args.candidate)))
+    print(json.dumps(prepare(args.candidate, args.baseline)))

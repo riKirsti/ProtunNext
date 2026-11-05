@@ -16,7 +16,7 @@ def metrics(row, environment):
     m = row["metrics"][0]
     assert m["effective_sources_sha256"] == environment["sources"][row["build"]]["effective_sources_sha256"]
     for aux in ["peer", "load"]:
-        assert m[aux]["effective_sources_sha256"] == environment["sources"]["erase"]["effective_sources_sha256"]
+        assert m[aux]["effective_sources_sha256"] == environment["sources"]["main"]["effective_sources_sha256"]
     assert m["kernel"] == environment["kernel"]
     assert (m["protocol"], m["size"], m["window"], m["flows"], m["load"]["shape"]) == (
         row["protocol"], row["size"], row["window"], row["flows"], row["shape"])

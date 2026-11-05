@@ -26,7 +26,7 @@ measurements and Travel's Linux 6.12.112 measurements. The native numbers must
 not be described as Linux 6.12/6.18 results. Historical measurements without
 binary or kernel-image hashes do not acquire those hashes retrospectively.
 
-## Focused supported-kernel comparison
+## Recorded PR #3 supported-kernel comparison
 
 `performance-audit-lts.yml` tests x64 **actual Linux 6.12.115 and 6.18.60**, each
 on three independent hosted-runner allocations. These are local controlled
@@ -99,3 +99,10 @@ changes add the stronger linked-code checker and its negative control. Consult
 PR #3 for the current cross-platform verification run. These local worker tests
 do not establish a Proton WAN download-speed improvement. Both routers remain
 unchanged by this work.
+
+Follow-up benchmarks accept an explicit `--baseline` and default to merged PR #3
+(`ae9c9e8`). They freeze the peer and generator at that baseline. The original
+PR #3 harness, baseline and candidate remain reproducible using the pinned tags
+above. Normal release erasure verification now runs on relevant PRs and main;
+the expensive benchmark matrix is manually triggered. Native ARM64 diagnostics
+record the actual hosted kernel and are not supported-LTS acceptance results.

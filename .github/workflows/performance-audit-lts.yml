@@ -1,16 +1,11 @@
 name: packet-erasure-actual-lts
 on:
-  push:
-    branches: [performance/worker-next]
-    paths:
-      - 'experiments/audit/lts.py'
-      - 'experiments/audit/run.py'
-      - 'experiments/audit/prepare.py'
-      - 'experiments/audit/worker_probe.rs'
-      - 'experiments/audit/analyze.py'
-      - '.github/workflows/performance-audit-lts.yml'
-      - 'src/packet.rs'
   workflow_dispatch:
+    inputs:
+      baseline:
+        type: string
+        default: ae9c9e86da8509261812813c9438e7ea625e19f5
+        description: Baseline commit (default is merged PR 3)
 permissions: {contents: read}
 jobs:
   lts:
@@ -37,24 +32,11 @@ jobs:
           if [ ! -s target/lts-kernels/${{ matrix.kernel }}/bzImage ]; then
             bash scripts/test-linux-lts.sh '${{ matrix.kernel }}'
           fi
-      - name: Build isolated baseline and candidate with a fixed peer
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 experiments/audit/prepare.py
-          mkdir -p target/erasure-audit/bin
-          { rustc -vV; cargo -vV; printf 'profile=release thin-LTO codegen-units=1 panic=abort\nRUSTFLAGS=%s\n' "${RUSTFLAGS-}"; } > target/erasure-audit/toolchain.txt
-          export CC_x86_64_unknown_linux_musl=musl-gcc
-          for name in main erase; do
-            export CARGO_TARGET_DIR="$PWD/target/erasure-audit/cargo-$name"
-            export NEXT_BUILD_ID="$(python3 -c "import json; print(json.load(open('target/erasure-audit/builds.json'))['$name']['effective_sources_sha256'])")"
-            source="$(python3 -c "import json; print(json.load(open('target/erasure-audit/builds.json'))['$name']['path'])")"
-            if [ "$name" = erase ]; then
-              cargo test --locked --lib --no-default-features --features unix --manifest-path "$source/Cargo.toml" > target/erasure-audit/probe-regressions.log 2>&1
-            fi
-            cargo build --locked --release --target x86_64-unknown-linux-musl --no-default-features --features unix --bin erasure-probe --manifest-path "$source/Cargo.toml" > "target/erasure-audit/build-$name.log" 2>&1
-            cp "$CARGO_TARGET_DIR/x86_64-unknown-linux-musl/release/erasure-probe" "target/erasure-audit/bin/$name"
-          done
+      - name: Build isolated baseline and candidate with a fixed baseline peer
+        env:
+          BASELINE: ${{ inputs.baseline }}
+          CC_x86_64_unknown_linux_musl: musl-gcc
+        run: bash experiments/audit/build.sh x86_64-unknown-linux-musl
       - name: A/A controls and ABBA comparison on the actual supported kernel
         run: sudo python3 experiments/audit/lts.py '${{ matrix.kernel }}'
       - name: Publish validity separately from execution success
@@ -68,6 +50,39 @@ jobs:
         if: always()
         with:
           name: erasure-${{ matrix.kernel }}-${{ matrix.replicate }}
+          path: |
+            target/erasure-audit/results/
+            target/erasure-audit/builds.json
+            target/erasure-audit/toolchain.txt
+            target/erasure-audit/*.log
+  native-arm64:
+    strategy:
+      fail-fast: false
+      matrix:
+        replicate: [1, 2, 3]
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 0}
+      - uses: dtolnay/rust-toolchain@1.99.1
+      - name: Build isolated native variants
+        env:
+          BASELINE: ${{ inputs.baseline }}
+        run: bash experiments/audit/build.sh aarch64-unknown-linux-gnu
+      - name: Native ARM64 diagnostic (host kernel recorded, not LTS acceptance)
+        run: sudo python3 experiments/audit/native.py
+      - name: Publish native validity
+        if: always()
+        shell: bash
+        run: |
+          sudo chown -R "$(id -u):$(id -g)" target/erasure-audit
+          file=target/erasure-audit/results/native/summary.md
+          if [ -f "$file" ]; then cat "$file" >> "$GITHUB_STEP_SUMMARY"; fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: erasure-native-arm64-${{ matrix.replicate }}
           path: |
             target/erasure-audit/results/
             target/erasure-audit/builds.json

@@ -1,8 +1,8 @@
 //! Caller-owned TLS record buffers, using the pinned rustls unbuffered state
 //! machine. This is not kTLS and does not claim allocation-free TLS reception.
+use crate::packet::erase;
 use rustls::{client::UnbufferedClientConnection, unbuffered::ConnectionState};
 use std::io::{self, IoSlice, Read, Write};
-use zeroize::Zeroize;
 
 const TLS_BUFFER: usize = 65536;
 const RECORD: usize = 16384;
@@ -297,7 +297,7 @@ impl<S: Read + Write> UnbufferedTlsIo<S> {
         if discard > supplied {
             return Err(io::ErrorKind::InvalidData.into());
         }
-        self.incoming[self.first..self.first + discard].zeroize();
+        erase(&mut self.incoming[self.first..self.first + discard]);
         self.first += discard;
         if self.first == self.end {
             self.first = 0;
@@ -316,7 +316,7 @@ impl<S: Read + Write> UnbufferedTlsIo<S> {
             if n > self.pending_end - self.pending_first {
                 return Err(io::ErrorKind::InvalidData.into());
             }
-            self.pending[self.pending_first..self.pending_first + n].zeroize();
+            erase(&mut self.pending[self.pending_first..self.pending_first + n]);
             self.pending_first += n;
             return Ok(n);
         }
@@ -423,7 +423,7 @@ impl<S: Read + Write> Read for UnbufferedTlsIo<S> {
         if first < end {
             let n = output.len().min(end - first);
             output[..n].copy_from_slice(&pending[first..first + n]);
-            pending[first..first + n].zeroize();
+            erase(&mut pending[first..first + n]);
             self.pending = pending;
             self.pending_first += n;
             return Ok(n);
@@ -474,7 +474,7 @@ impl<S: Read + Write> Write for UnbufferedTlsIo<S> {
             }
         }
         let result = self.write(&gather[..n]);
-        gather[..n].zeroize();
+        erase(&mut gather[..n]);
         self.gather = gather;
         result
     }
@@ -509,9 +509,88 @@ impl<S: Read + Write> Write for UnbufferedTlsIo<S> {
 }
 impl<S> Drop for UnbufferedTlsIo<S> {
     fn drop(&mut self) {
-        self.incoming.zeroize();
-        self.outgoing.zeroize();
-        self.pending.zeroize();
-        self.gather.zeroize();
+        erase(&mut self.incoming);
+        erase(&mut self.outgoing);
+        erase(&mut self.pending);
+        erase(&mut self.gather);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Arc;
+
+    struct Blocked;
+    impl Read for Blocked {
+        fn read(&mut self, _: &mut [u8]) -> io::Result<usize> {
+            Err(io::ErrorKind::WouldBlock.into())
+        }
+    }
+    impl Write for Blocked {
+        fn write(&mut self, _: &[u8]) -> io::Result<usize> {
+            Err(io::ErrorKind::WouldBlock.into())
+        }
+        fn flush(&mut self) -> io::Result<()> {
+            Err(io::ErrorKind::WouldBlock.into())
+        }
+    }
+    fn adapter() -> UnbufferedTlsIo<Blocked> {
+        let config = rustls::ClientConfig::builder_with_provider(Arc::new(
+            rustls::crypto::ring::default_provider(),
+        ))
+        .with_safe_default_protocol_versions()
+        .unwrap()
+        .with_root_certificates(rustls::RootCertStore::empty())
+        .with_no_client_auth();
+        UnbufferedTlsIo::new(
+            Blocked,
+            UnbufferedClientConnection::new(Arc::new(config), "example.test".try_into().unwrap())
+                .unwrap(),
+        )
+    }
+    #[test]
+    fn partial_pending_reads_erase_only_consumed_bytes() {
+        let mut io = adapter();
+        io.pending.fill(0xa5);
+        io.pending[4..11].copy_from_slice(b"abcdefg");
+        io.pending_first = 4;
+        io.pending_end = 11;
+        let mut out = [0; 3];
+        assert_eq!(io.read(&mut out).unwrap(), 3);
+        assert_eq!(&out, b"abc");
+        assert_eq!(&io.pending[4..7], &[0; 3]);
+        assert_eq!(&io.pending[7..11], b"defg");
+        assert_eq!(
+            io.read_plaintext(|data| {
+                assert_eq!(data, b"defg");
+                Ok(2)
+            })
+            .unwrap(),
+            2
+        );
+        assert_eq!(&io.pending[4..9], &[0; 5]);
+        assert_eq!(&io.pending[9..11], b"fg");
+        assert!(
+            io.read_plaintext(|_| Err(io::ErrorKind::WouldBlock.into()))
+                .is_err()
+        );
+        assert_eq!(io.pending_first, 9);
+        assert_eq!(&io.pending[9..11], b"fg");
+        assert!(io.pending[..4].iter().all(|b| *b == 0xa5));
+        assert!(io.pending[11..].iter().all(|b| *b == 0xa5));
+    }
+    #[test]
+    fn blocked_vectored_write_erases_gathered_bytes_before_returning() {
+        let mut io = adapter();
+        io.gather.fill(0xa5);
+        assert_eq!(
+            io.write_vectored(&[IoSlice::new(b"abc"), IoSlice::new(b"defg")])
+                .unwrap_err()
+                .kind(),
+            io::ErrorKind::WouldBlock
+        );
+        assert_eq!(&io.gather[..7], &[0; 7]);
+        assert!(io.gather[7..].iter().all(|b| *b == 0xa5));
     }
 }
