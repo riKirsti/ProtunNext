@@ -1,0 +1,44 @@
+name: one-hour-production-bridge
+on:
+  push:
+    branches: ['experiments/decision-hour-*']
+permissions: { contents: read }
+jobs:
+  bridge:
+    if: contains(github.event.head_commit.message, 'production-bridge')
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04,ubuntu-24.04-arm]
+        replicate: [1,2,3]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: dtolnay/rust-toolchain@stable
+      - run: |
+          python3 experiments/decision/prepare.py
+          python3 experiments/decision/production-bridge.py
+          mkdir -p results
+          uname -a > results/environment.txt
+          lscpu >> results/environment.txt
+          export CARGO_TARGET_DIR="$PWD/bridge-target"
+          cargo build --release --no-default-features --features in-place-crypto,io-uring --bin decision-worker --manifest-path reference/Cargo.toml
+          cargo build --release --no-default-features --bin production-worker --manifest-path production-reference/Cargo.toml
+          sha256sum bridge-target/release/decision-worker bridge-target/release/production-worker > results/bridge-hashes.txt
+          for round in 0 1 2 3; do
+            if [ $((round%2)) = 0 ]; then builds='reference production'; else builds='production reference'; fi
+            for proto in udp tcp stealth; do
+              if [ "$proto" = stealth ]; then variant=batch-unbuffered-compact-inplace; elif [ "$proto" = udp ]; then variant=batch-offload-compact-inplace; else variant=batch-compact-inplace; fi
+              for build in $builds; do
+                if [ "$build" = reference ]; then binary=decision-worker; else binary=production-worker; fi
+                sudo unshare -n "bridge-target/release/$binary" "$proto" "$variant" 1200 "$round" 2 32 0 0 >> "results/bridge-$build.log" 2>&1
+              done
+            done
+          done
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: hour-bridge-${{ matrix.os }}-${{ matrix.replicate }}
+          path: results/

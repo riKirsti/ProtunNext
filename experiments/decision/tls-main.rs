@@ -74,7 +74,7 @@ fn retry(e:&io::Error)->bool {matches!(e.kind(),io::ErrorKind::WouldBlock|io::Er
 fn framed(mode:&str,version:&'static rustls::SupportedProtocolVersion,chunk:usize,round:usize) {
     use protun_next::{framing::Decoder,packet::PacketPool};
     let cfg=ServerConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider())).with_protocol_versions(&[version]).unwrap().with_no_client_auth().with_single_cert(vec![CertificateDer::from(CERT.to_vec())],PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(KEY.to_vec()))).unwrap();
-    let listener=TcpListener::bind("127.0.0.1:0").unwrap();let addr=listener.local_addr().unwrap();let frames=64*1024*1024/chunk;let bytes=frames*chunk;
+    let listener=TcpListener::bind("127.0.0.1:0").unwrap();let addr=listener.local_addr().unwrap();let frames=std::env::var("BENCH_FRAMED_BYTES").ok().and_then(|s|s.parse::<usize>().ok()).unwrap_or(64*1024*1024)/chunk;let bytes=frames*chunk;
     let server=std::thread::spawn(move||{
         let (socket,_)=listener.accept().unwrap();socket.set_nodelay(true).unwrap();socket.set_read_timeout(Some(Duration::from_secs(30))).unwrap();socket.set_write_timeout(Some(Duration::from_secs(30))).unwrap();
         let mut s=StreamOwned::new(ServerConnection::new(Arc::new(cfg)).unwrap(),socket);let mut hello=[0;1];s.read_exact(&mut hello).unwrap();s.write_all(&[8]).unwrap();s.flush().unwrap();

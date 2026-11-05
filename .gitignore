@@ -16,3 +16,6 @@ benchmark-results.local.json
 /experiments/decision/__pycache__/
 /bench-target/
 /results/
+/production-reference/
+/correctness-target/
+/bridge-target/

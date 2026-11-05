@@ -93,6 +93,8 @@ protun-next={path="../../../reference",default-features=false,features=["in-plac
 rustls={version="=0.23.46",default-features=false,features=["std","ring","tls12"]}
 serde_json="1"
 libc="0.2"
+[target.'cfg(windows)'.dependencies]
+windows-sys={version="0.52",features=["Win32_Foundation","Win32_System_Threading"]}
 [profile.release]
 lto="thin"
 codegen-units=1
