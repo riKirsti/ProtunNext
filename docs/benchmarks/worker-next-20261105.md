@@ -1,158 +1,212 @@
-# Further worker performance experiments — 2026-11-05
+# Further worker performance results — 2026-11-05
 
-Status: investigation branch; the repeated cohort is running. Do not merge based
-on the pilot figures below. No release, router deployment, account access or
-router package changes are part of this campaign.
+The production proposal is **bulk packet erasure only**. The GRO ownership
+handoff was removed after mixed architecture results. Parallel crypto and kTLS
+remain isolated experiments outside the shipping build. There was no release,
+router deployment, account access or router package/configuration change.
 
-## Changes and boundaries
+## Final production change
 
-Merged main is `c4b2554398ffcbf35cdaa9c8797504d8df146bd9`.
-The shipping-source candidates are deliberately small:
+Baseline: `c4b2554398ffcbf35cdaa9c8797504d8df146bd9` (merged main).
+Measured candidate: `849be97a207ec0762e1b3660fd61db4a77d2bca8`.
 
-* Transfer ownership of the final UDP GRO segment instead of copying that last
-  segment. Earlier segments keep their existing independent buffers. This is
-  not shared-buffer slicing or complete zero-copy GRO.
-* Retain exactly the existing packet erasure extent and lifetime, but use a bulk
-  zero fill followed by `zeroize::optimization_barrier`. The dependency floor is
-  1.9.1, which provides that public API. Key erasure elsewhere is unchanged.
+Packet recycling and destruction retain their existing erasure region and
+lifetime. A bulk zero fill followed by `zeroize::optimization_barrier` replaces
+byte-wise volatile erasure. The zeroize dependency floor is now 1.9.1, which
+provides this public API. Key erasure elsewhere, packet ownership, queue sizes,
+TLS selection, public APIs and platform bindings are unchanged.
 
-The latter follows the library's documented pattern of writes followed by the
-[supported barrier](https://github.com/RustCrypto/utils/blob/zeroize-v1.9.1/zeroize/src/barrier.rs).
-Tests cover unaligned ranges, short packets retaining a previously longer live
-region, and GRO ownership/recycling. Both native release assemblies retain
-`memset` calls in the candidate's recycler. This is an implementation check,
-not a claim that a unit test alone proves dead-store resistance.
+This follows the library's documented writes-then-barrier pattern in its
+[official source](https://github.com/RustCrypto/utils/blob/zeroize-v1.9.1/zeroize/src/barrier.rs).
+Tests cover unaligned spans, adjacent guards and a shortened packet retaining a
+previously longer live region. Optimized native x64/ARM64 assemblies retain bulk
+zeroing calls. Runtime tests alone would not prove resistance to dead-store
+elimination; source-contract and generated-code checks accompany them.
 
-Parallel crypto and kTLS live under `experiments/`, outside the shipping build.
-The former applies checked transformations to a disposable source archive;
-production vendor files and APIs do not gain its experimental interfaces.
+## Repeated worker results
 
-## Benchmark validity correction
+[Final erasure-only run](https://github.com/riKirsti/ProtunNext/actions/runs/41976010102):
+648 successful timed samples, no failed samples, three allocated hosts per
+architecture, six balanced matched pairs per cell on each host. Each cell below
+therefore has 18 pairs across three allocations. Figures are geometric means of
+paired ratios, with equal weight per allocation. No narrow confidence interval
+is inferred from correlated packets or repeated rounds.
 
-The first comparisons used one Cargo target directory for several archived
-checkouts with the same package identity. Cargo reused the baseline executable.
-The binary hashes in those artifacts are identical. Runs `41969099610`,
-`41970017615` and `41971733173` cannot establish any candidate speedup or loss.
-Their baseline profiles still describe baseline work, and their A/A variation
-can illustrate measurement noise. The first run additionally failed to upload
-root-owned profiler files; its successful measurement steps do not repair that
-missing artifact.
+Bulk application payload is 1,200 bytes, window 32. Positive throughput is better;
+negative client CPU per byte is better.
 
-The superseded runs `41972470951`, `41972471050` and `41972532343` were canceled.
-No candidate recommendation uses them. Retain the original files and failure
-history instead of silently replacing the evidence.
+| Architecture | Transport | One-flow throughput | One-flow CPU/byte | Eight-flow throughput | Eight-flow CPU/byte |
+|---|---|---:|---:|---:|---:|
+| x64 | WireGuard UDP | +4.86% | -7.86% | +4.12% | -7.14% |
+| x64 | WireGuard TCP | +2.20% | -4.26% | +1.68% | -3.91% |
+| x64 | Stealth | +0.45% | -1.94% | -0.20% | -1.81% |
+| ARM64 | WireGuard UDP | +6.37% | -18.40% | +5.71% | -17.03% |
+| ARM64 | WireGuard TCP | +3.02% | -13.76% | +2.67% | -12.34% |
+| ARM64 | Stealth | +5.95% | -10.69% | +5.80% | -9.95% |
 
-Corrected builds use a separate Cargo target directory for each variant and for
-each profiling variant. The harness hashes the actual source tree after all
-transformations, embeds that identity in each executable, verifies it at runtime,
-and refuses comparisons with equal executable hashes or mismatched identities.
-Corrected pilot run:
-[41972734503](https://github.com/riKirsti/ProtunNext/actions/runs/41972734503).
+The x64 Stealth throughput result is effectively flat, including a small measured
+eight-flow regression. Sparse 64-byte/window-1 results are mixed and much smaller;
+all cells, allocation ranges and measured p99 values are in the
+[summary JSON](worker-next-20261105.json). Bulk cases do not have a measured p99;
+null values must not be converted into a latency claim.
 
-## Workload and interpretation
+Native performance hosts ran Linux **7.0.0-1017-azure**. These results must not be
+labeled measured 6.12/6.18 performance. The separate supported-LTS functional
+checks below establish behavior, not these exact performance percentages.
 
-The real `Connection`/TUN/WireGuard worker runs in a disposable network namespace.
-The peer and generator are separate processes, always invoked from the same
-baseline binary for both sides of a comparison. Two CPUs are available to the
-client, one to the peer and one to the generator. CPU affinity does not isolate
-interrupts or asynchronous kernel processing. The peer busy-polls, so its CPU
-usage alone cannot establish whether it limits throughput.
+The real Connection/TUN/WireGuard worker carries synthetic IPv4 UDP echoes over
+UDP, framed TCP or Stealth. Peer and generator are separate processes, always
+from the fixed baseline binary. Two CPUs are available to the client, one to the
+peer and one to the generator. Affinity does not isolate interrupts or all
+asynchronous kernel work. The peer busy-polls; its CPU utilization cannot by
+itself establish available capacity or a throughput ceiling.
 
-Cases are UDP, framed TCP and Stealth transports carrying synthetic IPv4 UDP
-echoes: 64-byte application payload/window 1, and 1,200-byte payload/window 32
-with either one or eight flows. Cold authenticated exchange is excluded from the
-timing interval. Client process CPU excludes peer/generator CPU and includes
-synchronous system time, but not all asynchronous kernel work. RSS is the client
-process lifetime peak, not packet-pool reserved capacity.
+CPU is measured for the client process only, including synchronous system time
+and excluding peer/generator CPU and asynchronous work outside that process. The
+denominator is one successfully echoed application byte, not the sum of traffic
+in both directions. Warm-up authentication is excluded. RSS is client lifetime
+peak, not pool reservation. These are **not inner TCP/HTTPS, NIC, Proton WAN,
+mobile power or real-account acceptance tests**.
 
-These are not inner-TCP/HTTPS, NIC, mobile power, Proton WAN or real-account tests.
-Native hosts currently run Linux `7.0.0-1017-azure`; their performance cannot be
-reported as measured Linux 6.12/6.18 performance. Supported-LTS kTLS checks below
-boot the named kernels separately.
+## Comparisons rejected or kept experimental
 
-The corrected pilot has two matched rounds on one allocation per architecture.
-The expanded cohort uses all six orders of baseline/GRO-only/combined candidate
-on three separately allocated runners per architecture. Repeated packet samples
-or rounds on one runner do not become independent hosts. Keep protocol, packet
-size, flow count and architecture separate when selecting a change.
+### Final-GRO-segment ownership
 
-## Pilot evidence — provisional
+A prior three-variant campaign compared main, GRO-only and GRO-plus-erasure:
+[run 41973962627](https://github.com/riKirsti/ProtunNext/actions/runs/41973962627).
+All 972 timed samples passed executable identity and data validation. GRO and GSO
+were exercised in the bulk UDP cells. GRO-only throughput changed about +1.8–2.0%
+on x64 and -1.2–1.4% on ARM64. These are not universal architecture laws. The small
+mixed result did not justify changing the common production path. The experiment
+remains reproducible at its recorded revisions; final production GRO handling
+is exactly main's existing implementation.
 
-Compared with main, bulk UDP throughput changed +7.7%/+9.3% for x64 one/eight
-flows and +6.4%/+5.1% for ARM64; corresponding client CPU/byte changed
--7.5%/-8.9% and -18.8%/-15.4%. Sparse and Stealth figures remain mixed. These
-numbers motivate repetition; they do not establish a universal improvement.
+### Bounded parallel crypto
 
-Named flat CPU samples show the recycler shrinking from 9.5% to 1.4% in x64 UDP
-and from 16.5% to 0.6% in ARM64 UDP. Percentages are compositional, profiler builds
-are separate from timing builds, inlined work may be attributed to callers, and
-symbols below the report threshold are omitted. Do not equate these percentages
-with an exact absolute count of erasure cycles.
+Two persistent TX crypto workers reserve nonces on the serial owner before
+execution and deliver completions in input order. Immutable keys cross the
+boundary; tunnel state, timers and statistics stay on the owner. Completion checks
+key identity as well as the session index. Tests cover sparse/full batches,
+ordinary peer interoperability, duplicates, tampering, expiry and shutdown with
+owned work in flight. Detached RX tickets have regression coverage but are not
+enabled in the measured worker.
 
-## Bounded parallel crypto
+The design takes account of WireGuard's
+[serial/parallel queue discussion](https://www.wireguard.com/papers/wireguard-netdev22.pdf).
+It does not assume primitive throughput predicts VPN throughput.
 
-The first actual-worker experiment adds two persistent TX crypto workers with
-at most 63 owned packets. Nonces are reserved serially before dispatch. Immutable
-keys cross the boundary; tunnel state, replay commits, timers and statistics stay
-with the owner. Completions verify key identity as well as the session index and
-are delivered in input order. Handshake processing remains serial. Detached RX
-jobs have regression coverage but are not enabled in the measured worker.
+The first per-packet-dispatch/batch-barrier experiment regressed:
+[41972734509](https://github.com/riKirsti/ProtunNext/actions/runs/41972734509).
+A refinement dispatches reusable whole batches and keeps batches below eight
+packets inline:
+[41974064959](https://github.com/riKirsti/ProtunNext/actions/runs/41974064959).
+Each has six pairs per cell on one allocation per architecture. The refinement
+still reduced bulk UDP throughput by about 29% on x64 and 10–11% on ARM64, while
+raising CPU/byte about 45% and 31–34%. It does not belong in production. This
+rejects the tested barrier designs, not every possible asynchronous pipeline.
 
-The design is informed by WireGuard's
-[ordered/parallel queue discussion](https://www.wireguard.com/papers/wireguard-netdev22.pdf),
-not by assuming a primitive benchmark predicts VPN throughput.
-Local tests exercise sparse/full batches, ordinary peer interoperability,
-duplicate and tampered data, expiry and shutdown with work in flight.
+### Kernel TLS
 
-Corrected run
-[41972734509](https://github.com/riKirsti/ProtunNext/actions/runs/41972734509)
-has six pairs per cell on one allocation per architecture. The per-packet
-dispatch/batch-barrier implementation loses substantially: bulk UDP throughput
-falls about 30% on x64 and 16% on ARM64, while CPU/byte rises about 65% and 50–53%.
-It must not become the production default. A refinement dispatches reusable
-whole batches and bypasses worker handoffs for batches smaller than eight;
-results are pending. Neither result can decide the value of every possible
-asynchronous or flow-based parallel design.
+The bounded TLS 1.3 functional probe passed data, RX/TX traffic-key updates,
+session tickets and clean closure on actual Linux 6.18.60. Kernel counters showed
+one RX and two TX rekeys with no rekey errors. Actual Linux 6.12.115 accepted the
+initial keys but rejected replacement with EBUSY. That is a demonstrated
+limitation, not successful long-lived kTLS acceptance. Native x64/ARM64 also passed
+the bounded fixture. The negotiated cipher was AES-256-GCM. TLS 1.2 is outside
+this prototype: a userspace_required declaration is not a TLS 1.2 kTLS test pass.
 
-## Kernel TLS
-
-The standalone bounded functional probe uses the pinned Rustls kernel-connection
-API and a fixed public test certificate. Linux 6.18.60 passed application-data,
-RX/TX key-update, session-ticket and clean-close checks. Its kernel counters
-reported one RX and two TX rekeys with no rekey errors. Linux 6.12.115 accepted
-the initial keys but rejected replacement with `EBUSY`; that is a demonstrated
-limitation, not successful long-lived kTLS acceptance. Native x64/ARM64 passed
-the same bounded functional fixture. All negotiated AES-256-GCM with TLS 1.3.
-TLS 1.2 remains outside the prototype; a `userspace_required` declaration is not
-a TLS 1.2 kTLS test pass.
-
-Evidence:
-[41971072655](https://github.com/riKirsti/ProtunNext/actions/runs/41971072655),
-[Linux 6.18 kTLS contract](https://docs.kernel.org/6.18/networking/tls.html),
-[Linux getsockopt/key setup source](https://github.com/torvalds/linux/blob/v6.18/net/tls/tls_main.c),
+Evidence and contracts:
+[functional run](https://github.com/riKirsti/ProtunNext/actions/runs/41971072655),
+[Linux 6.18 documentation](https://docs.kernel.org/6.18/networking/tls.html),
+[Linux socket-option source](https://github.com/torvalds/linux/blob/v6.18/net/tls/tls_main.c),
 [pinned Rustls kernel API](https://github.com/rustls/rustls/blob/v/0.23.46/rustls/src/conn/kernel.rs).
-Rustls delegates record-limit handling and much of the post-handshake behavior
-to the caller after extraction. The current adapter is blocking and bounded;
-it does not implement a production asynchronous handoff, reconnect fallback or
-long-lived cipher-limit policy. It cannot be selected by the production worker.
+Rustls delegates substantial control handling and cipher-limit policy to the
+caller after extraction; initial handoff success is insufficient for production.
 
-A separate component screen borrows decrypted records in both userspace and
-kTLS, uses a fixed separate Rustls peer, excludes the warm-up handshake, and caps
-each connection's time, messages and bytes. It tests potential outer-TLS savings,
-not complete Stealth performance. Both its native and actual-6.18 results must be
-kept separate from the worker table. Integration still requires retained trust
-and SNI policies, partial I/O, fragmented controls, KeyUpdate, closure, failure
-recovery and bounded resource tests before any default can change.
+A separate outer-TLS component screen borrows decrypted records in both backends
+and uses the same independent Rustls peer. The native hosts did not show a
+consistent advantage. The actual 6.18 guest improved larger-message throughput
+about 7–10% and reduced CPU/byte about 9–14%:
+[component run](https://github.com/riKirsti/ProtunNext/actions/runs/41973614123).
+Component results cannot establish complete Stealth performance.
 
-## Remaining selection gates
+The follow-up executes the real worker with kTLS vectored writes, preserving the
+caller's socket binding, trust policy and SNI:
+[worker run](https://github.com/riKirsti/ProtunNext/actions/runs/41975432921).
+It has two pairs per cell on one allocation for each kernel/architecture case.
 
-Do not add flow queues, multiqueue TUN, io_uring or PGO solely because a technology
-is available. Re-profile the winning small change, then test the next measured
-bottleneck. Tailscale's [article](https://tailscale.com/blog/making-tailscale-faster)
-suggests inspecting buffer ownership, queue depth and flow concurrency; it does
-not establish that ProtunNext should duplicate their design or reported gains.
+| Worker environment | Bulk Stealth throughput, one/eight flows | CPU/byte, one/eight flows | Interpretation |
+|---|---:|---:|---|
+| Native x64, Linux 7.0 | +6.16% / +7.45% | +7.98% / +7.23% | Throughput/CPU tradeoff; sparse throughput -11.17% |
+| Native ARM64, Linux 7.0 | -3.27% / -2.86% | +16.04% / +15.17% | Tested candidate loses; sparse throughput -14.70% |
+| Actual x64 6.18.60 KVM guest | -12.01% / -0.25% | +2.40% / +8.21% | Performance inconclusive: unchanged controls swung substantially |
 
-Before promotion, retain all failures, check the full existing cross-platform
-suite, and verify supported-kernel behavior. Mobile and Apple/Windows device
-performance remain separate acceptance work. Router tests require their own
-authorized bounded window; no router work was performed here.
+The 6.18 guest's unchanged UDP control changed +20.90% in one bulk cell and its
+unchanged TCP control changed -19.04% in another. Its functional pass and payload
+checks do not make that a stable performance comparison. Do not attribute small
+worker CPU differences there to kTLS or proclaim a universal kTLS loss.
+
+The worker adapter has blocking setup and incomplete nonblocking control-write
+recovery, fallback and long-lived record-limit handling. It is restricted to
+bounded fixtures and cannot be selected by production code. Its diagnostics do
+not supply comparable underlying syscall counters. Keep userspace TLS as the
+production default. A production kTLS proposal needs repeated stable supported-
+kernel worker gains and the remaining lifecycle/partial-I/O gates first.
+
+## Verification and platform decisions
+
+[All nine verification jobs passed](https://github.com/riKirsti/ProtunNext/actions/runs/41976014941)
+for measured source 849be97: Windows, macOS 26, Xcode 27, Android native packaging,
+Linux native/TUN, ARM64-musl, and actual 6.12.115/6.18.60 guests. Local shipping
+Windows verification also passed 68 tests after rebuilding the vendor dependency
+from the shipping source. SDK/build checks are not physical-device performance
+or Proton Plus acceptance. Ordinary TLS and Stealth regression coverage remains.
+
+* General: keep the small erasure improvement and the existing packet path.
+  Do not add queues, workers or backend switches without a measured advantage.
+* Linux x64/ARM64: preserve mmsg, outer UDP GSO/GRO and in-place crypto. Keep
+  unbuffered Rustls. Linux 6.12 keeps userspace TLS; kTLS is still research on 6.18.
+* Windows x64 and Apple ARM64: keep buffered Rustls and existing native adapters.
+  No native VPN performance improvement is claimed from Linux measurements.
+* Android 16/17 ARM64: keep its current unbuffered adapter and service contracts.
+  Device performance remains unmeasured in this campaign.
+
+The resulting profiles still contain significant kernel/networking and WireGuard
+AEAD work. Next candidates should address those measured costs. An asynchronous
+crypto design must avoid the tested handoff/barrier cost. Any new io_uring or PGO
+comparison must isolate the client and preserve liveness/ownership; neither was
+added to production here. Flow queues/multiqueue remain conditional research.
+Tailscale's [article](https://tailscale.com/blog/making-tailscale-faster) informed
+questions about memory ownership, queue depth and concurrency; it does not prove
+that ProtunNext should duplicate its design or gains.
+
+## Validity correction and durable evidence
+
+Initial runs 41969099610, 41970017615 and 41971733173 shared one Cargo target
+folder across archived packages. Cargo reused the baseline executable; their
+variant hashes are identical. They cannot establish candidate speedups or losses.
+Baseline profiles still describe baseline work. The first also failed artifact
+upload because profiler files were root-owned. Superseded runs 41972470951,
+41972471050 and 41972532343, plus later superseded push/verification attempts,
+were canceled rather than treated as test passes.
+
+Corrected builds isolate every target folder, hash the effective source after
+transformations, embed the identity in each executable, and verify it at runtime.
+The runner rejects equal executable hashes and wrong identities. Generated code
+is checked separately. The invalid A/A samples remain explicitly marked in the
+[evidence ZIP](worker-next-20261105-evidence.zip), alongside the final data,
+experimental results, unit logs, hardware descriptions and flat profile reports.
+[ZIP SHA256](worker-next-20261105-evidence.sha256) accompanies it. Original artifact
+ZIP digests are retained in manifests. Full disassembly and raw perf.data remain
+in the linked GitHub artifacts and verified local downloads.
+
+Reproduce the aggregation after extracting the ZIP:
+
+```sh
+python scripts/analyze-worker-next.py erasure-final/x64-1 erasure-final/x64-2 erasure-final/x64-3 erasure-final/arm64-1 erasure-final/arm64-2 erasure-final/arm64-3 --output result.json
+```
+
+The script validates provenance and all sample outcomes before calculating
+ratios. The public summary contains per-allocation data and aggregation details.
+No recommendation relies on the invalid comparisons or treats an inconclusive
+performance run as proof of a backend advantage.
