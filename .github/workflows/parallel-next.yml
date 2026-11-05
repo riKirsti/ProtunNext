@@ -1,0 +1,43 @@
+name: parallel-next-experiment
+on:
+  push:
+    branches: [performance/worker-next]
+    paths: ['experiments/parallel/**', '.github/workflows/parallel-next.yml']
+  workflow_dispatch:
+permissions: {contents: read}
+jobs:
+  native:
+    strategy:
+      fail-fast: false
+      matrix: {os: [ubuntu-24.04, ubuntu-24.04-arm]}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 0}
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Prepare and verify experimental archived worker
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 experiments/next/prepare.py --parallel
+          mkdir -p target/next/bin target/next/results
+          export CARGO_TARGET_DIR="$PWD/target/next/cargo"
+          for name in baseline candidate; do
+            source="$(python3 -c "import json; print(json.load(open('target/next/builds.json'))['$name']['path'])")"
+            cargo test --locked --lib --no-default-features --features unix --manifest-path "$source/Cargo.toml" >"target/next/results/unit-$name.log" 2>&1
+            cargo build --locked --release --no-default-features --features unix --bin next-probe --manifest-path "$source/Cargo.toml" >"target/next/results/build-$name.log" 2>&1
+            cp target/next/cargo/release/next-probe "target/next/bin/$name"
+          done
+          uname -a >target/next/results/hardware.txt
+          lscpu >>target/next/results/hardware.txt
+      - name: Measure TX parallel batch barrier with same fixed peer and CPU budget
+        run: sudo python3 experiments/next/run.py --rounds 6
+      - name: Make results readable
+        if: always()
+        run: sudo chown -R "$(id -u):$(id -g)" target/next/results
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: parallel-next-${{ matrix.os }}
+          path: target/next/results/
