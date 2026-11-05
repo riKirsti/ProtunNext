@@ -11,6 +11,7 @@ if [ ! -s "target/lts-kernels/$kernel/bzImage" ]; then
   make -C "$source" ARCH=x86_64 -j"$(nproc)" bzImage > target/lts-kernels/build.log 2>&1 || { tail -80 target/lts-kernels/build.log; exit 1; }
   mkdir -p "target/lts-kernels/$kernel"
   cp "$source/arch/x86/boot/bzImage" "target/lts-kernels/$kernel/"
+  cp "$source/.config" "target/lts-kernels/$kernel/kernel.config"
 fi
 export CARGO_TARGET_DIR="$PWD/bench-target" CC_x86_64_unknown_linux_musl=musl-gcc
 if [ "${DECISION_WORKER_ONLY:-0}" = 1 ]; then
@@ -36,6 +37,7 @@ export PATH=/bin
 mount -t proc proc /proc
 mount -t sysfs sysfs /sys
 mount -t devtmpfs devtmpfs /dev
+export HOUR_REQUIRE_CPUS=4
 ip link set lo up
 echo "DECISION_KERNEL $(uname -r)"
 result=0
@@ -65,6 +67,7 @@ export PATH=/bin
 mount -t proc proc /proc
 mount -t sysfs sysfs /sys
 mount -t devtmpfs devtmpfs /dev
+export HOUR_REQUIRE_CPUS=4
 ip link set lo up
 echo "DECISION_KERNEL $(uname -r)"
 decision --tun
@@ -79,6 +82,7 @@ export PATH=/bin
 mount -t proc proc /proc
 mount -t sysfs sysfs /sys
 mount -t devtmpfs devtmpfs /dev
+export HOUR_REQUIRE_CPUS=4
 echo "DECISION_KERNEL $(uname -r)"
 sh /worker-run.sh
 echo "DECISION_FINISHED $?"
@@ -101,6 +105,7 @@ musl-gcc -static -Os "$stage/bootstrap.c" -o "$stage/init"
 chmod +x "$stage/init" "$stage/init.sh"
 (cd "$stage"; find . -print0 | cpio --null -o --format=newc | gzip -1) > "$stage/initramfs.gz"
 uname -a > results/host.txt
+if [ -f "target/lts-kernels/$kernel/kernel.config" ]; then cp "target/lts-kernels/$kernel/kernel.config" results/kernel.config; fi
 lscpu >> results/host.txt
 sha256sum "$stage"/bin/decision* > results/hashes.txt
 python3 experiments/decision/qemu-run.py "target/lts-kernels/$kernel/bzImage" "$stage/initramfs.gz" "results/lts-$kernel.log"

@@ -13,7 +13,7 @@ p=r/'src/decision.rs';s=p.read_text();s=s.replace('if args.get(1).map(String::as
 (r/'src/bin/decision.rs').write_text('fn main() { protun_next::decision::run(); }\n')
 p=r/'Cargo.toml';p.write_text(p.read_text()+'\n[[bin]]\nname="decision"\npath="src/bin/decision.rs"\n')
 shutil.copy(root/'experiments/decision/worker.rs',r/'src/decision_worker.rs')
-p=r/'tests/common/mod.rs';s=p.read_text().replace('pub fn server() -> Arc<ServerConfig> {','pub fn server() -> Arc<ServerConfig> {let versions=[if std::env::var("BENCH_TLS12").as_deref()==Ok("1"){&rustls::version::TLS12}else{&rustls::version::TLS13}];').replace('.with_safe_default_protocol_versions()', '.with_protocol_versions(&versions)');p.write_text(s)
+p=r/'tests/common/mod.rs';s=p.read_text().replace('pub fn server() -> Arc<ServerConfig> {','pub fn server() -> Arc<ServerConfig> {let a=[&rustls::version::TLS12];let b=[&rustls::version::TLS13];let versions=match std::env::var("BENCH_TLS12").as_deref(){Ok("1")=>&a[..],Ok("0")=>&b[..],_=>rustls::DEFAULT_VERSIONS};').replace('.with_safe_default_protocol_versions()', '.with_protocol_versions(versions)');p.write_text(s)
 p=r/'src/lib.rs';p.write_text(p.read_text()+'\n#[cfg(target_os="linux")] pub mod decision_worker;\n')
 (r/'src/bin/decision-worker.rs').write_text('fn main(){protun_next::decision_worker::run();}\n')
 p=r/'Cargo.toml';p.write_text(p.read_text()+'\n[[bin]]\nname="decision-worker"\npath="src/bin/decision-worker.rs"\n')
@@ -98,3 +98,8 @@ lto="thin"
 codegen-units=1
 panic="abort"
 ''')
+
+# Reject incomplete SMP discovery and coarse jiffy clocks before timing anything.
+prelude='let guest_cpus=std::thread::available_parallelism().unwrap().get();let clock=std::fs::read_to_string("/sys/devices/system/clocksource/clocksource0/current_clocksource").unwrap_or_default();if std::env::var("HOUR_REQUIRE_CPUS").is_ok(){assert!(guest_cpus>=4,"guest exposed fewer than four CPUs");assert!(!clock.contains("jiffies"),"coarse guest clock");}println!("HOUR_ENV cpus={} clock={}",guest_cpus,clock.trim());'
+for file in ['decision.rs','decision_worker.rs']:
+ p=r/'src'/file;s=p.read_text().replace('pub fn run(){','pub fn run(){'+prelude);p.write_text(s)
