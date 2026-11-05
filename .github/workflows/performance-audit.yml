@@ -1,5 +1,8 @@
 name: performance-test-audit
 on:
+  push:
+    branches: [performance/worker-next]
+    paths: ['experiments/audit/**', '.github/workflows/performance-audit.yml']
   workflow_dispatch:
     inputs:
       full:
