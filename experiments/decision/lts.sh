@@ -13,15 +13,23 @@ if [ ! -s "target/lts-kernels/$kernel/bzImage" ]; then
   cp "$source/arch/x86/boot/bzImage" "target/lts-kernels/$kernel/"
 fi
 export CARGO_TARGET_DIR="$PWD/bench-target" CC_x86_64_unknown_linux_musl=musl-gcc
+if [ "${DECISION_WORKER_ONLY:-0}" = 1 ]; then
+cargo build --manifest-path reference/Cargo.toml --release --no-default-features --features in-place-crypto,io-uring --bin decision-worker --target x86_64-unknown-linux-musl
+else
 cargo build --manifest-path reference/Cargo.toml --release --no-default-features --features in-place-crypto,io-uring --bin decision --target x86_64-unknown-linux-musl
 if [ "${DECISION_TUN_ONLY:-0}" != 1 ]; then cargo build --manifest-path experiments/decision/tls/Cargo.toml --release --target x86_64-unknown-linux-musl; fi
+fi
 stage=$(mktemp -d "$PWD/decision-guest.XXXXXX")
 trap 'rm -rf -- "$stage"' EXIT
 mkdir -p "$stage"/{bin,proc,sys,dev,tmp} results
 cp /usr/bin/busybox "$stage/bin/busybox"
-for app in sh mount ip poweroff uname; do ln -s busybox "$stage/bin/$app"; done
+for app in sh mount ip poweroff uname timeout; do ln -s busybox "$stage/bin/$app"; done
+if [ "${DECISION_WORKER_ONLY:-0}" = 1 ]; then
+cp bench-target/x86_64-unknown-linux-musl/release/decision-worker "$stage/bin/decision-worker"
+else
 cp bench-target/x86_64-unknown-linux-musl/release/decision "$stage/bin/decision"
 if [ "${DECISION_TUN_ONLY:-0}" != 1 ]; then cp bench-target/x86_64-unknown-linux-musl/release/decision-tls "$stage/bin/decision-tls"; fi
+fi
 cat > "$stage/init" <<'SH'
 #!/bin/sh
 export PATH=/bin
@@ -63,6 +71,20 @@ echo "DECISION_FINISHED $?"
 poweroff -f
 SH
 fi
+if [ "${DECISION_WORKER_ONLY:-0}" = 1 ]; then
+cat > "$stage/init" <<'SH'
+#!/bin/sh
+export PATH=/bin
+mount -t proc proc /proc
+mount -t sysfs sysfs /sys
+mount -t devtmpfs devtmpfs /dev
+echo "DECISION_KERNEL $(uname -r)"
+sh /worker-run.sh
+echo "DECISION_FINISHED $?"
+poweroff -f
+SH
+cp experiments/decision/worker-run.sh "$stage/worker-run.sh"
+fi
 mv "$stage/init" "$stage/init.sh"
 cat > "$stage/bootstrap.c" <<'C'
 #include <unistd.h>
@@ -79,7 +101,7 @@ chmod +x "$stage/init" "$stage/init.sh"
 (cd "$stage"; find . -print0 | cpio --null -o --format=newc | gzip -1) > "$stage/initramfs.gz"
 uname -a > results/host.txt
 lscpu >> results/host.txt
-sha256sum bench-target/x86_64-unknown-linux-musl/release/decision > results/hashes.txt
+sha256sum "$stage"/bin/decision* > results/hashes.txt
 timeout 600 sudo -n qemu-system-x86_64 -accel kvm -cpu host -m 2048 -smp 4 -nographic -no-reboot -object rng-random,filename=/dev/urandom,id=rng0 -device virtio-rng-pci,rng=rng0 -nic none -kernel "target/lts-kernels/$kernel/bzImage" -initrd "$stage/initramfs.gz" -append 'console=ttyS0 rdinit=/init panic=-1' | tee "results/lts-$kernel.log"
 grep -F "DECISION_KERNEL $kernel" "results/lts-$kernel.log"
 tr -d '\r' < "results/lts-$kernel.log" | grep -x 'DECISION_FINISHED 0'

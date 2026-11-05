@@ -1,0 +1,48 @@
+name: one-hour-real-worker
+on:
+  push:
+    branches: ['experiments/decision-hour-*']
+permissions:
+  contents: read
+jobs:
+  worker:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { runner: ubuntu-24.04, kernel: '6.12.115', replicate: 1 }
+          - { runner: ubuntu-24.04, kernel: '6.18.60', replicate: 1 }
+          - { runner: ubuntu-24.04, kernel: '6.12.115', replicate: 2 }
+          - { runner: ubuntu-24.04, kernel: '6.18.60', replicate: 2 }
+          - { runner: ubuntu-24.04-arm, kernel: native-arm, replicate: 1 }
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-musl
+      - uses: actions/cache/restore@v4
+        with:
+          path: target/lts-kernels/${{ matrix.kernel }}/
+          key: decision-kernel-v2-${{ matrix.kernel }}-${{ hashFiles('experiments/decision/kernel-options.txt') }}
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends qemu-system-x86 busybox-static musl-tools cpio flex bison libelf-dev libssl-dev bc
+      - name: Real worker tests
+        run: |
+          python3 experiments/decision/prepare.py
+          mkdir -p results
+          if [ '${{ matrix.kernel }}' = native-arm ]; then
+            cargo build --release --manifest-path reference/Cargo.toml --no-default-features --features in-place-crypto,io-uring --bin decision-worker
+            uname -a > results/host.txt
+            lscpu >> results/host.txt
+            sudo install target/release/decision-worker /usr/local/bin/decision-worker || sudo install reference/target/release/decision-worker /usr/local/bin/decision-worker
+            sudo unshare -n sh experiments/decision/worker-run.sh 2>&1 | tee results/worker-native-arm.log
+          else
+            DECISION_WORKER_ONLY=1 bash experiments/decision/lts.sh '${{ matrix.kernel }}'
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: hour-worker-${{ matrix.kernel }}-${{ matrix.replicate }}
+          path: results/
