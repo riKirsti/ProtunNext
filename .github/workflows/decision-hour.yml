@@ -1,0 +1,63 @@
+name: one-hour-decision-validation
+on:
+  push:
+    branches: ['experiments/decision-hour-*']
+permissions:
+  contents: read
+jobs:
+  lts:
+    strategy:
+      fail-fast: false
+      matrix:
+        kernel: ['6.12.115', '6.18.60']
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-musl
+      - uses: actions/cache/restore@v4
+        id: kernel-cache
+        with:
+          path: target/lts-kernels/${{ matrix.kernel }}/
+          key: decision-kernel-v2-${{ matrix.kernel }}-${{ hashFiles('experiments/decision/kernel-options.txt') }}
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends qemu-system-x86 busybox-static musl-tools cpio flex bison libelf-dev libssl-dev bc
+      - name: Build and run corrected actual-kernel benchmarks
+        run: |
+          python3 experiments/decision/prepare.py
+          bash experiments/decision/lts.sh '${{ matrix.kernel }}'
+      - uses: actions/cache/save@v4
+        if: always() && steps.kernel-cache.outputs.cache-hit != 'true' && hashFiles('target/lts-kernels/**/bzImage') != ''
+        continue-on-error: true
+        with:
+          path: target/lts-kernels/${{ matrix.kernel }}/
+          key: decision-kernel-v2-${{ matrix.kernel }}-${{ hashFiles('experiments/decision/kernel-options.txt') }}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: hour-lts-${{ matrix.kernel }}
+          path: results/
+  arm-capability:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 4
+    steps:
+      - run: |
+          mkdir -p results
+          uname -a | tee results/arm-capability.txt
+          lscpu >> results/arm-capability.txt
+          sudo python3 - <<'PY' | tee -a results/arm-capability.txt
+          import os,fcntl,json
+          try:
+              fd=os.open('/dev/kvm',os.O_RDWR)
+              print(json.dumps({'kvm_api':fcntl.ioctl(fd,0xAE00,0)}))
+              os.close(fd)
+          except OSError as e:
+              print(json.dumps({'kvm_available':False,'errno':e.errno,'reason':str(e)}))
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hour-arm-capability
+          path: results/

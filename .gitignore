@@ -11,3 +11,8 @@ benchmark-results.local.json
 /android/local.properties
 /apple/.build/
 /apple/.swiftpm/
+/reference/
+/experiments/decision/tls/
+/experiments/decision/__pycache__/
+/bench-target/
+/results/

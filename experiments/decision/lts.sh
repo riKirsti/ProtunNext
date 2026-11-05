@@ -63,11 +63,23 @@ echo "DECISION_FINISHED $?"
 poweroff -f
 SH
 fi
-chmod +x "$stage/init"
+mv "$stage/init" "$stage/init.sh"
+cat > "$stage/bootstrap.c" <<'C'
+#include <unistd.h>
+#include <stdio.h>
+int main(void) {
+    char *args[] = {"/bin/sh", "/init.sh", NULL};
+    puts("DECISION_ELF_BOOTSTRAP"); fflush(stdout);
+    execv(args[0], args);
+    perror("exec /bin/sh /init.sh"); return 127;
+}
+C
+musl-gcc -static -Os "$stage/bootstrap.c" -o "$stage/init"
+chmod +x "$stage/init" "$stage/init.sh"
 (cd "$stage"; find . -print0 | cpio --null -o --format=newc | gzip -1) > "$stage/initramfs.gz"
 uname -a > results/host.txt
 lscpu >> results/host.txt
 sha256sum bench-target/x86_64-unknown-linux-musl/release/decision > results/hashes.txt
 timeout 600 sudo -n qemu-system-x86_64 -accel kvm -cpu host -m 2048 -smp 4 -nographic -no-reboot -object rng-random,filename=/dev/urandom,id=rng0 -device virtio-rng-pci,rng=rng0 -nic none -kernel "target/lts-kernels/$kernel/bzImage" -initrd "$stage/initramfs.gz" -append 'console=ttyS0 rdinit=/init panic=-1' | tee "results/lts-$kernel.log"
 grep -F "DECISION_KERNEL $kernel" "results/lts-$kernel.log"
-grep 'DECISION_FINISHED' "results/lts-$kernel.log"
+tr -d '\r' < "results/lts-$kernel.log" | grep -x 'DECISION_FINISHED 0'
