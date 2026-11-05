@@ -1,0 +1,33 @@
+name: one-hour-ten-minute-rekey-soak
+on:
+  push:
+    branches: ['experiments/decision-hour-*']
+permissions: { contents: read }
+jobs:
+  soak:
+    if: contains(github.event.head_commit.message, 'soak-tests')
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04,ubuntu-24.04-arm]
+        proto: [udp,tcp,stealth]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 13
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: dtolnay/rust-toolchain@stable
+      - run: |
+          python3 experiments/decision/prepare.py
+          mkdir -p results
+          uname -a > results/environment.txt
+          lscpu >> results/environment.txt
+          cargo build --release --manifest-path reference/Cargo.toml --no-default-features --features in-place-crypto,io-uring --bin decision-worker --target-dir bench-target
+          sha256sum bench-target/release/decision-worker > results/hashes.txt
+          if [ '${{ matrix.proto }}' = stealth ]; then variant=batch-unbuffered-compact-inplace; elif [ '${{ matrix.proto }}' = udp ]; then variant=batch-offload-compact-inplace; else variant=batch-compact-inplace; fi
+          sudo unshare -n bench-target/release/decision-worker '${{ matrix.proto }}' "$variant" 1200 0 600 32 0 0 > results/soak.log 2>&1
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: hour-soak-${{ matrix.os }}-${{ matrix.proto }}
+          path: results/
