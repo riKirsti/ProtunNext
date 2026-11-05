@@ -1,7 +1,5 @@
 name: one-hour-real-worker
-on:
-  push:
-    branches: ['experiments/decision-hour-*']
+on: workflow_dispatch
 permissions:
   contents: read
 jobs:

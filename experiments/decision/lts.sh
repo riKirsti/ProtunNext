@@ -51,6 +51,7 @@ for round in 0 1 2 3; do
  done
 done
 decision --cpu || result=1
+decision --parallel || result=1
 decision --tun || result=1
 decision-tls 67108864 || result=1
 decision-tls --framed || result=1
@@ -102,6 +103,6 @@ chmod +x "$stage/init" "$stage/init.sh"
 uname -a > results/host.txt
 lscpu >> results/host.txt
 sha256sum "$stage"/bin/decision* > results/hashes.txt
-timeout 600 sudo -n qemu-system-x86_64 -accel kvm -cpu host -m 2048 -smp 4 -nographic -no-reboot -object rng-random,filename=/dev/urandom,id=rng0 -device virtio-rng-pci,rng=rng0 -nic none -kernel "target/lts-kernels/$kernel/bzImage" -initrd "$stage/initramfs.gz" -append 'console=ttyS0 rdinit=/init panic=-1' | tee "results/lts-$kernel.log"
+python3 experiments/decision/qemu-run.py "target/lts-kernels/$kernel/bzImage" "$stage/initramfs.gz" "results/lts-$kernel.log"
 grep -F "DECISION_KERNEL $kernel" "results/lts-$kernel.log"
 tr -d '\r' < "results/lts-$kernel.log" | grep -x 'DECISION_FINISHED 0'
