@@ -41,6 +41,24 @@ fn server_version(versions: &[&'static rustls::SupportedProtocolVersion]) -> Arc
     )
 }
 
+fn unbuffered_client_with_roots(
+    name: &str,
+    roots: RootCertStore,
+) -> protun_next::Result<rustls::client::UnbufferedClientConnection> {
+    let config = rustls::ClientConfig::builder_with_provider(Arc::new(
+        rustls::crypto::ring::default_provider(),
+    ))
+    .with_safe_default_protocol_versions()
+    .unwrap()
+    .with_root_certificates(roots)
+    .with_no_client_auth();
+    rustls::client::UnbufferedClientConnection::new(
+        Arc::new(config),
+        name.to_owned().try_into().unwrap(),
+    )
+    .map_err(|e| protun_next::Error::Protocol(e.to_string()))
+}
+
 #[test]
 fn unbuffered_tls12_and_tls13_preserve_bytes_with_short_writes_and_small_reads() {
     for version in [&rustls::version::TLS12, &rustls::version::TLS13] {
@@ -69,7 +87,7 @@ fn unbuffered_tls12_and_tls13_preserve_bytes_with_short_writes_and_small_reads()
         tcp.set_nonblocking(true).unwrap();
         let mut stream = protun_next::tls_unbuffered::UnbufferedTlsIo::new(
             Pressured(tcp, false),
-            tls::client_with_roots("localhost", roots()).unwrap(),
+            unbuffered_client_with_roots("localhost", roots()).unwrap(),
         );
         let body: Vec<u8> = (0..80_000).map(|n| (n % 251) as u8).collect();
         let mut accepted = 0;
@@ -222,7 +240,7 @@ fn unbuffered_tls_batches_available_records_without_waiting_for_more_plaintext()
                 socket: bound_socket(TcpStream::connect(address).unwrap()),
                 writes: 0,
             },
-            tls::client_with_roots("localhost", roots()).unwrap(),
+            unbuffered_client_with_roots("localhost", roots()).unwrap(),
         );
         client.write_all(b"start").unwrap();
         client.flush().unwrap();
@@ -258,6 +276,27 @@ fn unbuffered_tls_batches_available_records_without_waiting_for_more_plaintext()
 
 #[test]
 fn unbuffered_tls_drains_full_ack_queue_while_download_records_remain_unread() {
+    download_ack_loop(
+        |tcp| {
+            protun_next::tls_unbuffered::UnbufferedTlsIo::new(
+                tcp,
+                unbuffered_client_with_roots("localhost", roots()).unwrap(),
+            )
+        },
+        |io| io.wants_write(),
+    );
+}
+#[test]
+fn selected_tls_drains_full_ack_queue_while_download_records_remain_unread() {
+    download_ack_loop(
+        |tcp| tls::TlsIo::new(tcp, tls::client_with_roots("localhost", roots()).unwrap()),
+        |io| io.wants_write(),
+    );
+}
+fn download_ack_loop<S: Read + Write>(
+    make: impl FnOnce(TcpStream) -> S,
+    wants_write: impl Fn(&S) -> bool,
+) {
     const PACKETS: usize = 4096;
     const BURST: usize = 256;
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -300,18 +339,16 @@ fn unbuffered_tls_drains_full_ack_queue_while_download_records_remain_unread() {
         }
     });
     let tcp = bound_socket(TcpStream::connect(address).unwrap());
-    let mut tls = protun_next::tls_unbuffered::UnbufferedTlsIo::new(
-        tcp,
-        tls::client_with_roots("localhost", roots()).unwrap(),
-    );
+    let control = tcp.try_clone().unwrap();
+    let mut tls = make(tcp);
     tls.write_all(b"start").unwrap();
     tls.flush().unwrap();
-    tls.socket_mut().set_nonblocking(true).unwrap();
+    control.set_nonblocking(true).unwrap();
     let mut stream = FramedIo::new(tls, 64).unwrap();
     let mut pool = PacketPool::new(132, 2048).unwrap();
     let mut received = 0;
     let deadline = std::time::Instant::now() + Duration::from_secs(4);
-    while received < PACKETS || stream.pending() != 0 || stream.io().wants_write() {
+    while received < PACKETS || stream.pending() != 0 || wants_write(stream.io()) {
         assert!(
             std::time::Instant::now() < deadline,
             "download/ACK deadlock: {received} packets received, {} ACKs queued",
@@ -418,7 +455,7 @@ fn unbuffered_tls_writes_preserve_a_partially_read_plaintext_record() {
         });
         let mut client = protun_next::tls_unbuffered::UnbufferedTlsIo::new(
             bound_socket(TcpStream::connect(address).unwrap()),
-            tls::client_with_roots("localhost", roots()).unwrap(),
+            unbuffered_client_with_roots("localhost", roots()).unwrap(),
         );
         client.write_all(b"start").unwrap();
         client.flush().unwrap();
@@ -449,7 +486,12 @@ fn wrong_server_name_is_rejected() {
         tcp,
         tls::client_with_roots("wrong.invalid", roots()).unwrap(),
     );
-    assert!(stream.write_all(b"must not be accepted").is_err());
+    assert!(
+        stream
+            .write_all(b"must not be accepted")
+            .and_then(|_| stream.read(&mut [0; 1]))
+            .is_err()
+    );
     drop(stream);
     handle.join().unwrap();
 }
@@ -470,7 +512,7 @@ fn unbuffered_rejects_wrong_names_and_untrusted_certificates() {
         let tcp = bound_socket(TcpStream::connect(address).unwrap());
         let mut client = protun_next::tls_unbuffered::UnbufferedTlsIo::new(
             tcp,
-            tls::client_with_roots(
+            unbuffered_client_with_roots(
                 if trusted {
                     "wrong.invalid"
                 } else {
@@ -533,9 +575,27 @@ impl Write for WriteGate {
 }
 #[test]
 fn unbuffered_tls_reads_progress_while_ciphertext_writes_are_blocked() {
+    blocked_tls_reads(|socket| {
+        protun_next::tls_unbuffered::UnbufferedTlsIo::new(
+            socket,
+            unbuffered_client_with_roots("localhost", roots()).unwrap(),
+        )
+    });
+}
+#[test]
+fn selected_tls_reads_progress_while_ciphertext_writes_are_blocked() {
+    blocked_tls_reads(|socket| {
+        tls::TlsIo::new(
+            socket,
+            tls::client_with_roots("localhost", roots()).unwrap(),
+        )
+    });
+}
+fn blocked_tls_reads<S: Read + Write>(make: impl FnOnce(WriteGate) -> S) {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let address = listener.local_addr().unwrap();
     let (ready, wait_ready) = std::sync::mpsc::channel();
+    let (start_inbound, wait_start_inbound) = std::sync::mpsc::channel();
     let (release, wait_release) = std::sync::mpsc::channel();
     let handle = thread::spawn(move || {
         let (tcp, _) = listener.accept().unwrap();
@@ -546,10 +606,13 @@ fn unbuffered_tls_reads_progress_while_ciphertext_writes_are_blocked() {
         let mut hello = [0; 5];
         stream.read_exact(&mut hello).unwrap();
         assert_eq!(&hello, b"hello");
+        ready.send(()).unwrap();
+        wait_start_inbound
+            .recv_timeout(Duration::from_secs(3))
+            .unwrap();
         stream.conn.refresh_traffic_keys().unwrap();
         stream.write_all(b"inbound").unwrap();
         stream.flush().unwrap();
-        ready.send(()).unwrap();
         wait_release.recv_timeout(Duration::from_secs(5)).unwrap();
         let mut pending = [0; 7];
         stream.read_exact(&mut pending).unwrap();
@@ -560,19 +623,39 @@ fn unbuffered_tls_reads_progress_while_ciphertext_writes_are_blocked() {
     });
     let blocked = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let tcp = bound_socket(TcpStream::connect(address).unwrap());
-    let mut stream = protun_next::tls_unbuffered::UnbufferedTlsIo::new(
-        WriteGate {
-            socket: tcp,
-            blocked: blocked.clone(),
-        },
-        tls::client_with_roots("localhost", roots()).unwrap(),
-    );
+    let control = tcp.try_clone().unwrap();
+    let mut stream = make(WriteGate {
+        socket: tcp,
+        blocked: blocked.clone(),
+    });
     stream.write_all(b"hello").unwrap();
     stream.flush().unwrap();
-    wait_ready.recv_timeout(Duration::from_secs(3)).unwrap();
-    stream.socket_mut().socket.set_nonblocking(true).unwrap();
+    control.set_nonblocking(true).unwrap();
+    // Buffered rustls may accept "hello" before verification. Drive the
+    // handshake until the peer receives it, before blocking ciphertext writes.
+    // The peer withholds application data, so this cannot pre-consume the read
+    // whose independence from blocked output is under test.
+    let deadline = std::time::Instant::now() + Duration::from_secs(3);
+    while wait_ready.try_recv().is_err() {
+        assert!(std::time::Instant::now() < deadline, "handshake deadline");
+        match stream.read(&mut [0; 1]) {
+            Err(e)
+                if matches!(
+                    e.kind(),
+                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::Interrupted
+                ) => {}
+            other => panic!("unexpected pre-traffic read: {other:?}"),
+        }
+        match stream.flush() {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {}
+            other => panic!("handshake flush: {other:?}"),
+        }
+        thread::sleep(Duration::from_millis(1));
+    }
     blocked.store(true, std::sync::atomic::Ordering::Release);
     assert_eq!(stream.write(b"pending").unwrap(), 7);
+    start_inbound.send(()).unwrap();
     let mut incoming = [0; 64];
     let mut received = 0;
     let deadline = std::time::Instant::now() + Duration::from_secs(1);
@@ -605,66 +688,122 @@ fn unbuffered_tls_reads_progress_while_ciphertext_writes_are_blocked() {
 }
 #[test]
 fn vectored_tls_retains_accepted_bytes_across_full_buffers_and_short_socket_writes() {
-    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-    let address = listener.local_addr().unwrap();
-    let handle = thread::spawn(move || {
-        let (tcp, _) = listener.accept().unwrap();
-        let mut stream =
-            StreamOwned::new(ServerConnection::new(server()).unwrap(), bound_socket(tcp));
-        let mut body = vec![0; 80_000];
-        stream.read_exact(&mut body).unwrap();
-        assert!(
-            body.iter()
-                .enumerate()
-                .all(|(n, byte)| *byte == (n % 251) as u8)
+    for version in [&rustls::version::TLS12, &rustls::version::TLS13] {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let handle = thread::spawn(move || {
+            let (tcp, _) = listener.accept().unwrap();
+            let mut stream = StreamOwned::new(
+                ServerConnection::new(server_version(&[version])).unwrap(),
+                bound_socket(tcp),
+            );
+            let mut body = vec![0; 80_000];
+            stream.read_exact(&mut body).unwrap();
+            assert!(
+                body.iter()
+                    .enumerate()
+                    .all(|(n, byte)| *byte == (n % 251) as u8)
+            );
+            stream.write_all(&body).unwrap();
+            stream.flush().unwrap();
+        });
+        let tcp = bound_socket(TcpStream::connect(address).unwrap());
+        tcp.set_nonblocking(true).unwrap();
+        let mut stream = tls::TlsIo::new(
+            Pressured(tcp, false),
+            tls::client_with_roots("localhost", roots()).unwrap(),
         );
-        stream.write_all(&body).unwrap();
-        stream.flush().unwrap();
-    });
-    let tcp = bound_socket(TcpStream::connect(address).unwrap());
-    tcp.set_nonblocking(true).unwrap();
-    let mut stream = tls::TlsIo::new(
-        Pressured(tcp, false),
-        tls::client_with_roots("localhost", roots()).unwrap(),
-    );
-    let body: Vec<u8> = (0..80_000).map(|n| (n % 251) as u8).collect();
-    // The unbuffered adapter can yield during the handshake rather than owning
-    // a pre-handshake plaintext queue. Keep retrying the unaccepted suffix only.
-    let mut accepted = 0;
-    let mut reply = vec![0; body.len()];
-    let mut received = 0;
-    let deadline = std::time::Instant::now() + Duration::from_secs(5);
-    while accepted < body.len() || received < body.len() {
-        assert!(
-            std::time::Instant::now() < deadline,
-            "TLS stalled under short writes"
-        );
-        if accepted < body.len() {
-            let middle = (accepted + 900).min(body.len());
-            match stream.write_vectored(&[
-                std::io::IoSlice::new(&body[accepted..middle]),
-                std::io::IoSlice::new(&body[middle..]),
-            ]) {
-                Ok(n) => accepted += n,
-                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {}
-                Err(e) => panic!("write: {e}"),
+        let body: Vec<u8> = (0..80_000).map(|n| (n % 251) as u8).collect();
+        // The unbuffered adapter can yield during the handshake rather than owning
+        // a pre-handshake plaintext queue. Keep retrying the unaccepted suffix only.
+        let mut accepted = 0;
+        let mut reply = vec![0; body.len()];
+        let mut received = 0;
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        while accepted < body.len() || received < body.len() {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "TLS stalled under short writes"
+            );
+            if accepted < body.len() {
+                let middle = (accepted + 900).min(body.len());
+                match stream.write_vectored(&[
+                    std::io::IoSlice::new(&body[accepted..middle]),
+                    std::io::IoSlice::new(&body[middle..]),
+                ]) {
+                    Ok(n) => accepted += n,
+                    Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {}
+                    Err(e) => panic!("write: {e}"),
+                }
             }
+            match stream.flush() {
+                Ok(()) => {}
+                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {}
+                Err(e) => panic!("flush: {e}"),
+            }
+            match stream.read(&mut reply[received..]) {
+                Ok(0) => panic!("early EOF"),
+                Ok(n) => received += n,
+                Err(e)
+                    if e.kind() == std::io::ErrorKind::WouldBlock
+                        || e.kind() == std::io::ErrorKind::Interrupted => {}
+                Err(e) => panic!("read: {e}"),
+            }
+            thread::sleep(Duration::from_millis(1));
         }
-        match stream.flush() {
-            Ok(()) => {}
-            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {}
-            Err(e) => panic!("flush: {e}"),
-        }
-        match stream.read(&mut reply[received..]) {
-            Ok(0) => panic!("early EOF"),
-            Ok(n) => received += n,
-            Err(e)
-                if e.kind() == std::io::ErrorKind::WouldBlock
-                    || e.kind() == std::io::ErrorKind::Interrupted => {}
-            Err(e) => panic!("read: {e}"),
-        }
-        thread::sleep(Duration::from_millis(1));
+        assert_eq!(reply, body);
+        handle.join().unwrap();
     }
-    assert_eq!(reply, body);
-    handle.join().unwrap();
+}
+
+#[test]
+fn selected_tls_half_close_and_key_update_preserve_bytes() {
+    for version in [&rustls::version::TLS12, &rustls::version::TLS13] {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let handle = thread::spawn(move || {
+            let (tcp, _) = listener.accept().unwrap();
+            let mut peer = StreamOwned::new(
+                ServerConnection::new(server_version(&[version])).unwrap(),
+                bound_socket(tcp),
+            );
+            let mut hello = [0; 5];
+            peer.read_exact(&mut hello).unwrap();
+            assert_eq!(&hello, b"hello");
+            if version.version == rustls::ProtocolVersion::TLSv1_3 {
+                peer.conn.refresh_traffic_keys().unwrap();
+            }
+            peer.write_all(b"inbound").unwrap();
+            peer.conn.send_close_notify();
+            peer.flush().unwrap();
+            let mut ack = [0; 3];
+            peer.read_exact(&mut ack).unwrap();
+            assert_eq!(&ack, b"ack");
+            assert_eq!(peer.read(&mut [0; 1]).unwrap(), 0);
+        });
+        let mut client = tls::TlsIo::new(
+            bound_socket(TcpStream::connect(address).unwrap()),
+            tls::client_with_roots("localhost", roots()).unwrap(),
+        );
+        client.write_all(b"hello").unwrap();
+        client.flush().unwrap();
+        let mut body = Vec::new();
+        client.read_to_end(&mut body).unwrap();
+        assert_eq!(body, b"inbound");
+        if version.version == rustls::ProtocolVersion::TLSv1_3 {
+            client.refresh_traffic_keys().unwrap();
+        } else {
+            assert!(client.refresh_traffic_keys().is_err());
+        }
+        client.write_all(b"ack").unwrap();
+        client.queue_close_notify().unwrap();
+        client.flush().unwrap();
+        client.queue_close_notify().unwrap();
+        assert_eq!(
+            client.write(b"after close").unwrap_err().kind(),
+            std::io::ErrorKind::BrokenPipe
+        );
+        assert!(client.refresh_traffic_keys().is_err());
+        handle.join().unwrap();
+    }
 }

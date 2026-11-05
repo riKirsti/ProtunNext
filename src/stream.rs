@@ -35,6 +35,7 @@ impl<S: Read + Write> FramedIo<S> {
     pub fn new(io: S, queue_limit: usize) -> Result<Self> {
         Self::with_scratch(io, queue_limit, 16384)
     }
+    #[cfg(not(any(windows, target_vendor = "apple")))]
     pub(crate) fn borrowing(io: S, queue_limit: usize) -> Result<Self> {
         Self::with_scratch(io, queue_limit, 0)
     }

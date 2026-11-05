@@ -26,6 +26,8 @@ consumer = Path(tempfile.mkdtemp(prefix="downstream-", dir=output))
 (consumer / "src/main.rs").write_text(
     'fn main() {\n'
     ' let _transport = protun_next::transport::Transport::Udp;\n'
+    ' let connection: protun_next::tls::ClientConnection = protun_next::tls::client("example.com").unwrap();\n'
+    ' let _tls = protun_next::transport::Transport::Tls(Box::new(connection));\n'
     ' let _key = protun_next::session::Session::public_key([7;32]);\n}\n'
 )
 env = os.environ.copy()

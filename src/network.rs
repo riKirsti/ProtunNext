@@ -368,12 +368,19 @@ impl<S: WireSocket> WireSocket for TlsIo<S> {
         self.socket().diagnostics()
     }
     fn receive_frame(stream: &mut FramedIo<Self>, packet: &mut Packet) -> Result<Receive> {
-        stream.receive_using(packet, |io, decoder, _| {
-            Ok(io.read_plaintext(|data| {
-                decoder.feed(data).map_err(io::Error::other)?;
-                Ok(data.len())
-            })?)
-        })
+        #[cfg(any(windows, target_vendor = "apple"))]
+        {
+            stream.receive(packet)
+        }
+        #[cfg(not(any(windows, target_vendor = "apple")))]
+        {
+            stream.receive_using(packet, |io, decoder, _| {
+                Ok(io.read_plaintext(|data| {
+                    decoder.feed(data).map_err(io::Error::other)?;
+                    Ok(data.len())
+                })?)
+            })
+        }
     }
     fn register(&mut self, r: &mio::Registry, t: Token, i: Interest) -> io::Result<()> {
         self.socket_mut().register(r, t, i)
