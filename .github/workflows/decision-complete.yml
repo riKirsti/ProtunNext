@@ -31,10 +31,12 @@ jobs:
           name: hour-final-components-${{ matrix.kernel }}
           path: results/
   native-pgo:
+    if: contains(github.event.head_commit.message, 'worker-fix')
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-24.04,ubuntu-24.04-arm]
+        replicate: [1,2,3]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 16
     steps:
@@ -49,9 +51,10 @@ jobs:
           lscpu >> results/environment.txt
           cargo build --manifest-path reference/Cargo.toml --release --no-default-features --features in-place-crypto,io-uring --bin decision --target-dir bench-target
           bench-target/release/decision --parallel > results/shared-session-parallel.log 2>&1
+          bash experiments/decision/correctness.sh baseline
           bash experiments/decision/pgo.sh
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: hour-pgo-${{ matrix.os }}
+          name: hour-pgo-${{ matrix.os }}-${{ matrix.replicate }}
           path: results/

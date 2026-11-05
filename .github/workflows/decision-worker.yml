@@ -15,7 +15,11 @@ jobs:
           - { runner: ubuntu-24.04, kernel: '6.18.60', replicate: 1 }
           - { runner: ubuntu-24.04, kernel: '6.12.115', replicate: 2 }
           - { runner: ubuntu-24.04, kernel: '6.18.60', replicate: 2 }
+          - { runner: ubuntu-24.04, kernel: '6.12.115', replicate: 3 }
+          - { runner: ubuntu-24.04, kernel: '6.18.60', replicate: 3 }
           - { runner: ubuntu-24.04-arm, kernel: native-arm, replicate: 1 }
+          - { runner: ubuntu-24.04-arm, kernel: native-arm, replicate: 2 }
+          - { runner: ubuntu-24.04-arm, kernel: native-arm, replicate: 3 }
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 18
     steps:

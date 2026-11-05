@@ -24,6 +24,8 @@ for workers in [1,2,4]{proton_boringtun::noise::decision_parallel::run(workers,1
 for round in 0..6{for size in [64,1280]{for workers in if round%2==0{[1,2,4]}else{[4,2,1]}{let(s,n)=proton_boringtun::noise::decision_parallel::run(workers,size,262144,false);emit(serde_json::json!({"test":"shared-session-crypto","size":size,"workers":workers,"round":round,"seconds":s,"bytes":n*size,"Mbps":n as f64*size as f64*8.0/s/1e6,"scope":"one shared Strict Session pair, real nonce allocation and locked replay commit, 128-packet ordered epochs; not a production parallel packet worker"}));}}}return;}if args.get(1).map(String::as_str)==Some("--cpu")''');p.write_text(s)
 p=r/'src/linux_batch.rs';s=p.read_text().replace('if options.udp_offload {','if options.udp_offload && std::env::var("BENCH_GRO").as_deref() != Ok("0") {').replace('gso: options.udp_offload,','gso: options.udp_offload && std::env::var("BENCH_GSO").as_deref() != Ok("0"),').replace('mmsg: true,','mmsg: std::env::var("BENCH_SINGLE").as_deref() != Ok("1"),').replace('fn gro_size(', 'pub(crate) fn gro_size(');p.write_text(s)
 p=r/'src/tun_offload.rs';s=p.read_text().replace('pub(crate) header_len: usize,','pub(crate) header_len: usize,\n    pub(crate) read_records: u64,').replace('header_len: size as usize,','header_len: size as usize, read_records: 0,').replace('let n = unsafe { libc::readv(', 'self.read_records += 1;\n            let n = unsafe { libc::readv(');p.write_text(s)
+p=r/'src/tun_offload.rs';s=p.read_text();s='pub(crate) static BENCH_TUN_RECORDS: std::sync::atomic::AtomicU64=std::sync::atomic::AtomicU64::new(0);\n'+s.replace('//!','//');s=s.replace('self.read_records += 1;','self.read_records += 1; BENCH_TUN_RECORDS.fetch_add(1,std::sync::atomic::Ordering::Relaxed);');p.write_text(s)
+p=r/'src/tun_offload.rs';p.write_text(p.read_text().replace('header_len: 10,','header_len: 10, read_records: 0,'))
 p=r/'src/uring_rx.rs';s=p.read_text()
 s=s.replace('    ring: Option<IoUring>,','    message: Box<libc::msghdr>,\n    aggregate: Packet,\n    segment: usize,\n    offset: usize,\n    ring: Option<IoUring>,')
 s=s.replace('let count = count.max(8).next_power_of_two() as usize;', 'let count = std::env::var("BENCH_BUFFERS").ok().and_then(|s|s.parse::<u16>().ok()).unwrap_or(count).max(8).next_power_of_two() as usize;')
@@ -67,7 +69,17 @@ s=s[:start]+'''            if result >= 0 && result as usize <= 65535 {
                 counters.received_datagrams+=1; return Ok(Receive::Packet);
             }'''+s[end:]
 s=s.replace('.flags(libc::MSG_TRUNC)', '.flags(libc::MSG_TRUNC as _)')
-p.write_text(s)
+s=s.replace('opcode::RecvMulti::CODE','opcode::RecvMsgMulti::CODE')
+# Keep recvmsg's 16-byte prefix and 24-byte ancillary area in existing headroom.
+# Payload capacity remains 65535, and swapped packets still obey the normal pool contract.
+s=s.replace('message.msg_controllen = 64;', 'message.msg_controllen = 24;')
+s=s.replace('let bytes = self.buffers[id].writable();','let bytes = self.buffers[id].recvmsg_storage();')
+s=s.replace('result as usize <= 65535','result as usize <= 65575')
+s=s.replace('self.buffers[id].writable()[..result as usize]','self.buffers[id].recvmsg_storage()[..result as usize]')
+s=s.replace('self.buffers[id].set_len(result as usize)?;','self.buffers[id].set_len(length)?;')
+s=s.replace('output.consume(offset)?; output.set_data_len(length)?;','let _=offset; output.set_data_len(length)?;')
+p.write_text(s+(root/'experiments/decision/uring-edges.rs').read_text())
+p=r/'src/packet.rs';s=p.read_text().replace('    pub fn data(&self)', '    pub(crate) fn recvmsg_storage(&mut self)->&mut[u8]{&mut self.bytes[HEADROOM-40..]}\n    pub fn data(&self)');p.write_text(s)
 # Reuse the actual validated adapter/framing benchmark, with immutable reference paths.
 t=root/'experiments/decision/tls';(t/'src').mkdir(parents=True,exist_ok=True)
 shutil.copy(root/'experiments/decision/tls-main.rs',t/'src/main.rs')
