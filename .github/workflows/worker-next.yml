@@ -2,7 +2,7 @@ name: worker-next-experiments
 on:
   push:
     branches: [performance/worker-next]
-    paths: ['src/**', 'experiments/next/**', '.github/workflows/worker-next.yml']
+    paths: ['src/**', 'Cargo.toml', 'Cargo.lock', 'experiments/next/**', '.github/workflows/worker-next.yml']
   workflow_dispatch:
 permissions: {contents: read}
 concurrency:
@@ -16,7 +16,7 @@ jobs:
         os: [ubuntu-24.04, ubuntu-24.04-arm]
         replicate: ${{ fromJSON(github.event_name == 'push' && '[1]' || '[1,2,3]') }}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 25
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
         with: {fetch-depth: 0}
@@ -28,7 +28,7 @@ jobs:
           python3 experiments/next/prepare.py
           mkdir -p target/next/bin target/next/profile-bin target/next/results
           export CARGO_TARGET_DIR="$PWD/target/next/cargo"
-          for name in baseline candidate; do
+          for name in baseline gro candidate; do
             source="$(python3 -c "import json; print(json.load(open('target/next/builds.json'))['$name']['path'])")"
             cargo build --locked --release --no-default-features --features unix --bin next-probe --manifest-path "$source/Cargo.toml" >"target/next/results/build-$name.log" 2>&1
             cp target/next/cargo/release/next-probe "target/next/bin/$name"
@@ -38,7 +38,7 @@ jobs:
           lscpu >>target/next/results/hardware.txt
       - name: Balanced isolated-process screening
         env:
-          ROUNDS: ${{ github.event_name == 'push' && '2' || '8' }}
+          ROUNDS: ${{ github.event_name == 'push' && '2' || '6' }}
         run: sudo python3 experiments/next/run.py --rounds "$ROUNDS"
       - name: Build separate profiling probes
         shell: bash
@@ -50,6 +50,7 @@ jobs:
             source="$(python3 -c "import json; print(json.load(open('target/next/builds.json'))['$name']['path'])")"
             cargo build --locked --release --no-default-features --features unix --bin next-probe --manifest-path "$source/Cargo.toml" >"target/next/results/profile-build-$name.log" 2>&1
             cp target/next/profile-cargo/release/next-probe "target/next/profile-bin/$name"
+            objdump -Cd "target/next/profile-bin/$name" >"target/next/results/assembly-$name.txt"
           done
       - name: Profile client-only processes
         shell: bash
