@@ -1,5 +1,5 @@
 """Matched timing/profiling with fixed separate peer/load processes and CPU sets."""
-import argparse,hashlib,json,os,pathlib,signal,subprocess,time
+import argparse,hashlib,itertools,json,os,pathlib,signal,subprocess,time
 p=argparse.ArgumentParser();p.add_argument('--profile-only',action='store_true');p.add_argument('--rounds',type=int,default=8);a=p.parse_args()
 root=pathlib.Path(__file__).resolve().parents[2];out=root/'target/next/results';out.mkdir(parents=True,exist_ok=True)
 state=json.loads((root/'target/next/builds.json').read_text());binaries={name:root/'target/next/bin'/name for name in state}
@@ -21,10 +21,11 @@ def timed(label,proto,size,window,round_id,flows):
  assert c.returncode==0 and len(rows)==1,row
  print(json.dumps({k:row[k]for k in ['build','protocol','size','window','flows','round','exit']}),flush=True)
 if not a.profile_only:
+ orders=list(itertools.permutations(binaries))
  for rd in range(a.rounds):
   for proto in ['udp','tcp','stealth']:
    for size,window,flows in [(64,1,1),(1200,32,1),(1200,32,8)]:
-    for label in (['baseline','candidate']if rd%2==0 else ['candidate','baseline']):timed(label,proto,size,window,rd,flows)
+    for label in orders[rd%len(orders)]:timed(label,proto,size,window,rd,flows)
 else:
  # Profile builds are separate from timing builds. Attach only after the fixed
  # peer/load processes exist and the authenticated first request has completed.

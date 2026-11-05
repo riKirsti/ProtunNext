@@ -1,6 +1,13 @@
 use crate::{Error, Result};
 use std::collections::VecDeque;
-use zeroize::Zeroize;
+
+/// Keep the existing erasure extent and lifetime while allowing bulk zeroing.
+/// The supported zeroize barrier observes the slice after all stores and prevents
+/// dead-store elimination, including when the allocation is immediately freed.
+fn erase(bytes: &mut [u8]) {
+    bytes.fill(0);
+    zeroize::optimization_barrier(bytes);
+}
 
 pub const HEADROOM: usize = 64;
 pub const MAX_IP_PACKET: usize = 65_535;
@@ -78,7 +85,7 @@ impl Packet {
 }
 impl Drop for Packet {
     fn drop(&mut self) {
-        self.bytes.zeroize();
+        erase(&mut self.bytes);
     }
 }
 
@@ -144,7 +151,7 @@ impl PacketPool {
             return Err(Error::Invalid("foreign or excess packet"));
         }
         // Clear live data before making a plaintext packet reusable.
-        packet.bytes[..packet.high_water].zeroize();
+        erase(&mut packet.bytes[..packet.high_water]);
         #[cfg(feature = "debug-counters")]
         {
             self.recycled_wipe_bytes = self
@@ -227,6 +234,18 @@ impl PacketQueue {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn erasure_covers_unaligned_regions_without_touching_adjacent_bytes() {
+        for offset in 0..32 {
+            for len in [0, 1, 15, 16, 31, 32, 63, 64, 127, 128, 1280, 65535] {
+                let mut bytes = vec![0xa5; offset + len + 32];
+                erase(&mut bytes[offset..offset + len]);
+                assert!(bytes[..offset].iter().all(|&b| b == 0xa5));
+                assert!(bytes[offset..offset + len].iter().all(|&b| b == 0));
+                assert!(bytes[offset + len..].iter().all(|&b| b == 0xa5));
+            }
+        }
+    }
     #[test]
     fn shortened_packet_erases_the_entire_previous_live_region() {
         let mut pool = PacketPool::new(1, 200).unwrap();
