@@ -52,6 +52,18 @@ if [ "$code" != 0 ]; then
     *) result=1;;
   esac
 fi
+case "$(uname -r)" in
+  6.18.*)
+    for round in 0 1; do
+      for size in 1280 16384 65536; do
+        order='unbuffered ktls'
+        if [ "$round" = 1 ]; then order='ktls unbuffered'; fi
+        for backend in $order; do
+          NEXT_TLS_PEER_CPUS=0 NEXT_TLS_CLIENT_CPUS=1 /bin/probe bench-client "$backend" "$size" 1 || result=1
+        done
+      done
+    done;;
+esac
 cat /proc/net/tls_stat
 if [ "$result" = 0 ]; then echo KTLS_LTS_PASS; else echo KTLS_LTS_FAIL; fi
 poweroff -f

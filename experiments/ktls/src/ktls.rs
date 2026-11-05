@@ -205,6 +205,27 @@ impl Ktls {
     pub fn suite(&self) -> String {
         format!("{:?}", self.keys.negotiated_cipher_suite())
     }
+    /// Component probe borrows decrypted records, as the production decoder does.
+    pub fn read_plaintext(
+        &mut self,
+        mut consume: impl FnMut(&[u8]) -> io::Result<usize>,
+    ) -> io::Result<usize> {
+        loop {
+            if self.first < self.end {
+                let n = consume(&self.incoming[self.first..self.end])?;
+                if n > self.end - self.first {
+                    return Err(io::ErrorKind::InvalidData.into());
+                }
+                self.incoming[self.first..self.first + n].zeroize();
+                self.first += n;
+                return Ok(n);
+            }
+            if self.closed {
+                return Ok(0);
+            }
+            self.receive()?;
+        }
+    }
     fn control(&mut self, typ: u8, bytes: &[u8]) -> io::Result<()> {
         let mut storage = Control([0; 64]);
         let mut sent = 0;

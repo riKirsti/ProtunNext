@@ -61,6 +61,25 @@ impl Write for Client {
     }
 }
 impl Client {
+    fn receive_bytes(&mut self, mut remaining: usize) -> io::Result<()> {
+        while remaining != 0 {
+            let mut consume = |data: &[u8]| {
+                if data.len() > remaining || data.iter().any(|&b| b != 0x5a) {
+                    return Err(io::ErrorKind::InvalidData.into());
+                }
+                remaining -= data.len();
+                Ok(data.len())
+            };
+            let n = match self {
+                Self::User(s) => s.read_plaintext(&mut consume),
+                Self::Kernel(s) => s.read_plaintext(&mut consume),
+            }?;
+            if n == 0 {
+                return Err(io::ErrorKind::UnexpectedEof.into());
+            }
+        }
+        Ok(())
+    }
     fn update(&mut self) -> io::Result<()> {
         match self {
             Self::User(s) => s.refresh_traffic_keys(),
@@ -156,12 +175,10 @@ fn client(backend: &str, size: usize, window: usize) -> io::Result<()> {
             ))
         };
         let body = vec![0x5a; size];
-        let mut got = vec![0; size];
         // Authenticate and exchange one complete message before timing.
         s.write_all(&body)?;
         s.flush()?;
-        s.read_exact(&mut got)?;
-        assert_eq!(got, body);
+        s.receive_bytes(size)?;
         let start = Instant::now();
         let c = cpu();
         let mut packets = 0u64;
@@ -175,12 +192,7 @@ fn client(backend: &str, size: usize, window: usize) -> io::Result<()> {
                 s.write_all(&body)?;
             }
             s.flush()?;
-            for _ in 0..window {
-                s.read_exact(&mut got)?;
-                if got != body {
-                    return Err(io::ErrorKind::InvalidData.into());
-                }
-            }
+            s.receive_bytes(size * window)?;
             packets += window as u64;
             if packets % 100_000 == 0 {
                 s.update()?;
