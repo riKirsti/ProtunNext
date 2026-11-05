@@ -11,7 +11,7 @@ use crate::{
 use base64::{Engine, engine::general_purpose::STANDARD};
 use std::{
     fs::File,
-    io::{BufRead, BufReader, Read, Write},
+    io::{BufRead, BufReader, IoSlice, Read, Write},
     net::{TcpListener, TcpStream, UdpSocket},
     os::fd::{AsFd, AsRawFd},
     process::{Child, Command, Stdio},
@@ -117,21 +117,126 @@ impl Duplex for TcpStream {
         self.as_raw_fd()
     }
 }
-impl Duplex for rustls::StreamOwned<rustls::ServerConnection, TcpStream> {
-    fn fd(&self) -> i32 {
-        self.sock.as_raw_fd()
-    }
-    fn pending_write(&self) -> bool {
-        self.conn.wants_write()
-    }
-    fn metadata(&self) -> Option<String> {
-        Some(format!(
-            "{:?}/{:?}",
-            self.conn.protocol_version(),
-            self.conn.negotiated_cipher_suite()
-        ))
+#[derive(Default)]
+struct RecordSizes {
+    header: [u8; 5],
+    used: usize,
+    remaining: usize,
+    encrypted: [u64; 3],
+}
+impl RecordSizes {
+    fn feed(&mut self, mut bytes: &[u8]) {
+        while !bytes.is_empty() {
+            if self.remaining > 0 {
+                let n = self.remaining.min(bytes.len());
+                self.remaining -= n;
+                bytes = &bytes[n..];
+                continue;
+            }
+            let n = (5 - self.used).min(bytes.len());
+            self.header[self.used..self.used + n].copy_from_slice(&bytes[..n]);
+            self.used += n;
+            bytes = &bytes[n..];
+            if self.used == 5 {
+                let n = u16::from_be_bytes([self.header[3], self.header[4]]) as usize;
+                assert!(n <= 18432);
+                if self.header[0] == 23 {
+                    self.encrypted[if n <= 2048 {
+                        0
+                    } else if n <= 8192 {
+                        1
+                    } else {
+                        2
+                    }] += 1;
+                }
+                self.remaining = n;
+                self.used = 0;
+            }
+        }
     }
 }
+struct PeerWire {
+    socket: TcpStream,
+    records: RecordSizes,
+}
+impl Read for PeerWire {
+    fn read(&mut self, b: &mut [u8]) -> std::io::Result<usize> {
+        self.socket.read(b)
+    }
+}
+impl Write for PeerWire {
+    fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
+        let n = self.socket.write(b)?;
+        self.records.feed(&b[..n]);
+        Ok(n)
+    }
+    fn write_vectored(&mut self, b: &[IoSlice<'_>]) -> std::io::Result<usize> {
+        let n = self.socket.write_vectored(b)?;
+        let mut rest = n;
+        for part in b {
+            let used = rest.min(part.len());
+            self.records.feed(&part[..used]);
+            rest -= used;
+            if rest == 0 {
+                break;
+            }
+        }
+        Ok(n)
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.socket.flush()
+    }
+}
+struct PeerTls {
+    inner: rustls::StreamOwned<rustls::ServerConnection, PeerWire>,
+    vectored: bool,
+}
+impl PeerTls {
+    fn new(socket: TcpStream, vectored: bool) -> Self {
+        Self {
+            inner: rustls::StreamOwned::new(
+                rustls::ServerConnection::new(common::server()).unwrap(),
+                PeerWire {
+                    socket,
+                    records: RecordSizes::default(),
+                },
+            ),
+            vectored,
+        }
+    }
+}
+impl Read for PeerTls {
+    fn read(&mut self, b: &mut [u8]) -> std::io::Result<usize> {
+        self.inner.read(b)
+    }
+}
+impl Write for PeerTls {
+    fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
+        self.inner.write(b)
+    }
+    fn write_vectored(&mut self, b: &[IoSlice<'_>]) -> std::io::Result<usize> {
+        if self.vectored {
+            rustls::Stream::new(&mut self.inner.conn, &mut self.inner.sock).write_vectored(b)
+        } else {
+            self.inner.write_vectored(b)
+        }
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.inner.flush()
+    }
+}
+impl Duplex for PeerTls {
+    fn fd(&self) -> i32 {
+        self.inner.sock.socket.as_raw_fd()
+    }
+    fn pending_write(&self) -> bool {
+        self.inner.conn.wants_write()
+    }
+    fn metadata(&self) -> Option<String> {
+        Some(serde_json::json!({"version":format!("{:?}",self.inner.conn.protocol_version()),"suite":format!("{:?}",self.inner.conn.negotiated_cipher_suite()),"vectored":self.vectored,"encrypted_record_buckets_le_2k_le_8k_gt_8k":self.inner.sock.records.encrypted}).to_string())
+    }
+}
+
 enum Peer {
     Udp {
         socket: UdpSocket,
@@ -274,9 +379,9 @@ fn peer(proto: &str, window: usize) {
         tcp.set_nodelay(true).unwrap();
         tcp.set_nonblocking(true).unwrap();
         let io: Box<dyn Duplex> = if proto == "stealth" {
-            Box::new(rustls::StreamOwned::new(
-                rustls::ServerConnection::new(common::server()).unwrap(),
+            Box::new(PeerTls::new(
                 tcp,
+                std::env::var("NEXT_PEER_VECTORED").as_deref() != Ok("0"),
             ))
         } else {
             Box::new(tcp)
@@ -690,5 +795,68 @@ pub fn run() {
             a[7].parse().unwrap(),
         ),
         _ => panic!("mode"),
+    }
+}
+
+#[cfg(test)]
+mod audit_tests {
+    use super::*;
+    #[test]
+    fn actual_pinned_streamowned_fallback_and_corrected_peer_batch_differ() {
+        for vectored in [false, true] {
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            let endpoint = listener.local_addr().unwrap();
+            let server = thread::spawn(move || {
+                let (tcp, _) = listener.accept().unwrap();
+                tcp.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+                tcp.set_write_timeout(Some(Duration::from_secs(5))).unwrap();
+                let mut peer = PeerTls::new(tcp, vectored);
+                let n = peer
+                    .write_vectored(&[IoSlice::new(b"abc"), IoSlice::new(b"def")])
+                    .unwrap();
+                assert_eq!(n, if vectored { 6 } else { 3 });
+                peer.inner.conn.send_close_notify();
+                peer.flush().unwrap();
+            });
+            let config = rustls::ClientConfig::builder_with_provider(std::sync::Arc::new(
+                rustls::crypto::ring::default_provider(),
+            ))
+            .with_safe_default_protocol_versions()
+            .unwrap()
+            .with_root_certificates(common::roots())
+            .with_no_client_auth();
+            let tcp = TcpStream::connect(endpoint).unwrap();
+            tcp.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+            let mut client = rustls::StreamOwned::new(
+                rustls::ClientConnection::new(
+                    std::sync::Arc::new(config),
+                    "localhost".try_into().unwrap(),
+                )
+                .unwrap(),
+                tcp,
+            );
+            let mut got = Vec::new();
+            client.read_to_end(&mut got).unwrap();
+            assert_eq!(
+                &got,
+                if vectored {
+                    b"abcdef".as_slice()
+                } else {
+                    b"abc".as_slice()
+                }
+            );
+            server.join().unwrap();
+        }
+    }
+    #[test]
+    fn record_meter_handles_fragmented_and_vectored_headers_without_payload_copies() {
+        let mut meter = RecordSizes::default();
+        let bytes = [23, 3, 3, 0, 3, 1, 2, 3, 23, 3, 3, 0, 1, 7];
+        for b in bytes {
+            meter.feed(&[b]);
+        }
+        assert_eq!(meter.encrypted, [2, 0, 0]);
+        assert_eq!(meter.remaining, 0);
+        assert_eq!(meter.used, 0);
     }
 }

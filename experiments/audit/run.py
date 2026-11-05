@@ -15,10 +15,11 @@ environment={'sources':state,'binaries':digests,'kernel':os.uname().release,'mac
 sequence=sum(1 for _ in (OUT/"samples.jsonl").open()) if (OUT/"samples.jsonl").exists() else 0
 def save(row):
  with (OUT/'samples.jsonl').open('a')as f:f.write(json.dumps(row)+'\n')
-def sample(build,proto,case,role,block,slot,resources='two'):
+def sample(build,proto,case,role,block,slot,resources='two',peer_vectored=True):
  global sequence
  size,window,flows,shape,rate=case;sequence+=1
  env=os.environ.copy();env.update(NEXT_PEER_CPUS=str(cpus[0]),NEXT_LOAD_CPUS=str(cpus[1]),NEXT_CLIENT_CPUS=','.join(map(str,environment['resource_policies'][resources])),NEXT_LOAD_SHAPE=shape,NEXT_WARM_SECONDS='1')
+ env['NEXT_PEER_VECTORED']='1' if peer_vectored else '0'
  if rate:env['NEXT_RATE_PPS']=str(rate)
  else:env.pop('NEXT_RATE_PPS',None)
  seconds=1 if a.smoke else 5
@@ -33,7 +34,7 @@ def sample(build,proto,case,role,block,slot,resources='two'):
   try:os.killpg(proc.pid,signal.SIGKILL)
   except ProcessLookupError:pass
  metrics=[json.loads(l[10:])for l in stdout.splitlines()if l.startswith('NEXT_JSON ')]
- row={'sample':sequence,'build':build,'protocol':proto,'size':size,'window':window,'flows':flows,'shape':shape,'rate_pps':rate,'role':role,'block':block,'slot':slot,'resources':resources,'exit':code,'status':status,'wall':time.monotonic()-start,'stdout':stdout,'stderr':stderr,'metrics':metrics};save(row)
+ row={'sample':sequence,'build':build,'protocol':proto,'size':size,'window':window,'flows':flows,'shape':shape,'rate_pps':rate,'peer_vectored':peer_vectored,'role':role,'block':block,'slot':slot,'resources':resources,'exit':code,'status':status,'wall':time.monotonic()-start,'stdout':stdout,'stderr':stderr,'metrics':metrics};save(row)
  assert code==0 and len(metrics)==1,row
  m=metrics[0];assert m['effective_sources_sha256']==state[build]['effective_sources_sha256']
  assert m['peer']['effective_sources_sha256']==m['load']['effective_sources_sha256']==state['erase']['effective_sources_sha256']
@@ -64,3 +65,7 @@ else:
   for shape in ['burst','sliding']:
    case=(1200,32,1,shape,0);block='shared-'+proto+'-'+shape
    for slot,build in enumerate(['erase','parallel','parallel','erase']):sample(build,proto,case,'parallel-cpu-sensitivity',block,slot,'shared')
+ # Direct sensitivity to the formerly inherited first-frame-only TLS writes.
+ for shape in ['burst','sliding']:
+  for variant in ['erase','parallel','ktls']:
+   for slot,vec in enumerate([False,True,True,False]):sample(variant,'stealth',(1200,32,1,shape,0),'peer-writev-sensitivity',shape+'-'+variant,slot,peer_vectored=vec)

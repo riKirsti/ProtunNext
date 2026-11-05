@@ -33,6 +33,7 @@ jobs:
             export CARGO_TARGET_DIR="$PWD/target/audit-v2/cargo-$name"
             export NEXT_BUILD_ID="$(python3 -c "import json; print(json.load(open('target/audit-v2/builds.json'))['$name']['effective_sources_sha256'])")"
             source="$(python3 -c "import json; print(json.load(open('target/audit-v2/builds.json'))['$name']['path'])")"
+            if [ "$name" = erase ]; then cargo test --locked --lib --no-default-features --features unix --manifest-path "$source/Cargo.toml" >target/audit-v2/results/peer-regressions.log 2>&1; fi
             cargo build --locked --release --no-default-features --features unix --bin next-probe --manifest-path "$source/Cargo.toml" >"target/audit-v2/results/build-$name.log" 2>&1
             cp "$CARGO_TARGET_DIR/release/next-probe" "target/audit-v2/bin/$name"
             if [ "$name" = erase ]; then sudo python3 experiments/audit/run.py --smoke; fi
