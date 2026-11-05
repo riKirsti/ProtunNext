@@ -33,7 +33,7 @@ def guest_script():
         lines += ["echo 'ERASURE_CASE " + json.dumps(row, separators=(",", ":")) + "'",
                   f"export NEXT_LOAD_SHAPE={row['shape']}"]
         lines.append(f"export NEXT_RATE_PPS={row['rate_pps']}" if row["rate_pps"] else "unset NEXT_RATE_PPS")
-        lines += [f"setsid timeout -s KILL 40 unshare -n /bin/{row['build']} client /bin/erase {row['protocol']} 1200 32 5 1 &",
+        lines += [f"setsid timeout -s KILL 40 unshare -n /bin/{row['build']} client /bin/main {row['protocol']} 1200 32 5 1 &",
                   'sample_pid=$!', 'wait "$sample_pid"', 'code=$?',
                   'kill -KILL -- "-$sample_pid" 2>/dev/null',
                   'echo "ERASURE_SAMPLE_EXIT $code"', '[ "$code" = 0 ] || result=1']

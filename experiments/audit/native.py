@@ -1,0 +1,60 @@
+"""Run the same bounded plan natively; record the real host kernel explicitly."""
+import json
+import os
+import pathlib
+import signal
+import subprocess
+
+from analyze import publish
+from lts import collect, sha
+from run import plan
+
+ROOT = pathlib.Path(__file__).resolve().parents[2]
+OUT = ROOT / "target/erasure-audit/results/native"
+
+
+def run():
+    OUT.mkdir(parents=True, exist_ok=True)
+    cpus = sorted(os.sched_getaffinity(0))
+    assert len(cpus) >= 4
+    bins = {n: ROOT / "target/erasure-audit/bin" / n for n in ["main", "erase"]}
+    sources = json.loads((ROOT / "target/erasure-audit/builds.json").read_text())
+    for name, binary in bins.items():
+        assert json.loads(subprocess.check_output([str(binary), "identity"], text=True))["effective_sources_sha256"] == sources[name]["effective_sources_sha256"]
+    env = dict(kernel=os.uname().release, machine=os.uname().machine, sources=sources,
+               binaries={n: sha(p) for n, p in bins.items()}, host_cpus=cpus,
+               compiler=(ROOT / "target/erasure-audit/toolchain.txt").read_text(),
+               scope="native diagnostic: actual host kernel; not supported-LTS kernel acceptance")
+    (OUT / "environment.json").write_text(json.dumps(env, indent=2))
+    (OUT / "hardware.txt").write_text(subprocess.check_output(["lscpu"], text=True))
+    process_env = dict(os.environ, NEXT_PEER_CPUS=str(cpus[0]), NEXT_LOAD_CPUS=str(cpus[1]),
+                       NEXT_CLIENT_CPUS=",".join(map(str, cpus[2:4])), NEXT_WARM_SECONDS="1", NEXT_PEER_VECTORED="1")
+    with (OUT / "guest.log").open("w") as log:
+        for row in plan():
+            log.write("ERASURE_CASE " + json.dumps(row) + "\n")
+            log.flush()
+            process_env["NEXT_LOAD_SHAPE"] = row["shape"]
+            process_env.pop("NEXT_RATE_PPS", None)
+            if row["rate_pps"]:
+                process_env["NEXT_RATE_PPS"] = str(row["rate_pps"])
+            command = ["unshare", "-n", str(bins[row["build"]]), "client", str(bins["main"]), row["protocol"],
+                       str(row["size"]), str(row["window"]), str(row["seconds"]), str(row["flows"])]
+            proc = subprocess.Popen(command, env=process_env, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
+            try:
+                code = proc.wait(timeout=40)
+            except subprocess.TimeoutExpired:
+                code = 124
+            finally:
+                try:
+                    os.killpg(proc.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                proc.wait()
+            log.write(f"ERASURE_SAMPLE_EXIT {code}\n")
+    collect((OUT / "guest.log").read_text(), OUT)
+    report = publish(OUT)
+    assert not report["errors"], report["errors"]
+
+
+if __name__ == "__main__":
+    run()

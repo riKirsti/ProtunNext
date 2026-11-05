@@ -21,13 +21,13 @@ class ValidityTests(unittest.TestCase):
         self.rows = []
         for p in self.planned:
             seconds, size, packets = 5.01, p["size"], 100000
-            load = dict(effective_sources_sha256="erase", shape=p["shape"], bytes=packets * size,
+            load = dict(effective_sources_sha256="main", shape=p["shape"], bytes=packets * size,
                         packets=packets, seconds=seconds, Mbps=packets * size * 8 / seconds / 1e6,
                         cpu_seconds=1.)
             m = dict(effective_sources_sha256=p["build"], kernel="6.18.60", protocol=p["protocol"],
                      size=size, window=p["window"], flows=p["flows"], load=load, seconds=seconds,
                      client_cpu_seconds=2., client_cpu_ns_per_byte=2e9 / load["bytes"], client_rss_kib=4096,
-                     state="TunnelEstablished", peer=dict(effective_sources_sha256="erase", timed=True,
+                     state="TunnelEstablished", peer=dict(effective_sources_sha256="main", timed=True,
                      seconds=seconds, cpu_seconds=1.), counters=dict(invalid_packets=0, outer_io_errors=0,
                      outer_eof=0, io=dict(gso_datagrams=32)))
             self.rows.append(dict(p, exit=0, metrics=[m]))
