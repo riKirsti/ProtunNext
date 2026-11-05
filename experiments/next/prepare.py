@@ -2,7 +2,7 @@
 import argparse,hashlib,json,pathlib,shutil,subprocess,tempfile
 p=argparse.ArgumentParser();p.add_argument('--candidate',default='HEAD');p.add_argument('--parallel',action='store_true');a=p.parse_args()
 root=pathlib.Path(__file__).resolve().parents[2];out=root/'target/next';out.mkdir(parents=True,exist_ok=True)
-refs={'baseline':'c4b2554398ffcbf35cdaa9c8797504d8df146bd9','gro':'c333abf886ffaa2fa587a782f9da764d3b566830','candidate':a.candidate};state={}
+refs={'baseline':'c4b2554398ffcbf35cdaa9c8797504d8df146bd9','candidate':a.candidate};state={}
 if a.parallel: refs={'baseline':a.candidate,'candidate':a.candidate}
 for name,ref in refs.items():
  sha=subprocess.check_output(['git','rev-parse',ref],cwd=root,text=True).strip()

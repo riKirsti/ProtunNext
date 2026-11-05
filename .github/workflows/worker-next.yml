@@ -27,7 +27,7 @@ jobs:
           set -euo pipefail
           python3 experiments/next/prepare.py
           mkdir -p target/next/bin target/next/profile-bin target/next/results
-          for name in baseline gro candidate; do
+          for name in baseline candidate; do
             export CARGO_TARGET_DIR="$PWD/target/next/cargo-$name"
             export NEXT_BUILD_ID="$(python3 -c "import json; print(json.load(open('target/next/builds.json'))['$name']['effective_sources_sha256'])")"
             source="$(python3 -c "import json; print(json.load(open('target/next/builds.json'))['$name']['path'])")"
