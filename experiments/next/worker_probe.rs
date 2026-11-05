@@ -69,6 +69,7 @@ impl Drop for OwnedChild {
     }
 }
 static STOP: AtomicBool = AtomicBool::new(false);
+static DRAIN: AtomicBool = AtomicBool::new(false);
 static PEER_CPU_START: AtomicU64 = AtomicU64::new(0);
 static PEER_WALL_START: AtomicU64 = AtomicU64::new(0);
 fn monotonic_ns() -> u64 {
@@ -81,6 +82,9 @@ fn monotonic_ns() -> u64 {
 }
 extern "C" fn stop(_: libc::c_int) {
     STOP.store(true, Ordering::Relaxed);
+}
+extern "C" fn drain(_: libc::c_int) {
+    DRAIN.store(true, Ordering::Release);
 }
 fn echo(p: &mut [u8]) {
     assert_eq!(p[0] >> 4, 4);
@@ -340,6 +344,7 @@ fn peer(proto: &str, window: usize) {
     pin("NEXT_PEER_CPUS");
     unsafe {
         libc::signal(libc::SIGTERM, stop as *const () as libc::sighandler_t);
+        libc::signal(libc::SIGUSR1, drain as *const () as libc::sighandler_t);
     }
     thread::spawn(|| {
         if std::io::stdin().read_exact(&mut [0; 1]).is_ok() {
@@ -400,7 +405,13 @@ fn peer(proto: &str, window: usize) {
     let mut count = 0u64;
     let mut handshakes = 0u64;
     let mut timer = Instant::now();
+    let mut drain_ack = false;
     while !STOP.load(Ordering::Relaxed) {
+        if DRAIN.load(Ordering::Acquire) && !drain_ack {
+            println!("NEXT_DRAIN");
+            std::io::stdout().flush().unwrap();
+            drain_ack = true;
+        }
         assert!(start.elapsed() < Duration::from_secs(900));
         if timer.elapsed() > Duration::from_secs(1) {
             if let Output::Network(n) = s.advance(linux::boottime().unwrap(), &mut out).unwrap() {
@@ -415,7 +426,8 @@ fn peer(proto: &str, window: usize) {
                 Receive::WouldBlock => break,
                 Receive::Yield => continue,
                 Receive::Eof => {
-                    assert!(STOP.load(Ordering::Relaxed), "peer unexpected EOF");
+                    assert!(DRAIN.load(Ordering::Acquire), "peer unexpected EOF");
+                    STOP.store(true, Ordering::Relaxed);
                     break;
                 }
             }
@@ -532,6 +544,11 @@ fn pump(
     let mut latencies = Vec::with_capacity(if latency { 1_000_000 } else { 0 });
     let start = Instant::now();
     let mut packets = 0;
+    let rate = std::env::var("NEXT_RATE_PPS").ok().map(|value| {
+        let rate: f64 = value.parse().unwrap();
+        assert!(rate.is_finite() && rate > 0.0);
+        rate
+    });
     if shape == "burst" || window == 1 {
         while start.elapsed().as_secs_f64() < seconds {
             let t = Instant::now();
@@ -551,9 +568,7 @@ fn pump(
                 assert!(recv[8..n].iter().all(|&b| b == 0x5a));
             }
             packets += window;
-            if let Ok(rate) = std::env::var("NEXT_RATE_PPS") {
-                let rate: f64 = rate.parse().unwrap();
-                assert!(rate.is_finite() && rate > 0.0);
+            if let Some(rate) = rate {
                 let due = Duration::from_secs_f64(packets as f64 / rate);
                 if let Some(delay) = due.checked_sub(start.elapsed()) {
                     thread::sleep(delay);
@@ -731,11 +746,15 @@ fn client(peer_bin: &str, proto: &str, size: usize, window: usize, seconds: f64,
     load_out.read_to_string(&mut rest).unwrap();
     assert!(generator.0.wait().unwrap().success());
     let before = con.snapshot();
-    // Stop the controlled peer before closing the transport: teardown EOF is
-    // not a measurement failure after all application replies were validated.
+    // Acknowledge the end of measurement, but KEEP the peer socket open until
+    // the client stops. Closing the peer first races the client shutdown and
+    // can manufacture UnexpectedEof from a successful measured transfer.
     unsafe {
-        libc::kill(peer.0.id() as libc::pid_t, libc::SIGTERM);
+        libc::kill(peer.0.id() as libc::pid_t, libc::SIGUSR1);
     }
+    line.clear();
+    peer_out.read_line(&mut line).unwrap();
+    assert_eq!(line.trim(), "NEXT_DRAIN");
     con.disconnect();
     let counters = con.disconnect_and_wait().unwrap();
     assert_eq!(counters.invalid_packets, 0);
