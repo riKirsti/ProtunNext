@@ -16,8 +16,19 @@ for folder in a.folders:
   good=r['exit']==0 and r['status']=='completed' and len(r['metrics'])==1
   if good:
    m=r['metrics'][0];assert m['effective_sources_sha256']==env['sources'][r['build']]['effective_sources_sha256']
+   assert (m['protocol'],m['size'],m['window'],m['flows'],m['load']['shape'])==(r['protocol'],r['size'],r['window'],r['flows'],r['shape'])
+   assert m['load']['bytes']==m['load']['packets']*r['size'] and m['load']['bytes']>0
+   assert math.isclose(m['load']['Mbps'],m['load']['bytes']*8/m['load']['seconds']/1e6,rel_tol=1e-10)
+   assert math.isclose(m['client_cpu_ns_per_byte'],m['client_cpu_seconds']*1e9/m['load']['bytes'],rel_tol=1e-10)
    assert m['peer']['effective_sources_sha256']==m['load']['effective_sources_sha256']==env['sources']['erase']['effective_sources_sha256']
    assert m['counters']['invalid_packets']==0 and m['peer']['timed']
+   assert m['state']=='TunnelEstablished' and m['counters']['outer_io_errors']==m['counters']['outer_eof']==0
+   if r['protocol']=='stealth':
+    tls=json.loads(m['peer']['tls'])
+    assert tls['version']=='Some(TLSv1_3)' and tls['suite']=='Some(TLS13_AES_256_GCM_SHA384)'
+    assert tls['vectored']==r['peer_vectored'] and sum(tls['encrypted_record_buckets_le_2k_le_8k_gt_8k'])>0
+   if r['build']=='ktls' and r['protocol']=='stealth':
+    assert r['stdout'].count('KTLS_WORKER_READY TLS13_AES_256_GCM_SHA384')==1,'kTLS identity is insufficient without actual handoff'
    valid.append(r)
   else:report['failures'].append({'allocation':str(f),'sample':r['sample'],'build':r['build'],'role':r['role'],'protocol':r['protocol'],'stderr':r['stderr'],'status':r['status'],'exit':r['exit']})
  report['allocations'].append({'folder':str(f),'kernel':env['kernel'],'arch':env['machine'],'samples':len(rows),'valid':len(valid),'binaries':env['binaries']})
@@ -46,7 +57,8 @@ for folder in a.folders:
    for r in group:
     m=r['metrics'][0];p=m['peer'];l=m['load'];aux.append({'sample':r['sample'],'peer_cores':p['cpu_seconds']/p['seconds'],'load_cores':l['cpu_seconds']/l['seconds'],'client_cores':m['client_cpu_seconds']/m['seconds']})
    entry.update(cpu_utilization=aux,aux_saturated=any(max(v['peer_cores'],v['load_cores'])>=.85 for v in aux))
-   entry['capacity_ranking_eligible']=bool(entry['aa'] and entry['aa']['passes'] and not entry['aux_saturated'] and cell[-1]=='two')
+   entry['rate_achieved']=all(abs(r['metrics'][0]['load']['packets']/r['metrics'][0]['load']['seconds']/cell[-2]-1)<=.05 for r in group) if cell[-2] else None
+   entry['capacity_ranking_eligible']=bool(entry['aa'] and entry['aa']['passes'] and not entry['aux_saturated'] and cell[-1]=='two' and cell[-2]==0)
   report['blocks'].append(entry)
 path=pathlib.Path(a.output);path.parent.mkdir(parents=True,exist_ok=True);path.write_text(json.dumps(report,indent=2))
 print(json.dumps({'allocations':len(report['allocations']),'samples':sum(x['samples']for x in report['allocations']),'failures':len(report['failures']),'blocks':len(report['blocks']),'complete_blocks':sum(x['complete']for x in report['blocks']),'AA_pass':sum(x['aa']['passes']for x in report['blocks']if x['role']=='aa'),'AA_total':sum(x['role']=='aa'for x in report['blocks'])}))

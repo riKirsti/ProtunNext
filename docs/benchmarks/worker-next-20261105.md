@@ -1,5 +1,10 @@
 # Further worker performance results — 2026-11-05
 
+> **Subsequent test audit:** the old peer's TLS vectored-write behavior and a
+> shutdown race required corrections. Treat this report's numbers as historical;
+> use [the corrected audit and rerun](test-audit-20261105.md) for decisions. The
+> shipping change remains packet erasure only.
+
 The production proposal is **bulk packet erasure only**. The GRO ownership
 handoff was removed after mixed architecture results. Parallel crypto and kTLS
 remain isolated experiments outside the shipping build. There was no release,
