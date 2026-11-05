@@ -1,3 +1,5 @@
+Historical November 3 checkpoint. The [November 5 platform selection](tls-selection-20261105.md) supersedes the global-adapter decision below; measurements and failures are preserved.
+
 **TLS selection: unbuffered for the sustained-throughput production path**
 
 Recorded November 3, 2026, before any production refactor. Reference PR head: `83f025231535a3ef0731123988e9dae8621cef4a`. Both router variants used the same frozen binary (SHA-256 `c6b1e549f6526f3061343a79f3abac98b353cf326840f1d847d96718a5a0fdea`), compiler, compact pool, in-place crypto, MTU 1280, peer keys and framing. Only the TLS adapter flag changed.

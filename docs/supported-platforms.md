@@ -21,12 +21,18 @@ kernel families, and supply raw TUN without packet-info or vnet headers. Apple
 artifacts use deployment floor 26 and ARM64 slices, including simulators. Android
 uses min/NDK API 36 and compile/target SDK 37; no maxSdkVersion cap is imposed.
 
-All active workers use compact bounded packet storage, in-place WireGuard data
-crypto and the unbuffered rustls adapter. The Linux backend is batching; enabled
-io_uring was actually exercised in the comparison and did not establish a
-repeatable advantage. Its enabled deployment guarantee is therefore no longer
-a dependency of the selected backend. GSO/GRO capabilities are negotiated once
-inside the batch adapter; unsupported offload retains the same batch backend.
+All active workers use compact bounded packet storage and in-place WireGuard
+data crypto. TLS is selected at compile time: buffered rustls on Windows and all
+Apple targets, unbuffered on Linux/Android. Both ordinary TLS and Stealth use
+this selection. Linux x64/Travel have supporting worker/WAN data; other ARM64
+workloads differ. Buffered is supported by macOS component results, provisional
+on Windows and iOS/iPadOS; Android's native performance choice remains unverified.
+See [the platform evidence and limits](tls-selection-20261105.md).
+
+The Linux backend remains mmsg batching. The experimental io_uring receiver and
+its overflow correction are absent from production. No liburing package is
+required. GSO/GRO capabilities are negotiated once inside the batch adapter;
+unsupported offload retains the same batch backend.
 The removed vnet-header segmentation contract was an unreleased experiment,
 not a Protun v3.0.5 requirement. Original raw-TUN behavior is retained.
 

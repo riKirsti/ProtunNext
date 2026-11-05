@@ -114,8 +114,8 @@ mod policy {
         }
     }
     // Intentionally crate-private; all public entry points couple it to WireGuard.
-    pub(crate) fn client(sni: String) -> Result<rustls::client::UnbufferedClientConnection> {
-        rustls::client::UnbufferedClientConnection::new(
+    pub(crate) fn client(sni: String) -> Result<crate::tls::ClientConnection> {
+        crate::tls::ClientConnection::new(
             config()?,
             ServerName::try_from(sni).map_err(|_| Error::Invalid("Stealth SNI"))?,
         )

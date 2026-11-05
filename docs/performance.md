@@ -2,29 +2,38 @@ Production packet path and verification
 =======================================
 
 This revision replaces the unreleased tuning matrix with one production policy:
-compact bounded packets, in-place WireGuard data crypto and unbuffered rustls.
+compact bounded packets and in-place WireGuard data crypto. TLS selects buffered
+rustls on Windows/Apple and unbuffered rustls on Linux/Android at compile time.
+There is no runtime adapter switch or backend tuning matrix.
 Linux/Android use recvmmsg/sendmmsg; Windows/Apple use their native Mio sockets.
 UDP offload is negotiated inside the batch adapter and preserves datagram
 boundaries. The maximum available batch is 16; the worker never waits to fill it.
 Partial sends retain every unaccepted packet exactly once.
 
-The November 3 measured comparison selected unbuffered for sustained router
-downloads, with an explicit small-transfer throughput regression. The limited
-io_uring comparison established no repeatable win, so the simpler batch backend
-was selected and the alternate ring receiver removed. This is not proof that
-io_uring cannot be faster in a different implementation or workload.
-The [three paired router samples](benchmarks/linux-io-selection-20261103.json)
-include actual completion/fallback/buffer-exhaustion counters. Both router
-cohorts through cleanup occupied 991.888 seconds of the approved twenty-minute
-window, with Direct mode and installed software preserved.
+The [latest platform decision](tls-selection-20261105.md) combines actual x64
+LTS worker tests, native ARM64 and macOS components, Windows repetitions and a
+fresh Travel rerun. Unbuffered is supported for Linux x64 and Travel bulk traffic;
+macOS components instead favor buffered, and Windows remains inconclusive.
+Android/iOS device acceptance is still pending. The older November 3 evidence
+remains historical rather than a claim that every platform benefits.
+
+Linux keeps mmsg with outer UDP GSO/GRO. The expanded experimental io_uring
+receiver had a reproduced completion-overflow stall; a temporary corrected
+build passed the targeted burst regression and eight WAN downloads. That
+receiver, its fix and any liburing package are not dependencies of this PR.
+Complete-worker speed/RSS measurements do not justify adopting it as default.
+Software TUN aggregation, production parallel crypto and mandatory PGO remain
+excluded. See the linked reports for retained failures and workload limits.
 
 `Options`, `UdpBackend`, `Transport::Tuned`, `Transport::UnbufferedTls`,
 `update_performance_options`, `run_with_options`, the CLI `--performance` switch
 and the `io-uring` / `in-place-crypto` build features were unreleased experiments
 and are removed. Existing v3.0.5 transport/account/control functions remain;
 ordinary `Transport::Tls` and `tls::client*` now use the selected adapter.
-Callers supplying a custom TLS connection must supply rustls's
-UnbufferedClientConnection. `run_transport_fd` accepts the chosen transport with
+Callers supplying a custom TLS connection use `tls::ClientConnection`, a native
+`rustls::ClientConnection` on Windows/Apple and `UnbufferedClientConnection`
+elsewhere. `tls::client*` returns the matching type; downstream CI compiles this
+contract from a separate application. `run_transport_fd` accepts the chosen transport with
 the production policy. Build with ordinary default or existing product features.
 
 Raw TUN is the descriptor contract on Linux/Android; vnet-header software
@@ -34,6 +43,12 @@ receive aggregates are split before authentication. Oversized/truncated datagram
 are counted and never passed to WireGuard. The library changes no host sysctl,
 route, DNS or package settings in this path. See [platform support](supported-platforms.md).
 
+The Windows/Apple buffered adapter bounds rustls application output to 64 KiB,
+retains accepted-byte ownership across partial writes and keeps independent read
+progress under write backpressure. It uses the ordinary framed-read scratch
+buffer. Standard TLS verification and Stealth use the same platform adapter;
+their distinct trust policies are unchanged.
+
 The unbuffered TLS adapter covers partial socket I/O, bounded output records,
 fragmented input, accepted-byte ownership, close_notify/half-close, tickets and
 TLS 1.3 key updates through rustls. It feeds record spans directly to the framing
@@ -41,7 +56,7 @@ decoder. The pinned rustls implementation still allocates received-record chunks
 internally: `src/conn/unbuffered.rs::ReadTraffic::next_record`. This is not a
 zero-copy or allocation-free TLS claim. Standard certificate/name verification
 and Proton's explicit inner-WireGuard Stealth policy remain separate.
-The borrowed-record framing path also omits the unused generic read scratch
+On Linux/Android, the borrowed-record framing path also omits the unused generic read scratch
 allocation. Consumed scratch/plaintext regions are erased before reuse.
 Readable TLS continues progressing when socket writes are blocked; protocol
 records append behind already accepted ciphertext. Protocol output can grow
@@ -125,6 +140,7 @@ Primary references checked for this implementation
 - [Linux sendmmsg contract](https://man7.org/linux/man-pages/man2/sendmmsg.2.html): partial results consume only the accepted prefix.
 - [Linux UDP options](https://man7.org/linux/man-pages/man7/udp.7.html): UDP_SEGMENT and UDP_GRO semantics and PMTU constraints.
 - [WireGuard socket batching](https://github.com/WireGuard/wireguard-go/blob/master/conn/bind_std.go) and [GSO metadata](https://github.com/WireGuard/wireguard-go/blob/master/conn/gso_linux.go).
+- [Rustls buffered connection contract](https://docs.rs/rustls/0.23.46/rustls/struct.ConnectionCommon.html): bounded output, plaintext acceptance before handshake completion, and nonblocking read/write progress.
 - [Rustls unbuffered API](https://docs.rs/rustls/latest/rustls/unbuffered/index.html), checked against cached 0.23.46 source.
 - Proton registry-distributed proton-boringtun 4.9.0, specifically noise/session.rs, noise/mod.rs, noise/rate_limiter.rs and their tests; archive checksum above.
 

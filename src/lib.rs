@@ -45,6 +45,8 @@ pub mod session;
 pub mod stealth;
 pub mod stream;
 pub mod tls;
+#[cfg(any(windows, target_vendor = "apple"))]
+mod tls_buffered;
 pub mod tls_unbuffered;
 pub mod transport;
 #[cfg(unix)]

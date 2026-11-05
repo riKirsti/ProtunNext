@@ -5,6 +5,19 @@ This is development evidence, not live service or release acceptance.
 separate executable code from the physical-device/Proton Plus tests deferred by
 the user. Historical checkpoints below describe their own source revision.
 
+## November 5 platform TLS revision
+
+The [current selection](tls-selection-20261105.md) keeps unbuffered TLS on
+Linux/Android and restores bounded buffered TLS on Windows/Apple. The newer
+[CI campaign](benchmarks/decision-hour-20261104.md) and
+[Travel rerun](benchmarks/travel-decision-20261105.md) retain successful and
+failed transfers, actual LTS versions, repeated comparisons, regression checks
+and the experimental io_uring overflow diagnosis. These measurements predate
+this platform-selection code change; they justify the selection, not a new
+claim of device or Plus acceptance. Validation of this revision is recorded in
+the PR checks and current TLS-selection document. Historical checkpoints below
+describe their own revisions, including their then-pending checks.
+
 ## November 3 performance and platform revision
 
 The [recorded TLS comparison](tls-selection-20261103.md) was completed on Travel

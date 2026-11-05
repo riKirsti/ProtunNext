@@ -7,7 +7,6 @@ use crate::{
     network::{Datagram, Stream},
     platform::TunHandle,
     stream::FramedIo,
-    tls::TlsIo,
     transport::{Counters, Transport},
 };
 use std::{net::SocketAddr, sync::atomic::AtomicBool};
@@ -102,7 +101,7 @@ pub(crate) fn run_owned(
                 Transport::Tls(connection) => crate::engine::run(
                     tun,
                     config,
-                    Stream(FramedIo::borrowing(TlsIo::new(socket, *connection), 64)?),
+                    Stream(crate::tls::framed(socket, *connection)?),
                     stop,
                     observer,
                 ),
@@ -111,7 +110,7 @@ pub(crate) fn run_owned(
                     crate::engine::run(
                         tun,
                         config,
-                        Stream(FramedIo::borrowing(TlsIo::new(socket, connection), 64)?),
+                        Stream(crate::tls::framed(socket, connection)?),
                         stop,
                         observer,
                     )

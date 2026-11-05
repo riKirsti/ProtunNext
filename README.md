@@ -27,7 +27,7 @@ transfer regression as well as the repeatable sustained-download benefit.
   loopback/WireGuard handshake tests.
 * Shared Unix/Windows UDP/framed TCP/TLS worker. Unix attaches only to a caller-owned TUN descriptor and
   binding the outer socket to an explicitly supplied uplink interface before connect.
-  TLS uses the selected bounded unbuffered rustls adapter and keeps flushing pending ciphertext.
+  TLS selects buffered rustls on Windows/Apple and unbuffered rustls on Linux/Android at compile time; both keep flushing pending ciphertext.
 * Managed worker start/disconnect/join, bounded latest-state observation
   and real WireGuard byte/loss/handshake/RTT statistics; no user callbacks or
   control messages run per packet.

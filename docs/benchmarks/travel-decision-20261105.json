@@ -1,0 +1,571 @@
+{
+  "bridge": [
+    {
+      "protocol": "udp",
+      "paired_median_production_vs_reference_pct": -0.8258939283868727,
+      "pairs": 12,
+      "min": -19.215098368288363,
+      "max": 22.32146703239044
+    },
+    {
+      "protocol": "tcp",
+      "paired_median_production_vs_reference_pct": -1.4112532625647656,
+      "pairs": 12,
+      "min": -53.393507078817805,
+      "max": 77.2102417042117
+    },
+    {
+      "protocol": "stealth",
+      "paired_median_production_vs_reference_pct": -2.903196230002542,
+      "pairs": 12,
+      "min": -10.96648150296562,
+      "max": 5.961768835629622
+    }
+  ],
+  "baseline_regressions": 56,
+  "pgo_regressions": 56,
+  "main_live": [
+    {
+      "server": "US-NY#601",
+      "variant": "kernel",
+      "bytes": 50000000,
+      "successes": 2,
+      "attempts": 3,
+      "median_Mbps": 108.961912,
+      "min_Mbps": 32.029832,
+      "max_Mbps": 185.893992
+    },
+    {
+      "server": "US-NY#601",
+      "variant": "buffered",
+      "bytes": 12000000,
+      "successes": 3,
+      "attempts": 3,
+      "median_Mbps": 78.307,
+      "min_Mbps": 67.543744,
+      "max_Mbps": 87.141456
+    },
+    {
+      "server": "US-NY#601",
+      "variant": "buffered",
+      "bytes": 50000000,
+      "successes": 3,
+      "attempts": 3,
+      "median_Mbps": 106.132832,
+      "min_Mbps": 91.1834,
+      "max_Mbps": 120.66776
+    },
+    {
+      "server": "US-NY#601",
+      "variant": "unbuffered",
+      "bytes": 12000000,
+      "successes": 3,
+      "attempts": 3,
+      "median_Mbps": 110.770592,
+      "min_Mbps": 103.547464,
+      "max_Mbps": 111.709344
+    },
+    {
+      "server": "US-NY#601",
+      "variant": "unbuffered",
+      "bytes": 50000000,
+      "successes": 3,
+      "attempts": 3,
+      "median_Mbps": 154.21264,
+      "min_Mbps": 141.117416,
+      "max_Mbps": 158.753528
+    },
+    {
+      "server": "US-NY#601",
+      "variant": "batch-offload",
+      "bytes": 50000000,
+      "successes": 3,
+      "attempts": 3,
+      "median_Mbps": 116.16196,
+      "min_Mbps": 94.512504,
+      "max_Mbps": 128.412104
+    },
+    {
+      "server": "US-NY#601",
+      "variant": "uring-offload",
+      "bytes": 50000000,
+      "successes": 0,
+      "attempts": 3,
+      "median_Mbps": null,
+      "min_Mbps": null,
+      "max_Mbps": null
+    },
+    {
+      "server": "US-NY#601",
+      "variant": "tcp",
+      "bytes": 50000000,
+      "successes": 3,
+      "attempts": 3,
+      "median_Mbps": 185.692912,
+      "min_Mbps": 156.926192,
+      "max_Mbps": 186.201704
+    },
+    {
+      "server": "US-NY#505",
+      "variant": "kernel",
+      "bytes": 50000000,
+      "successes": 2,
+      "attempts": 3,
+      "median_Mbps": 130.429036,
+      "min_Mbps": 106.193744,
+      "max_Mbps": 154.664328
+    },
+    {
+      "server": "US-NY#505",
+      "variant": "buffered",
+      "bytes": 12000000,
+      "successes": 3,
+      "attempts": 3,
+      "median_Mbps": 80.065112,
+      "min_Mbps": 71.02908,
+      "max_Mbps": 85.766584
+    },
+    {
+      "server": "US-NY#505",
+      "variant": "buffered",
+      "bytes": 50000000,
+      "successes": 3,
+      "attempts": 3,
+      "median_Mbps": 110.33432,
+      "min_Mbps": 79.005864,
+      "max_Mbps": 118.2552
+    },
+    {
+      "server": "US-NY#505",
+      "variant": "unbuffered",
+      "bytes": 12000000,
+      "successes": 3,
+      "attempts": 3,
+      "median_Mbps": 102.921352,
+      "min_Mbps": 83.977152,
+      "max_Mbps": 122.936328
+    },
+    {
+      "server": "US-NY#505",
+      "variant": "unbuffered",
+      "bytes": 50000000,
+      "successes": 3,
+      "attempts": 3,
+      "median_Mbps": 139.305544,
+      "min_Mbps": 131.440024,
+      "max_Mbps": 148.300072
+    },
+    {
+      "server": "US-NY#505",
+      "variant": "batch-offload",
+      "bytes": 50000000,
+      "successes": 3,
+      "attempts": 3,
+      "median_Mbps": 125.198592,
+      "min_Mbps": 98.93912,
+      "max_Mbps": 134.4334
+    },
+    {
+      "server": "US-NY#505",
+      "variant": "uring-offload",
+      "bytes": 50000000,
+      "successes": 2,
+      "attempts": 3,
+      "median_Mbps": 95.592592,
+      "min_Mbps": 94.649352,
+      "max_Mbps": 96.535832
+    },
+    {
+      "server": "US-NY#505",
+      "variant": "tcp",
+      "bytes": 50000000,
+      "successes": 3,
+      "attempts": 3,
+      "median_Mbps": 172.52184,
+      "min_Mbps": 167.140368,
+      "max_Mbps": 197.114048
+    }
+  ],
+  "diagnostic_live": [
+    {
+      "server": "US-NY#601",
+      "variant": "batch-offload",
+      "bytes": 50000000,
+      "successes": 2,
+      "attempts": 2,
+      "median_Mbps": 139.23376000000002,
+      "min_Mbps": 138.700384,
+      "max_Mbps": 139.767136
+    },
+    {
+      "server": "US-NY#601",
+      "variant": "uring-no-offload",
+      "bytes": 50000000,
+      "successes": 0,
+      "attempts": 2,
+      "median_Mbps": null,
+      "min_Mbps": null,
+      "max_Mbps": null
+    },
+    {
+      "server": "US-NY#601",
+      "variant": "uring-offload",
+      "bytes": 50000000,
+      "successes": 0,
+      "attempts": 2,
+      "median_Mbps": null,
+      "min_Mbps": null,
+      "max_Mbps": null
+    },
+    {
+      "server": "US-NY#505",
+      "variant": "batch-offload",
+      "bytes": 50000000,
+      "successes": 2,
+      "attempts": 2,
+      "median_Mbps": 144.6378,
+      "min_Mbps": 134.392744,
+      "max_Mbps": 154.882856
+    },
+    {
+      "server": "US-NY#505",
+      "variant": "uring-no-offload",
+      "bytes": 50000000,
+      "successes": 0,
+      "attempts": 2,
+      "median_Mbps": null,
+      "min_Mbps": null,
+      "max_Mbps": null
+    },
+    {
+      "server": "US-NY#505",
+      "variant": "uring-offload",
+      "bytes": 50000000,
+      "successes": 0,
+      "attempts": 2,
+      "median_Mbps": null,
+      "min_Mbps": null,
+      "max_Mbps": null
+    }
+  ],
+  "corrected_live": [
+    {
+      "server": "US-NY#601",
+      "variant": "kernel",
+      "bytes": 50000000,
+      "successes": 1,
+      "attempts": 2,
+      "median_Mbps": 68.243256,
+      "min_Mbps": 68.243256,
+      "max_Mbps": 68.243256
+    },
+    {
+      "server": "US-NY#601",
+      "variant": "batch-offload",
+      "bytes": 50000000,
+      "successes": 2,
+      "attempts": 2,
+      "median_Mbps": 131.968852,
+      "min_Mbps": 120.628424,
+      "max_Mbps": 143.30928
+    },
+    {
+      "server": "US-NY#601",
+      "variant": "uring-no-offload",
+      "bytes": 50000000,
+      "successes": 2,
+      "attempts": 2,
+      "median_Mbps": 73.81976800000001,
+      "min_Mbps": 67.120304,
+      "max_Mbps": 80.519232
+    },
+    {
+      "server": "US-NY#601",
+      "variant": "uring-offload",
+      "bytes": 50000000,
+      "successes": 2,
+      "attempts": 2,
+      "median_Mbps": 151.655428,
+      "min_Mbps": 149.461744,
+      "max_Mbps": 153.849112
+    },
+    {
+      "server": "US-NY#505",
+      "variant": "kernel",
+      "bytes": 50000000,
+      "successes": 1,
+      "attempts": 2,
+      "median_Mbps": 178.586656,
+      "min_Mbps": 178.586656,
+      "max_Mbps": 178.586656
+    },
+    {
+      "server": "US-NY#505",
+      "variant": "batch-offload",
+      "bytes": 50000000,
+      "successes": 2,
+      "attempts": 2,
+      "median_Mbps": 117.974972,
+      "min_Mbps": 101.81876,
+      "max_Mbps": 134.131184
+    },
+    {
+      "server": "US-NY#505",
+      "variant": "uring-no-offload",
+      "bytes": 50000000,
+      "successes": 2,
+      "attempts": 2,
+      "median_Mbps": 109.636532,
+      "min_Mbps": 96.442936,
+      "max_Mbps": 122.830128
+    },
+    {
+      "server": "US-NY#505",
+      "variant": "uring-offload",
+      "bytes": 50000000,
+      "successes": 2,
+      "attempts": 2,
+      "median_Mbps": 154.542128,
+      "min_Mbps": 142.336648,
+      "max_Mbps": 166.747608
+    }
+  ],
+  "kernel_readiness": [
+    {
+      "server": "US-NY#601",
+      "variant": "kernel",
+      "bytes": 50000000,
+      "successes": 1,
+      "attempts": 1,
+      "median_Mbps": 56.938192,
+      "min_Mbps": 56.938192,
+      "max_Mbps": 56.938192
+    },
+    {
+      "server": "US-NY#505",
+      "variant": "kernel",
+      "bytes": 50000000,
+      "successes": 1,
+      "attempts": 1,
+      "median_Mbps": 204.897248,
+      "min_Mbps": 204.897248,
+      "max_Mbps": 204.897248
+    }
+  ],
+  "live_tls_pairs": [
+    {
+      "server": "US-NY#601",
+      "bytes": 12000000,
+      "pairs": 3,
+      "speed_pct": 41.45681995223924,
+      "client_cpu_per_byte_pct": -23.4375,
+      "speed_pairs_pct": [
+        28.193111668916803,
+        53.30430009920681,
+        41.45681995223924
+      ]
+    },
+    {
+      "server": "US-NY#601",
+      "bytes": 50000000,
+      "pairs": 3,
+      "speed_pct": 32.96301751375108,
+      "client_cpu_per_byte_pct": -24.609375,
+      "speed_pairs_pct": [
+        69.12359047809137,
+        32.96301751375108,
+        31.56250517951107
+      ]
+    },
+    {
+      "server": "US-NY#505",
+      "bytes": 12000000,
+      "pairs": 3,
+      "speed_pct": 20.001692034277596,
+      "client_cpu_per_byte_pct": -23.076923076923073,
+      "speed_pairs_pct": [
+        20.001692034277596,
+        73.07886854229284,
+        4.886073225002185
+      ]
+    },
+    {
+      "server": "US-NY#505",
+      "bytes": 50000000,
+      "pairs": 3,
+      "speed_pct": 25.406808326399165,
+      "client_cpu_per_byte_pct": -25.098039215686274,
+      "speed_pairs_pct": [
+        19.128865796245442,
+        76.32304356547507,
+        25.406808326399165
+      ]
+    }
+  ],
+  "cleanup": {
+    "controlled": {
+      "directory_absent": true,
+      "executables_absent": true,
+      "pnlbBefOL_absent": true,
+      "19943_table_empty": true,
+      "pklbBefOL_absent": true,
+      "19944_table_empty": true,
+      "configs_unchanged": true,
+      "identity_unchanged": true,
+      "links_unchanged": true,
+      "rules_unchanged": true,
+      "default_unchanged": true,
+      "packages_unchanged": true,
+      "socket_limits_unchanged": true,
+      "direct_mode": true
+    },
+    "regressions": {
+      "directory_absent": true,
+      "executables_absent": true,
+      "pnlaDeKca_absent": true,
+      "19943_table_empty": true,
+      "pklaDeKca_absent": true,
+      "19944_table_empty": true,
+      "configs_unchanged": true,
+      "identity_unchanged": true,
+      "links_unchanged": true,
+      "rules_unchanged": true,
+      "default_unchanged": true,
+      "packages_unchanged": true,
+      "socket_limits_unchanged": true,
+      "direct_mode": true
+    },
+    "live": {
+      "directory_absent": true,
+      "executables_absent": true,
+      "pnlicpamm_absent": true,
+      "19943_table_empty": true,
+      "pklicpamm_absent": true,
+      "19944_table_empty": true,
+      "configs_unchanged": true,
+      "identity_unchanged": true,
+      "links_unchanged": true,
+      "rules_unchanged": true,
+      "default_unchanged": true,
+      "packages_unchanged": true,
+      "socket_limits_unchanged": true,
+      "direct_mode": true
+    },
+    "bridge": {
+      "directory_absent": true,
+      "executables_absent": true,
+      "pnldebMdF_absent": true,
+      "19943_table_empty": true,
+      "pkldebMdF_absent": true,
+      "19944_table_empty": true,
+      "configs_unchanged": true,
+      "identity_unchanged": true,
+      "links_unchanged": true,
+      "rules_unchanged": true,
+      "default_unchanged": true,
+      "packages_unchanged": true,
+      "socket_limits_unchanged": true,
+      "direct_mode": true
+    },
+    "uring-diagnostic": {
+      "directory_absent": true,
+      "executables_absent": true,
+      "pnlpOghNo_absent": true,
+      "19943_table_empty": true,
+      "pklpOghNo_absent": true,
+      "19944_table_empty": true,
+      "configs_unchanged": true,
+      "identity_unchanged": true,
+      "links_unchanged": true,
+      "rules_unchanged": true,
+      "default_unchanged": true,
+      "packages_unchanged": true,
+      "socket_limits_unchanged": true,
+      "direct_mode": true
+    },
+    "pgo-regressions": {
+      "directory_absent": true,
+      "executables_absent": true,
+      "pnlfNhgBb_absent": true,
+      "19943_table_empty": true,
+      "pklfNhgBb_absent": true,
+      "19944_table_empty": true,
+      "configs_unchanged": true,
+      "identity_unchanged": true,
+      "links_unchanged": true,
+      "rules_unchanged": true,
+      "default_unchanged": true,
+      "packages_unchanged": true,
+      "socket_limits_unchanged": true,
+      "direct_mode": true
+    },
+    "overflow-regression": {
+      "directory_absent": true,
+      "executables_absent": true,
+      "pnlaCPliA_absent": true,
+      "19943_table_empty": true,
+      "pklaCPliA_absent": true,
+      "19944_table_empty": true,
+      "configs_unchanged": true,
+      "identity_unchanged": true,
+      "links_unchanged": true,
+      "rules_unchanged": true,
+      "default_unchanged": true,
+      "packages_unchanged": true,
+      "socket_limits_unchanged": true,
+      "direct_mode": true
+    },
+    "uring-fixed-live": {
+      "directory_absent": true,
+      "executables_absent": true,
+      "pnlkPpGkm_absent": true,
+      "19943_table_empty": true,
+      "pklkPpGkm_absent": true,
+      "19944_table_empty": true,
+      "configs_unchanged": true,
+      "identity_unchanged": true,
+      "links_unchanged": true,
+      "rules_unchanged": true,
+      "default_unchanged": true,
+      "packages_unchanged": true,
+      "socket_limits_unchanged": true,
+      "direct_mode": true
+    },
+    "kernel-readiness": {
+      "directory_absent": true,
+      "executables_absent": true,
+      "pnlOePKoE_absent": true,
+      "19943_table_empty": true,
+      "pklOePKoE_absent": true,
+      "19944_table_empty": true,
+      "configs_unchanged": true,
+      "identity_unchanged": true,
+      "links_unchanged": true,
+      "rules_unchanged": true,
+      "default_unchanged": true,
+      "packages_unchanged": true,
+      "socket_limits_unchanged": true,
+      "direct_mode": true
+    }
+  },
+  "regression_overflow": [
+    {
+      "build": "before",
+      "code": 101,
+      "stdout": "\nrunning 1 test\ntest uring_rx::overflow_regression::full_completion_queue_releases_terminal_enobufs_and_resumes ... FAILED\n\nfailures:\n\nfailures:\n    uring_rx::overflow_regression::full_completion_queue_releases_terminal_enobufs_and_resumes\n\ntest result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 39 filtered out; finished in 2.14s\n\n",
+      "stderr": "\nthread 'uring_rx::overflow_regression::full_completion_queue_releases_terminal_enobufs_and_resumes' (24857) panicked at src\\uring_rx.rs:431:4:\noverflow recovery deadline: completions=128, enobufs=0, submissions=1\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\n"
+    },
+    {
+      "build": "after",
+      "code": 0,
+      "stdout": "\nrunning 1 test\ntest uring_rx::overflow_regression::full_completion_queue_releases_terminal_enobufs_and_resumes ... ok\n\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 39 filtered out; finished in 0.14s\n\n",
+      "stderr": "CQ overflow recovered: completions=353, enobufs=2, submissions=3\n"
+    },
+    {
+      "build": "after-all-uring",
+      "code": 0,
+      "stdout": "\nrunning 3 tests\ntest uring_rx::decision_edges::full_payload_capacity_gro_short_tail_ipv4_ipv6_and_shutdown ... ok\ntest uring_rx::overflow_regression::full_completion_queue_releases_terminal_enobufs_and_resumes ... ok\ntest uring_rx::tests::real_multishot_receive_recycles_buffers_and_cancels_an_idle_request ... ok\n\ntest result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 37 filtered out; finished in 0.25s\n\n",
+      "stderr": "CQ overflow recovered: completions=353, enobufs=2, submissions=3\nactual multishot: 64 datagrams, 17 submissions\n"
+    }
+  ]
+}

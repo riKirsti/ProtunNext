@@ -7,7 +7,6 @@ use crate::{
     linux_network,
     network::{Datagram, Network, Stream},
     stream::FramedIo,
-    tls::TlsIo,
 };
 use std::{
     fs::File,
@@ -140,7 +139,7 @@ pub fn run_tls(
     tun_fd: i32,
     config: &WireguardConfig,
     bind_device: &str,
-    connection: rustls::client::UnbufferedClientConnection,
+    connection: crate::tls::ClientConnection,
     stop: &AtomicBool,
 ) -> Result<Counters> {
     run_transport(
@@ -242,7 +241,7 @@ pub(crate) fn run_owned(
                 Transport::Tls(connection) => run(
                     tun_file,
                     config,
-                    Stream(FramedIo::borrowing(TlsIo::new(socket, *connection), 64)?),
+                    Stream(crate::tls::framed(socket, *connection)?),
                     stop,
                     observer,
                 ),
@@ -251,7 +250,7 @@ pub(crate) fn run_owned(
                     run(
                         tun_file,
                         config,
-                        Stream(FramedIo::borrowing(TlsIo::new(socket, connection), 64)?),
+                        Stream(crate::tls::framed(socket, connection)?),
                         stop,
                         observer,
                     )

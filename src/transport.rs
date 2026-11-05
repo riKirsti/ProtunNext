@@ -29,6 +29,6 @@ pub struct Counters {
 pub enum Transport {
     Udp,
     Tcp,
-    Tls(Box<rustls::client::UnbufferedClientConnection>),
+    Tls(Box<crate::tls::ClientConnection>),
     Stealth(crate::stealth::SniStrategy),
 }
