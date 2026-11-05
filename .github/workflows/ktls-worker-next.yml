@@ -1,0 +1,53 @@
+name: ktls-worker-next-screen
+on:
+  push:
+    branches: [performance/worker-next]
+    paths: ['experiments/ktls-worker/**', 'experiments/ktls/src/ktls.rs', '.github/workflows/ktls-worker-next.yml']
+  workflow_dispatch:
+permissions: {contents: read}
+jobs:
+  native:
+    strategy:
+      fail-fast: false
+      matrix: {os: [ubuntu-24.04, ubuntu-24.04-arm]}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 0}
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build isolated worker variants
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 experiments/ktls-worker/prepare.py
+          mkdir -p target/next/bin target/next/results
+          for name in baseline candidate; do
+            export CARGO_TARGET_DIR="$PWD/target/next/cargo-$name"
+            export NEXT_BUILD_ID="$(python3 -c "import json; print(json.load(open('target/next/builds.json'))['$name']['effective_sources_sha256'])")"
+            source="$(python3 -c "import json; print(json.load(open('target/next/builds.json'))['$name']['path'])")"
+            cargo test --locked --lib --no-default-features --features unix --manifest-path "$source/Cargo.toml" >"target/next/results/unit-$name.log" 2>&1
+            cargo build --locked --release --no-default-features --features unix --bin next-probe --manifest-path "$source/Cargo.toml" >"target/next/results/build-$name.log" 2>&1
+            cp "$CARGO_TARGET_DIR/release/next-probe" "target/next/bin/$name"
+          done
+          uname -a >target/next/results/hardware.txt
+          lscpu >>target/next/results/hardware.txt
+      - name: Screen three-second worker samples; UDP and TCP are unchanged controls
+        run: sudo python3 experiments/next/run.py --rounds 2
+      - name: Verify every candidate Stealth sample reached the installed kernel backend
+        run: |
+          python3 - <<'PY'
+          import json
+          rows=[json.loads(line) for line in open('target/next/results/samples.jsonl')]
+          selected=[r for r in rows if r['build']=='candidate' and r['protocol']=='stealth']
+          assert len(selected)==6
+          assert all('KTLS_WORKER_READY TLS13_AES_256_GCM_SHA384' in r['stdout'] for r in selected)
+          PY
+      - name: Make results readable
+        if: always()
+        run: sudo chown -R "$(id -u):$(id -g)" target/next/results
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ktls-worker-next-${{ matrix.os }}
+          path: target/next/results/
