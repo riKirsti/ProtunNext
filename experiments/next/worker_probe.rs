@@ -267,7 +267,7 @@ impl Peer {
             Self::Stream(stream) => match stream.receive(p) {
                 Ok(r) => r,
                 Err(crate::Error::Io(e))
-                    if STOP.load(Ordering::Relaxed)
+                    if DRAIN.load(Ordering::Acquire)
                         && matches!(
                             e.kind(),
                             std::io::ErrorKind::UnexpectedEof
@@ -325,7 +325,7 @@ impl Peer {
                     Ok(()) => {}
                     Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => return true,
                     Err(e)
-                        if STOP.load(Ordering::Relaxed)
+                        if DRAIN.load(Ordering::Acquire)
                             && matches!(
                                 e.kind(),
                                 std::io::ErrorKind::BrokenPipe
