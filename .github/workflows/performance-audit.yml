@@ -29,6 +29,7 @@ jobs:
           target/release/examples/erasure_codegen K
           sha256sum target/release/examples/erasure_codegen > target/erasure-codegen/binary.sha256
           objdump -Cd --no-show-raw-insn target/release/examples/erasure_codegen > target/erasure-codegen/disassembly.txt
+          objdump -R target/release/examples/erasure_codegen >> target/erasure-codegen/disassembly.txt
           python3 experiments/audit/check_codegen.py target/erasure-codegen/disassembly.txt | tee target/erasure-codegen/check.txt
       - uses: actions/upload-artifact@v4
         if: always()

@@ -77,6 +77,25 @@ class ValidityTests(unittest.TestCase):
 
 
 class CodegenTests(unittest.TestCase):
+    def test_an_overwritten_zero_argument_cannot_pass(self):
+        source = "".join(f"0000000000001000 <{name}>:\n 1000: xor %esi,%esi\n 1001: mov %ebx,%esi\n 1002: call 2000 <memset@plt>\n" for name in ["audit_drop_packet", "audit_recycle_packet"])
+        with self.assertRaises(AssertionError):
+            check(source)
+
+    def test_indirect_callee_saved_memset_and_relocation(self):
+        source = """0000000000001000 <audit_drop_packet>:
+ 1000: mov 0x1234(%rip),%r15 # 4000 <memset@GLIBC_2.2.5>
+ 1001: xor %esi,%esi
+ 1002: call *%r15
+0000000000002000 <audit_recycle_packet>:
+ 2000: call *0x1234(%rip) # 5000 <_DYNAMIC+0x490>
+0000000000003000 <production_recycle>:
+ 3000: xor %esi,%esi
+ 3001: call 4000 <memset@plt>
+0000000000005000 R_X86_64_RELATIVE *ABS*+0x0000000000003000
+"""
+        self.assertEqual(len(check(source)), 2)
+
     def test_initial_nonzero_fill_cannot_pass_as_erasure(self):
         source = "".join(f"0000000000001000 <{name}>:\n 1000: mov %ebx,%esi\n 1002: call 2000 <memset@plt>\n" for name in ["audit_drop_packet", "audit_recycle_packet"])
         with self.assertRaises(AssertionError):
