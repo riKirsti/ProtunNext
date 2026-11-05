@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 label=${1:?}
-export CARGO_TARGET_DIR="$PWD/bench-target"
+export CARGO_TARGET_DIR="$PWD/correctness-target" CARGO_PROFILE_RELEASE_PANIC=unwind
 cargo test --manifest-path reference/Cargo.toml --release --no-default-features --features in-place-crypto,io-uring --lib --tests --no-run --message-format=json > "results/test-bins-$label.jsonl"
 python3 - "$label" <<'PY'
 import json,subprocess,sys
