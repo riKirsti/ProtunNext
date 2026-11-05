@@ -79,8 +79,23 @@ then run the two workflows at the same commit. The actual-kernel workflow needs
 four logical CPUs, root-accessible KVM and the existing functional-test kernel
 image cache (or builds that image from the unchanged kernel recipe).
 
-## Current validation
+## Validation records
 
-The focused supported-kernel comparison and final linked-code inspection are
-pending for this revision. No new throughput claim is made until their raw
-artifacts have been reviewed. Both routers remain unchanged by this work.
+- [Actual supported-kernel run](https://github.com/riKirsti/ProtunNext/actions/runs/42094127615),
+  with exact source pinned at `bench-pr3-lts-20261105` (`9b469d5`).
+- [Native x64 and ARM64 normal-release inspection and negative controls](https://github.com/riKirsti/ProtunNext/actions/runs/42095069945),
+  pinned at `pr3-erasure-review-20261105` (`6a7d1a3`). Both passed. The earlier
+  x64 checker failure was an unresolved indirect call, corrected using final
+  ELF relocations; that failed pilot remains in the evidence archive.
+- [Frozen results table](https://github.com/riKirsti/ProtunNext/blob/pr3-erasure-results-20261105/docs/benchmarks/packet-erasure-20261105-summary.md)
+  and [raw evidence with checksums and provenance](https://github.com/riKirsti/ProtunNext/tree/pr3-erasure-results-20261105/docs/benchmarks)
+  are maintained on the research branch, keeping measurement archives out of the
+  production PR. The table retains all allocations, including any inconclusive
+  or auxiliary-limited cells.
+
+The production Rust/Cargo files, API fixture, worker probe and measurement/
+analysis scripts are identical between the two pinned source revisions. Later
+changes add the stronger linked-code checker and its negative control. Consult
+PR #3 for the current cross-platform verification run. These local worker tests
+do not establish a Proton WAN download-speed improvement. Both routers remain
+unchanged by this work.
