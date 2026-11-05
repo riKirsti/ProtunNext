@@ -1,60 +1,37 @@
-name: performance-test-audit
+name: packet-erasure-release-verification
 on:
   push:
     branches: [performance/worker-next]
-    paths: ['experiments/audit/**', '.github/workflows/performance-audit.yml']
+    paths: ['experiments/audit/**', 'examples/erasure_codegen.rs', '.github/workflows/performance-audit.yml', 'src/packet.rs']
   workflow_dispatch:
-    inputs:
-      full:
-        type: boolean
-        default: false
-        description: Three allocations per architecture and full workload set
 permissions: {contents: read}
 jobs:
-  native:
+  release:
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-24.04, ubuntu-24.04-arm]
-        replicate: ${{ fromJSON(inputs.full && '[1,2,3]' || '[1]') }}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 60
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
-        with: {fetch-depth: 0}
-      - uses: dtolnay/rust-toolchain@stable
-      - name: Build distinct runtimes with one fixed corrected endpoint
+      - uses: dtolnay/rust-toolchain@1.99.1
+      - name: Validate analyzer failure and inconclusive classifications
+        run: python3 -m unittest discover -s experiments/audit -p 'test_*.py' -v
+      - name: Test packet erasure and build normal thin-LTO release fixture
         shell: bash
         run: |
           set -euo pipefail
-          python3 experiments/audit/prepare.py
-          mkdir -p target/audit-v2/bin target/audit-v2/results
-          for name in erase main gro parallel ktls; do
-            export CARGO_TARGET_DIR="$PWD/target/audit-v2/cargo-$name"
-            export NEXT_BUILD_ID="$(python3 -c "import json; print(json.load(open('target/audit-v2/builds.json'))['$name']['effective_sources_sha256'])")"
-            source="$(python3 -c "import json; print(json.load(open('target/audit-v2/builds.json'))['$name']['path'])")"
-            if [ "$name" = erase ]; then cargo test --locked --lib --no-default-features --features unix --manifest-path "$source/Cargo.toml" >target/audit-v2/results/peer-regressions.log 2>&1; fi
-            cargo build --locked --release --no-default-features --features unix --bin next-probe --manifest-path "$source/Cargo.toml" >"target/audit-v2/results/build-$name.log" 2>&1
-            cp "$CARGO_TARGET_DIR/release/next-probe" "target/audit-v2/bin/$name"
-            if [ "$name" = erase ]; then sudo python3 experiments/audit/run.py --smoke; fi
-          done
-          uname -a >target/audit-v2/results/hardware.txt
-          lscpu >>target/audit-v2/results/hardware.txt
-          cat /proc/stat >target/audit-v2/results/stat-before.txt
-      - name: A/A controls, warmed ABBA blocks and load/CPU sensitivity
-        env: {FULL: '${{ inputs.full }}'}
-        run: |
-          if [ "$FULL" = true ]; then
-            sudo python3 experiments/audit/run.py
-          else
-            sudo python3 experiments/audit/run.py --quick
-          fi
-          cat /proc/stat >target/audit-v2/results/stat-after.txt
-      - name: Make results readable
-        if: always()
-        run: sudo chown -R "$(id -u):$(id -g)" target/audit-v2/results
+          mkdir -p target/erasure-codegen
+          { rustc -vV; cargo -vV; uname -a; printf 'profile=release thin-LTO codegen-units=1 panic=abort\nRUSTFLAGS=%s\n' "${RUSTFLAGS-}"; } > target/erasure-codegen/environment.txt
+          cargo test --locked --release --no-default-features --features unix --lib packet::tests > target/erasure-codegen/tests.log 2>&1
+          cargo build --locked --release --no-default-features --features unix --example erasure_codegen > target/erasure-codegen/build.log 2>&1
+          target/release/examples/erasure_codegen K
+          sha256sum target/release/examples/erasure_codegen > target/erasure-codegen/binary.sha256
+          objdump -Cd --no-show-raw-insn target/release/examples/erasure_codegen > target/erasure-codegen/disassembly.txt
+          python3 experiments/audit/check_codegen.py target/erasure-codegen/disassembly.txt | tee target/erasure-codegen/check.txt
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: performance-audit-${{ matrix.os }}-${{ matrix.replicate }}
-          path: target/audit-v2/results/
+          name: erasure-codegen-${{ matrix.os }}
+          path: target/erasure-codegen/
