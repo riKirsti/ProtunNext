@@ -1,0 +1,48 @@
+name: performance-audit-actual-lts
+on:
+  push:
+    branches: [performance/worker-next]
+    paths: ['experiments/audit/lts.py', '.github/workflows/performance-audit-lts.yml']
+  workflow_dispatch:
+permissions: {contents: read}
+jobs:
+  lts:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 0}
+      - uses: dtolnay/rust-toolchain@stable
+        with: {targets: x86_64-unknown-linux-musl}
+      - uses: actions/cache/restore@v4
+        with:
+          path: target/ktls-worker-kernels/6.18.60/
+          key: ktls-worker-next-6.18.60-${{ hashFiles('experiments/ktls-worker/lts.sh') }}
+          fail-on-cache-miss: true
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends qemu-system-x86 busybox-static musl-tools cpio
+      - name: Build corrected harness against distinct clients
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 experiments/audit/prepare.py
+          mkdir -p target/audit-v2/bin target/audit-lts
+          export CC_x86_64_unknown_linux_musl=musl-gcc
+          for name in erase ktls; do
+            export CARGO_TARGET_DIR="$PWD/target/audit-lts/cargo-$name"
+            export NEXT_BUILD_ID="$(python3 -c "import json; print(json.load(open('target/audit-v2/builds.json'))['$name']['effective_sources_sha256'])")"
+            source="$(python3 -c "import json; print(json.load(open('target/audit-v2/builds.json'))['$name']['path'])")"
+            cargo build --locked --release --target x86_64-unknown-linux-musl --no-default-features --features unix --bin next-probe --manifest-path "$source/Cargo.toml" >"target/audit-lts/build-$name.log" 2>&1
+            cp "$CARGO_TARGET_DIR/x86_64-unknown-linux-musl/release/next-probe" "target/audit-v2/bin/$name"
+          done
+          cp target/audit-v2/builds.json target/audit-lts/builds.json
+      - name: Run A/A and ABBA in actual Linux 6.18 with pinned virtual CPUs
+        run: python3 experiments/audit/lts.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: performance-audit-actual-6.18
+          path: |
+            target/audit-lts/*.log
+            target/audit-lts/*.json
+            target/audit-lts/*.txt
+            target/audit-lts/kernel.config
