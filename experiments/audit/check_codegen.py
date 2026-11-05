@@ -10,7 +10,7 @@ import pathlib
 import re
 
 
-def check(text):
+def check(text, roots=("audit_drop_packet", "audit_recycle_packet")):
     functions = {}
     addresses, relocations = {}, {}
     current = None
@@ -26,7 +26,7 @@ def check(text):
             fields = line.split()
             relocations[int(fields[0], 16)] = int(fields[-1].split("+0x")[-1], 16)
     results = {}
-    for root in ["audit_drop_packet", "audit_recycle_packet"]:
+    for root in roots:
         assert root in functions, f"missing final linked symbol {root}"
         visited, hits = set(), []
 

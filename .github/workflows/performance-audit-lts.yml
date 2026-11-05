@@ -2,7 +2,14 @@ name: packet-erasure-actual-lts
 on:
   push:
     branches: [performance/worker-next]
-    paths: ['experiments/audit/**', '.github/workflows/performance-audit-lts.yml', 'src/packet.rs']
+    paths:
+      - 'experiments/audit/lts.py'
+      - 'experiments/audit/run.py'
+      - 'experiments/audit/prepare.py'
+      - 'experiments/audit/worker_probe.rs'
+      - 'experiments/audit/analyze.py'
+      - '.github/workflows/performance-audit-lts.yml'
+      - 'src/packet.rs'
   workflow_dispatch:
 permissions: {contents: read}
 jobs:

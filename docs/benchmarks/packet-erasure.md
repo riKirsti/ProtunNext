@@ -68,7 +68,9 @@ Artifacts contain the final linked binary hash, compiler/profile metadata,
 functional packet tests and disassembly. The checker looks for a zero-valued
 bulk memset reachable from both Drop and recycle fixtures, distinguishing it
 from their initial runtime-byte fill. Unknown code generation fails for manual
-inspection. This compiler-specific regression tripwire supplements the API
+inspection. An isolated archive then removes the barrier and builds a real
+negative-control binary; the checker must reject its optimized-away Drop wipe.
+This compiler-specific regression tripwire supplements the API
 contract and functional tests; it is not a formal security proof for all future
 compilers or platforms.
 
