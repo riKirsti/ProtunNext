@@ -8,6 +8,66 @@ import shlex
 import statistics
 
 BASELINE = "f7bf03f5b4dc3981eaadedbf3a7841c5ed5ee5c1"
+CPU_PER_BYTE_LIMIT = 1.25
+USERSPACE_INCREMENT_MIB = {"travel": 8, "desktop_server": 32}
+KERNEL_SOCKET_FIELDS = ("rmem_alloc_bytes", "rcvbuf_limit_bytes", "wmem_alloc_bytes",
+    "sndbuf_limit_bytes", "fwd_alloc_bytes", "wmem_queued_bytes", "optmem_bytes",
+    "backlog_bytes", "drops_packets")
+
+
+def kernel_buffers_measured(report):
+    if not isinstance(report, dict) or any(report.get(k) != v for k, v in dict(
+            method="SO_MEMINFO", scope="client_inet_sockets", coverage="boundary_snapshots").items()):
+        return False
+    for point in ["before", "after"]:
+        sample = report.get(point)
+        if not isinstance(sample, dict) or sample.get("errors") != []:
+            return False
+        sockets = sample.get("sockets")
+        if not isinstance(sockets, list) or not sockets:
+            return False
+        for socket in sockets:
+            if not isinstance(socket, dict) or any(type(socket.get(k)) is not int or
+                    not 0 <= socket[k] <= 0xffffffff for k in KERNEL_SOCKET_FIELDS):
+                return False
+            if socket["rcvbuf_limit_bytes"] == 0 or socket["sndbuf_limit_bytes"] == 0:
+                return False
+    return True
+
+
+def resource_budget(baseline, candidate, env):
+    """Evaluation limits, never allocations or CPU-utilization targets.
+
+    RSS of an entire process cannot silently become per-tunnel memory. Missing
+    per-tunnel/kernel measurements keep the evaluation unverified. Existing
+    archives therefore cannot acquire a budget pass merely by being reanalyzed.
+    """
+    ratio = geometric([m["CPU_ns_per_byte"] for m in candidate]) / geometric(
+        [m["CPU_ns_per_byte"] for m in baseline])
+    cpu = dict(ratio=ratio, maximum_ratio=CPU_PER_BYTE_LIMIT,
+               status="pass" if ratio <= CPU_PER_BYTE_LIMIT else "fail")
+    target = env.get("target_class")
+    limit = USERSPACE_INCREMENT_MIB.get(target)
+    memory = dict(status="unverified", target_class=target,
+                  maximum_additional_MiB_per_tunnel=limit)
+    observed = [m.get("userspace_peak_MiB_per_tunnel") for m in baseline + candidate]
+    if limit is not None and all(v is not None for v in observed):
+        # Conservative observed increment: largest candidate minus smallest
+        # baseline peak. Do not use a geometric-mean RSS difference as a cap.
+        added = max(m["userspace_peak_MiB_per_tunnel"] for m in candidate) - min(
+            m["userspace_peak_MiB_per_tunnel"] for m in baseline)
+        memory.update(additional_MiB_per_tunnel=added,
+                      status="pass" if added <= limit else "fail")
+    # Raw kernel measurements remain separate from RSS and the userspace cap.
+    kernel = dict(status="unverified", baseline=[m.get("kernel_buffers") for m in baseline],
+                  candidate=[m.get("kernel_buffers") for m in candidate])
+    if all(kernel_buffers_measured(m) for m in kernel["baseline"] + kernel["candidate"]):
+        kernel.update(status="measured", scope="client_inet_sockets", coverage="boundary_snapshots",
+                      excludes="TUN allocations, transient peaks, peer/load sockets, other kernel memory")
+    states = [cpu["status"], memory["status"], kernel["status"]]
+    status = "fail" if "fail" in states else "unverified" if "unverified" in states else "pass"
+    return dict(status=status,
+                cpu_per_byte=cpu, userspace_memory=memory, kernel_buffers=kernel)
 
 
 def plan():
@@ -104,8 +164,17 @@ def metrics(row, env):
     aux = max(load["cpu_seconds"]/load["seconds"],
               peer.get("wire_cpu_seconds",peer["cpu_seconds"])/peer["seconds"],
               peer.get("server_cpu_seconds",0)/peer["seconds"])
+    per_tunnel = m.get("userspace_peak_MiB_per_tunnel")
+    if per_tunnel is not None:
+        assert m.get("userspace_memory_scope") == "per_tunnel_peak", "unscoped userspace memory"
+        assert type(m.get("tunnel_count")) is int and m["tunnel_count"] == 1 and m.get("userspace_memory_method") == \
+            "single-tunnel process VmHWM; includes setup and fixture overhead", "unverified per-tunnel memory method"
+        assert isinstance(per_tunnel, (int, float)) and not isinstance(per_tunnel, bool)
+        assert math.isfinite(per_tunnel) and per_tunnel >= 0, "invalid per-tunnel memory"
+        assert per_tunnel == m["client_rss_kib"] / 1024, "per-tunnel peak disagrees with measured process HWM"
     return dict(Mbps=load["bytes"]*8/load["seconds"]/1e6, CPU_ns_per_byte=cpu*1e9/load["bytes"],
                 CPU_core_percent=cpu/seconds*100, peak_RSS_MiB=m["client_rss_kib"]/1024,
+                userspace_peak_MiB_per_tunnel=per_tunnel, kernel_buffers=m.get("kernel_buffers"),
                 short=load["seconds"]<2, interval_skew=skew, auxiliary_core_fraction=aux,
                 auxiliary_limited=aux>=.85)
 
@@ -140,7 +209,7 @@ def analyze(folder):
         groups[row["block"]].append(row)
     blocks = []
     for name, group in groups.items():
-        block = dict(block=name, capacity_ranking=False)
+        block = dict(block=name, capacity_ranking=False, resource_budget=dict(status="unverified"))
         if any(r["sample"] not in checked for r in group):
             block["validity"] = "invalid/incomplete"
         else:
@@ -149,15 +218,22 @@ def analyze(folder):
                         (slots is None or r["slot"] in slots) and (build is None or r["build"] == build)]
             control = comparison(selected("aa",[0,3]), selected("aa",[1,2]))
             result = comparison(selected("compare",build="main"),selected("compare",build="erase"))
+            budget = resource_budget(selected("compare",build="main"), selected("compare",build="erase"), env)
             aa = all(abs(control[k]["change_percent"])<=5 for k in ["Mbps","CPU_ns_per_byte"])
             timing = all(not checked[r["sample"]]["short"] and checked[r["sample"]]["interval_skew"]<=.02 for r in group)
             auxiliary = any(checked[r["sample"]]["auxiliary_limited"] for r in group)
-            block.update(control=control,result=result,AA_pass=aa,timing_pass=timing,auxiliary_limited=auxiliary,
+            block.update(control=control,result=result,resource_budget=budget,AA_pass=aa,timing_pass=timing,auxiliary_limited=auxiliary,
                          validity="usable" if aa and timing else "inconclusive-control/timing",
                          capacity_ranking=aa and timing and not auxiliary)
         blocks.append(block)
     baseline_runtime = env["sources"]["main"].get("runtime_sources_sha256")
     same_runtime = bool(baseline_runtime) and baseline_runtime == env["sources"]["erase"].get("runtime_sources_sha256")
+    for block in blocks:
+        block["optimization_eligible"] = (not errors and bool(baseline_runtime)
+            and bool(env["sources"]["erase"].get("runtime_sources_sha256"))
+            and not same_runtime and block["capacity_ranking"]
+            and block.get("result", {}).get("Mbps", {}).get("change_percent", 0) > 0
+            and block["resource_budget"]["status"] == "pass")
     return dict(environment=env, same_runtime_sources=same_runtime, observed_samples=len(rows), expected_samples=len(expected), errors=errors, blocks=blocks)
 
 
@@ -169,14 +245,28 @@ def publish(folder):
            "", "CPU is client process cost (100% = one core); peak RSS excludes kernel and auxiliary memory.",
            "A/A screen: 5% for throughput and CPU/byte; minimum transfer 2s; interval skew <=2%.",
            "Peer/load >=0.85 core disqualifies capacity ranking. Noise and failures are retained.",
+           "Resource limits: CPU ns/B <=1.25x baseline; additional userspace memory <=8 MiB/tunnel on Travel or <=32 MiB/tunnel on desktop/server.",
+           "These are evaluation ceilings, not allocations or CPU-utilization targets. Kernel buffers require separate measurement.",
+           "Kernel measurement covers client INET socket SO_MEMINFO before/after snapshots, not transient peaks, TUN allocations or all kernel memory. Allocation counters and configured limits stay separate.",
+           "Missing per-tunnel memory, target classification or kernel measurement means UNVERIFIED. Capacity ranking does not mean budget compliance.",
            "This loopback fixture is not NIC, RTT/loss, thermal, mobile or Proton WAN acceptance.", "",
-           "| Workload | Validity | Download Mbps base / candidate | CPU ns/B base / candidate | CPU core % base / candidate | Peak RSS MiB base / candidate | Capacity ranking |",
-           "|---|---|---:|---:|---:|---:|---|"]
+           "| Workload | Validity | Download Mbps base / candidate | CPU ns/B base / candidate | CPU core % base / candidate | Peak RSS MiB base / candidate | Capacity ranking | Budget status | Optimization eligible |",
+           "|---|---|---:|---:|---:|---:|---|---|---|"]
     if report["same_runtime_sources"]:
         lines[2:2] = ["Production source fingerprints match: baseline characterization only; no optimization gain is claimed.", ""]
     for b in report["blocks"]:
         values=b.get("result")
         cells=[f"{values[k]['baseline']:.2f} / {values[k]['candidate']:.2f}" if values else "n/a" for k in ["Mbps","CPU_ns_per_byte","CPU_core_percent","peak_RSS_MiB"]]
-        lines.append(f"| {b['block']} | {b['validity']} | {' | '.join(cells)} | {b['capacity_ranking']} |")
+        lines.append(f"| {b['block']} | {b['validity']} | {' | '.join(cells)} | {b['capacity_ranking']} | {b['resource_budget']['status']} | {b['optimization_eligible']} |")
+    lines += ["", "| Workload | CPU ns/B ratio / limit | CPU budget | Additional userspace MiB/tunnel / limit | Userspace budget | Kernel buffers |",
+              "|---|---:|---|---:|---|---|"]
+    for b in report["blocks"]:
+        budget = b["resource_budget"]
+        cpu = budget.get("cpu_per_byte", {})
+        memory = budget.get("userspace_memory", {})
+        ratio = f"{cpu['ratio']:.4f} / 1.25" if "ratio" in cpu else "unverified"
+        delta = memory.get("additional_MiB_per_tunnel", "unverified")
+        limit = memory.get("maximum_additional_MiB_per_tunnel", "unknown")
+        lines.append(f"| {b['block']} | {ratio} | {cpu.get('status', 'unverified')} | {delta} / {limit} | {memory.get('status', 'unverified')} | {budget.get('kernel_buffers', {}).get('status', 'unverified')} |")
     (folder/"summary.md").write_text("\n".join(lines)+"\n")
     return report

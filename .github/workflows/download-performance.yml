@@ -10,6 +10,10 @@ on:
         type: boolean
         default: false
         description: Run separate native diagnostics without repeating download matrices
+      checks_only:
+        type: boolean
+        default: false
+        description: Validate analyzers and injected probe without download campaigns
       kernel:
         type: choice
         default: both
@@ -21,11 +25,35 @@ on:
         description: Optional workload block for a focused retest
 permissions: {contents: read}
 concurrency:
-  group: download-${{ github.ref }}-${{ inputs.profiles_only }}-${{ inputs.kernel }}-${{ inputs.block }}
+  group: download-${{ github.ref }}-${{ inputs.profiles_only }}-${{ inputs.checks_only }}-${{ inputs.kernel }}-${{ inputs.block }}
   cancel-in-progress: true
 jobs:
+  checks:
+    if: ${{ inputs.checks_only }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 0}
+      - uses: dtolnay/rust-toolchain@1.99.1
+      - run: python3 -m unittest discover -s experiments/download -p 'test_*.py' -v
+      - run: python3 -m unittest discover -s experiments/audit -p 'test_*.py' -v
+      - name: Validate actual Linux socket accounting and existing probe regressions
+        env:
+          BASELINE: ${{ inputs.baseline }}
+        run: |
+          python3 experiments/audit/prepare.py --baseline "$BASELINE"
+          source=$(python3 -c "import json; print(json.load(open('target/erasure-audit/builds.json'))['erase']['path'])")
+          cargo test --locked --lib --no-default-features --features unix --manifest-path "$source/Cargo.toml" 2>&1 | tee target/erasure-audit/probe-regressions.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: download-budget-checks
+          path: |
+            target/erasure-audit/probe-regressions.log
+            target/erasure-audit/builds.json
   lts:
-    if: ${{ !inputs.profiles_only }}
+    if: ${{ !inputs.profiles_only && !inputs.checks_only }}
     strategy:
       fail-fast: false
       matrix:
@@ -55,7 +83,7 @@ jobs:
       - name: Real inner TCP downloads on supported kernel
         env:
           NEXT_DOWNLOAD_BLOCK: ${{ inputs.block }}
-        run: sudo env "NEXT_DOWNLOAD_BLOCK=$NEXT_DOWNLOAD_BLOCK" python3 experiments/audit/lts.py '${{ matrix.kernel }}' --download
+        run: sudo env NEXT_DOWNLOAD_TARGET_CLASS=desktop_server "NEXT_DOWNLOAD_BLOCK=$NEXT_DOWNLOAD_BLOCK" python3 experiments/audit/lts.py '${{ matrix.kernel }}' --download
       - name: Publish results including failures and inconclusive cells
         if: always()
         run: |
@@ -72,7 +100,7 @@ jobs:
             target/erasure-audit/toolchain.txt
             target/erasure-audit/*.log
   native:
-    if: ${{ inputs.kernel == 'both' || inputs.kernel == '' }}
+    if: ${{ !inputs.checks_only && (inputs.kernel == 'both' || inputs.kernel == '') }}
     strategy:
       fail-fast: false
       matrix:
@@ -95,7 +123,7 @@ jobs:
         if: ${{ !inputs.profiles_only }}
         env:
           NEXT_DOWNLOAD_BLOCK: ${{ inputs.block }}
-        run: sudo env "NEXT_DOWNLOAD_BLOCK=$NEXT_DOWNLOAD_BLOCK" python3 experiments/audit/native.py --download
+        run: sudo env NEXT_DOWNLOAD_TARGET_CLASS=desktop_server "NEXT_DOWNLOAD_BLOCK=$NEXT_DOWNLOAD_BLOCK" python3 experiments/audit/native.py --download
       - name: Install profiler
         run: |
           sudo apt-get update

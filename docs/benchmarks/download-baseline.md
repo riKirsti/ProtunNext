@@ -1,5 +1,14 @@
 # Real-download baseline and receive-path profiles
 
+**Resource-budget status: UNVERIFIED for every historical cohort below.** The
+current evaluation ceilings are CPU ns/B <=1.25x baseline and additional peak
+userspace memory <=8 MiB/tunnel on Travel or <=32 MiB/tunnel on desktop/server,
+with kernel socket buffers measured separately. These ceilings are not allocation
+targets. Historical archives lack scoped per-tunnel/kernel measurements; no old
+RSS values are relabeled as new measurements. The validity/capacity columns below
+are measurement-quality screens, not resource-budget approval. See the
+[current evaluation rules](../download-performance.md).
+
 PR #5 is measurement infrastructure. Shipped source and dependencies match merged PR #4; no production speedup is claimed. Both archives use the same injected fixture and diagnostic overlays. Runtime fingerprint: `55fd65e17d7a7de1d866dacd3268e05e9e12a8b521ec896d61df3e14e3bb0c82`.
 
 Each normal-release sample uses real inner kernel TCP through the production TUN/Connection worker: 2 GiB body plus 4 MiB warmup per flow, exact byte verification, 1/8 flows, IPv4 HTTP / IPv6 HTTPS, UDP / TCP / Stealth. Four A/A controls and four ABBA/BAAB samples per cell. The two variants contain identical runtime sources, so their differences describe measurement variation.
@@ -224,7 +233,7 @@ Raw profiles and matching executables: [ARM64](https://github.com/riKirsti/Protu
 1. Prioritize Linux TUN delivery and kernel-boundary costs. Prototype proper receive coalescing with negotiated offload metadata/checksums, compare against the current ordinary-packet path, and keep one production default chosen by repeatable evidence. Raw TUN caller compatibility must remain intact.
 2. On ARM64, also test receive-side parallel crypto with bounded queues and correct replay/key-epoch/ordering behavior. These profiles justify an experiment; they do not establish a gain or a ring defect.
 3. Keep Windows/Apple platform-specific measurement ahead of performance promotion. Functional build checks are not download-speed evidence. ARM64 native Linux 7 does not substitute for supported ARM64 Linux 6.12/6.18, Android or Apple tests.
-4. Before tuning larger pools/socket buffers, add kernel-memory and queue/loaded-latency accounting. Evaluate CPU/RAM versus sustained download gain without the former fixed experimental resource rejection thresholds.
+4. Enforce CPU ns/B <=1.25x baseline and additional peak userspace memory <=8 MiB/tunnel on Travel or <=32 MiB/tunnel on desktop/server. Record kernel socket buffers separately and retain gaps for transient peaks/TUN allocations. Passing those ceilings still requires a repeatable download gain, queue/loaded-latency accounting and reliability acceptance.
 5. Keep kTLS, whole-pipeline io_uring, zero-copy RX, SIMD/multi-buffer crypto, CPU/NIC placement, native-WireGuard transport bridges and held-out PGO available as measured follow-ups. Nothing in this baseline universally accepts or rejects them.
 
 No router was accessed or modified for this phase. No release is created. Account/Plus/lifecycle/routing features are untouched; their physical-device/live acceptance remains separate from source/build regression checks.
