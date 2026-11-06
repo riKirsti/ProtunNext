@@ -853,6 +853,7 @@ mod audit_tests {
             while peer.inner.conn.is_handshaking() {
                 peer.inner.conn.complete_io(&mut peer.inner.sock).unwrap();
             }
+            peer.inner.sock.socket.set_nonblocking(true).unwrap();
             peer.inner.conn.set_buffer_limit(Some(0));
             let parts = [IoSlice::new(b"abc"), IoSlice::new(b"def")];
             assert_eq!(
