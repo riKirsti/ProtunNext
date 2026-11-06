@@ -55,7 +55,7 @@ jobs:
       - name: Real inner TCP downloads on supported kernel
         env:
           NEXT_DOWNLOAD_BLOCK: ${{ inputs.block }}
-        run: sudo python3 experiments/audit/lts.py '${{ matrix.kernel }}' --download
+        run: sudo env "NEXT_DOWNLOAD_BLOCK=$NEXT_DOWNLOAD_BLOCK" python3 experiments/audit/lts.py '${{ matrix.kernel }}' --download
       - name: Publish results including failures and inconclusive cells
         if: always()
         run: |
@@ -95,7 +95,7 @@ jobs:
         if: ${{ !inputs.profiles_only }}
         env:
           NEXT_DOWNLOAD_BLOCK: ${{ inputs.block }}
-        run: sudo python3 experiments/audit/native.py --download
+        run: sudo env "NEXT_DOWNLOAD_BLOCK=$NEXT_DOWNLOAD_BLOCK" python3 experiments/audit/native.py --download
       - name: Install profiler
         run: sudo apt-get update && sudo apt-get install -y linux-tools-generic
       - name: Profile a separate frame-pointer build
