@@ -97,7 +97,13 @@ jobs:
           NEXT_DOWNLOAD_BLOCK: ${{ inputs.block }}
         run: sudo env "NEXT_DOWNLOAD_BLOCK=$NEXT_DOWNLOAD_BLOCK" python3 experiments/audit/native.py --download
       - name: Install profiler
-        run: sudo apt-get update && sudo apt-get install -y linux-tools-generic
+        run: |
+          sudo apt-get update
+          # The generic metapackage can temporarily reference an unpublished
+          # ABI on ARM64 mirrors. Select an actually available tools package.
+          package=$(apt-cache dumpavail | awk '/^Package: linux-tools-[0-9].*-generic$/ {print $2}' | sort -Vu | tail -1)
+          test -n "$package"
+          sudo apt-get install -y --no-install-recommends "$package"
       - name: Profile a separate frame-pointer build
         env:
           BASELINE: ${{ inputs.baseline }}
