@@ -2,6 +2,7 @@
 import collections
 import json
 import math
+import os
 import pathlib
 import shlex
 import statistics
@@ -21,6 +22,10 @@ def plan():
                     rows.append(dict(sample=len(rows)+1, block=block, protocol=protocol, family=family,
                                      application=application, flows=flows, blocks_per_flow=32768//flows,
                                      bytes=2*1024*1024*1024, role=role, slot=slot, build=build))
+    selected=os.environ.get("NEXT_DOWNLOAD_BLOCK","")
+    if selected:
+        assert selected in {r["block"] for r in rows}, "unknown download workload block"
+        rows=[r for r in rows if r["block"]==selected]
     return rows
 
 
@@ -151,7 +156,8 @@ def analyze(folder):
                          validity="usable" if aa and timing else "inconclusive-control/timing",
                          capacity_ranking=aa and timing and not auxiliary)
         blocks.append(block)
-    same_runtime = env["sources"]["main"].get("runtime_sources_sha256") == env["sources"]["erase"].get("runtime_sources_sha256")
+    baseline_runtime = env["sources"]["main"].get("runtime_sources_sha256")
+    same_runtime = bool(baseline_runtime) and baseline_runtime == env["sources"]["erase"].get("runtime_sources_sha256")
     return dict(environment=env, same_runtime_sources=same_runtime, observed_samples=len(rows), expected_samples=len(expected), errors=errors, blocks=blocks)
 
 

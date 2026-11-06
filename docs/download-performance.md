@@ -53,6 +53,12 @@ initiate crossed handshakes, producing `UnexpectedPacket` before warmup finished
 The real-session regression includes the unfiltered negative control. Delayed
 Stealth startup is exercised before the measurement matrix. No throughput loss
 or crypto-authentication defect is attributed to production from these failures.
+One subsequent Linux 6.18 sample exposed zero-byte plaintext acceptance in the
+buffered Rustls test peer under backpressure. Its adapter now reports WouldBlock
+for nonempty input accepting zero bytes, as the production buffered adapter
+already does. A real TLS regression forces the zero-capacity condition, then
+restores capacity and verifies the exact unconsumed payload. The affected cell
+is retested separately; it is not silently substituted into the original cohort.
 
 Normal-release comparisons and profiling are separate. `profile.py` attaches
 `perf` to the warmed client process, including worker threads, in a separate
@@ -72,6 +78,8 @@ Run `sudo python3 experiments/audit/lts.py 6.12.115 --download` or `6.18.60` aft
 building/restoring the matching existing test kernel. For native diagnostics:
 `sudo python3 experiments/audit/native.py --download`. The manual
 `download-performance.yml` workflow provides both, plus separate native profiles.
+Its kernel selector and optional workload block permit explicit focused retests;
+unknown blocks fail rather than producing an empty successful campaign.
 
 Runtime fingerprints exclude injected probes, so a harness-only PR is explicitly
 reported as baseline characterization. Effective source/binary identities still

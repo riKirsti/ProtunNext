@@ -10,6 +10,15 @@ on:
         type: boolean
         default: false
         description: Run separate native diagnostics without repeating download matrices
+      kernel:
+        type: choice
+        default: both
+        options: [both, '6.12.115', '6.18.60']
+        description: Supported kernel selection (specific kernel skips native jobs)
+      block:
+        type: string
+        default: ''
+        description: Optional workload block for a focused retest
 permissions: {contents: read}
 concurrency:
   group: download-${{ github.ref }}-${{ inputs.profiles_only }}
@@ -20,7 +29,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        kernel: [6.12.115, 6.18.60]
+        kernel: ${{ fromJSON(inputs.kernel == '6.12.115' && '["6.12.115"]' || inputs.kernel == '6.18.60' && '["6.18.60"]' || '["6.12.115","6.18.60"]') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 55
     steps:
@@ -44,6 +53,8 @@ jobs:
           CC_x86_64_unknown_linux_musl: musl-gcc
         run: bash experiments/audit/build.sh x86_64-unknown-linux-musl
       - name: Real inner TCP downloads on supported kernel
+        env:
+          NEXT_DOWNLOAD_BLOCK: ${{ inputs.block }}
         run: sudo python3 experiments/audit/lts.py '${{ matrix.kernel }}' --download
       - name: Publish results including failures and inconclusive cells
         if: always()
@@ -61,6 +72,7 @@ jobs:
             target/erasure-audit/toolchain.txt
             target/erasure-audit/*.log
   native:
+    if: ${{ inputs.kernel == 'both' || inputs.kernel == '' }}
     strategy:
       fail-fast: false
       matrix:
@@ -81,6 +93,8 @@ jobs:
           bash experiments/audit/build.sh "$(rustc -vV | sed -n 's/^host: //p')"
       - name: Native downloads (actual host kernel recorded, not LTS acceptance)
         if: ${{ !inputs.profiles_only }}
+        env:
+          NEXT_DOWNLOAD_BLOCK: ${{ inputs.block }}
         run: sudo python3 experiments/audit/native.py --download
       - name: Install profiler
         run: sudo apt-get update && sudo apt-get install -y linux-tools-generic
@@ -106,3 +120,4 @@ jobs:
             target/erasure-audit/builds.json
             target/erasure-audit/toolchain.txt
             target/erasure-audit/*.log
+            target/erasure-audit/bin/

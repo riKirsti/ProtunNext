@@ -4,6 +4,7 @@ import json
 import pathlib
 import tempfile
 import unittest
+from unittest import mock
 
 import campaign
 
@@ -39,6 +40,14 @@ class DownloadValidity(unittest.TestCase):
         for row in rows:
             self.assertEqual(row["bytes"],65536*row["flows"]*row["blocks_per_flow"])
         self.assertIn("download-client",campaign.guest_script())
+
+    def test_focused_retest_has_explicit_nonempty_plan(self):
+        with mock.patch.dict(campaign.os.environ,{"NEXT_DOWNLOAD_BLOCK":"stealth-v6-https-8"}):
+            rows=campaign.plan()
+            self.assertEqual(len(rows),8)
+            self.assertEqual({r["sample"] for r in rows},set(range(89,97)))
+        with mock.patch.dict(campaign.os.environ,{"NEXT_DOWNLOAD_BLOCK":"unknown"}):
+            with self.assertRaises(AssertionError):campaign.plan()
 
     def test_valid_aa_and_comparison(self):
         self.fixture()
