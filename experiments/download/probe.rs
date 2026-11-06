@@ -19,19 +19,6 @@ fn clock_cpu(clock: libc::clockid_t) -> u64 {
     value.tv_sec as u64 * 1_000_000_000 + value.tv_nsec as u64
 }
 
-fn advance_responder(
-    session: &mut Session,
-    confirmed: bool,
-    now: Duration,
-    output: &mut [u8],
-) -> crate::Result<Output> {
-    if confirmed {
-        session.advance(now, output)
-    } else {
-        Ok(Output::None)
-    }
-}
-
 pub(super) fn dispatch(args: &[String]) -> bool {
     match args.get(1).map(String::as_str) {
         Some("download-client") => client(
@@ -395,7 +382,8 @@ fn peer(proto: &str, flows: usize, blocks: u64, family: &str, application: &str)
     let mut measured = None;
     let mut timer = Instant::now();
     let mut handshakes = 0;
-    let mut confirmed = false;
+    let mut filtered = 0;
+    let allowed = crate::routing::AllowedIps::new(&[addresses(family, true).1.into()]).unwrap();
     if let Ok(delay) = std::env::var("NEXT_DOWNLOAD_START_DELAY_MS") {
         thread::sleep(Duration::from_millis(delay.parse().unwrap()));
     }
@@ -444,13 +432,9 @@ fn peer(proto: &str, flows: usize, blocks: u64, family: &str, application: &str)
                 }
                 < 60
         {
-            if let Output::Network(n) = advance_responder(
-                &mut session,
-                confirmed,
-                linux::boottime().unwrap(),
-                &mut wire,
-            )
-            .unwrap()
+            if let Output::Network(n) = session
+                .advance(linux::boottime().unwrap(), &mut wire)
+                .unwrap()
             {
                 network.queue(&wire[..n], &mut queue, &mut pool);
             }
@@ -491,12 +475,6 @@ fn peer(proto: &str, flows: usize, blocks: u64, family: &str, application: &str)
             }
             progress = true;
             let result = session.decrypt(packet.data(), &mut plain).unwrap();
-            // This is a responder fixture. Before a data/keepalive confirms the
-            // session, update_timers can initiate a competing handshake. That
-            // manufactured crossed handshake rejects the client's older reply.
-            if packet.data().starts_with(&[4, 0, 0, 0]) {
-                confirmed = true;
-            }
             match result {
                 Output::Network(n) => {
                     if n == 92 {
@@ -521,6 +499,25 @@ fn peer(proto: &str, flows: usize, blocks: u64, family: &str, application: &str)
             match device.read(&mut wire[..65000]) {
                 Ok(n) => {
                     assert!(n > 0);
+                    // Match production cryptokey routing. The kernel can emit
+                    // multicast control packets on a newly created TUN; these
+                    // are not customer traffic for this peer. Encrypting one
+                    // before confirmation initiates a competing WG handshake.
+                    if !allowed.outbound(&wire[..n]) {
+                        if filtered == 0 {
+                            let destination = if n >= 40 && wire[0] >> 4 == 6 {
+                                std::net::Ipv6Addr::from(
+                                    <[u8; 16]>::try_from(&wire[24..40]).unwrap(),
+                                )
+                                .to_string()
+                            } else {
+                                "non-peer destination".into()
+                            };
+                            eprintln!("DOWNLOAD_PEER_FILTERED destination={destination}");
+                        }
+                        filtered += 1;
+                        continue;
+                    }
                     let Output::Network(n) =
                         session.encrypt(&wire[..n], packet.writable()).unwrap()
                     else {
@@ -571,7 +568,7 @@ fn peer(proto: &str, flows: usize, blocks: u64, family: &str, application: &str)
         _ => None,
     };
     emit(
-        serde_json::json!({"role":"peer","effective_sources_sha256":option_env!("NEXT_BUILD_ID").unwrap_or("unstamped-local-build"),"cpu_seconds":used,"wire_cpu_seconds":wire_used,"server_cpu_seconds":(used-wire_used).max(0.0),"seconds":seconds,"rss_kib":rss(),"outer_namespace":outer_namespace,"namespace":namespace(),"handshakes":handshakes,"tls":tls}),
+        serde_json::json!({"role":"peer","effective_sources_sha256":option_env!("NEXT_BUILD_ID").unwrap_or("unstamped-local-build"),"cpu_seconds":used,"wire_cpu_seconds":wire_used,"server_cpu_seconds":(used-wire_used).max(0.0),"seconds":seconds,"rss_kib":rss(),"outer_namespace":outer_namespace,"namespace":namespace(),"handshakes":handshakes,"filtered_non_peer":filtered,"tls":tls}),
     );
 }
 
@@ -580,7 +577,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn delayed_responder_timer_does_not_manufacture_crossed_handshakes() {
+    fn unsolicited_multicast_cannot_manufacture_crossed_handshakes() {
         let now = linux::boottime().unwrap();
         let wall = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
         for gated in [false, true] {
@@ -593,21 +590,33 @@ mod tests {
                 panic!("init")
             };
             let mut competing = [0; 256];
-            let tick = if gated {
-                advance_responder(
-                    &mut peer,
-                    false,
-                    now + Duration::from_secs(1),
-                    &mut competing,
-                )
+            // Timers alone did not reproduce the observed startup failure.
+            assert!(matches!(
+                peer.advance(now + Duration::from_secs(1), &mut competing),
+                Ok(Output::None)
+            ));
+            let mut multicast = [0u8; 48];
+            multicast[0] = 0x60;
+            multicast[4..6].copy_from_slice(&8u16.to_be_bytes());
+            multicast[6] = 58;
+            multicast[7] = 1;
+            multicast[8..24]
+                .copy_from_slice(&"fe80::1".parse::<std::net::Ipv6Addr>().unwrap().octets());
+            multicast[24..40]
+                .copy_from_slice(&"ff02::16".parse::<std::net::Ipv6Addr>().unwrap().octets());
+            let allowed =
+                crate::routing::AllowedIps::new(&["10.2.0.2/32".into(), "fd42::2/128".into()])
+                    .unwrap();
+            assert!(!allowed.outbound(&multicast));
+            let tick = if !gated || allowed.outbound(&multicast) {
+                peer.encrypt(&multicast, &mut competing).unwrap()
             } else {
-                peer.advance(now + Duration::from_secs(1), &mut competing)
-            }
-            .unwrap();
+                Output::None
+            };
             let mut client_reply = [0; 256];
             if !gated {
                 let Output::Network(n) = tick else {
-                    panic!("old peer should initiate before receiving client init")
+                    panic!("unfiltered multicast should initiate before receiving client init")
                 };
                 assert_eq!(n, 148);
                 assert!(matches!(
@@ -629,12 +638,7 @@ mod tests {
                     Ok(Output::None)
                 ));
                 assert!(matches!(
-                    advance_responder(
-                        &mut peer,
-                        true,
-                        now + Duration::from_secs(2),
-                        &mut competing
-                    ),
+                    peer.advance(now + Duration::from_secs(2), &mut competing),
                     Ok(Output::None)
                 ));
             } else {
