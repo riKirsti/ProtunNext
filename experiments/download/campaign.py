@@ -30,9 +30,12 @@ def arguments(row, peer):
 
 
 def smoke_arguments(peer):
-    return [["download-client",peer,protocol,str(flows),"16",family,application]
+    rows = [["download-client",peer,protocol,str(flows),"16",family,application]
             for protocol in ["udp","tcp","stealth"]
             for family,application,flows in [("v4","http",1),("v6","https",8)]]
+    # Reproduce rare packet rejection before paying for the full matrix.
+    rows += [["download-client",peer,"stealth","1","4096","v4","http"] for _ in range(4)]
+    return rows
 
 
 def guest_script():
@@ -74,6 +77,8 @@ def metrics(row, env):
     for key in ["protocol", "flows", "blocks_per_flow", "family", "application"]:
         assert m[key] == row[key], key
     load, peer = m["load"], m["peer"]
+    for auxiliary in [load,peer]:
+        assert all(math.isfinite(auxiliary[k]) and auxiliary[k]>0 for k in ["cpu_seconds","seconds"]), "invalid auxiliary accounting"
     assert load["verified"] is True and load["bytes"] == row["bytes"] == 65536*row["blocks_per_flow"]*row["flows"]
     assert m["namespace"] == load["namespace"] == peer["outer_namespace"] != peer["namespace"], "kernel TCP bypasses tunnel"
     assert peer["handshakes"] >= 1

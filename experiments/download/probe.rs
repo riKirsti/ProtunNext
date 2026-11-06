@@ -67,6 +67,21 @@ fn tun(family: &str, peer: bool) -> File {
     ip(&["addr", "add", local, "dev", "pndl"]);
     ip(&["link", "set", "pndl", "mtu", "1280", "up"]);
     ip(&["route", "add", remote, "dev", "pndl"]);
+    if family == "v6" {
+        // Address activation is asynchronous even when NOARP skips DAD.
+        let address = format!("[{}]:0", local.split('/').next().unwrap());
+        let deadline = Instant::now() + Duration::from_secs(3);
+        loop {
+            match TcpListener::bind(&address) {
+                Ok(_) => break,
+                Err(e) if e.kind() == std::io::ErrorKind::AddrNotAvailable => {
+                    assert!(Instant::now() < deadline, "IPv6 address did not activate");
+                    thread::sleep(Duration::from_millis(1));
+                }
+                Err(e) => panic!("IPv6 readiness {e}"),
+            }
+        }
+    }
     tun
 }
 
@@ -600,7 +615,10 @@ fn client(binary: &str, proto: &str, flows: usize, blocks: u64, family: &str, ap
     assert!(generator.0.wait().unwrap().success());
     connection.disconnect();
     let counters = connection.disconnect_and_wait().unwrap();
-    assert_eq!(counters.invalid_packets, 0);
+    assert_eq!(
+        counters.invalid_packets, 0,
+        "rejected packets: {counters:?}"
+    );
     assert_eq!(counters.outer_eof, 0);
     assert_eq!(counters.outer_io_errors, 0);
     // SAFETY: signal only our owned, still-live child; socket stays open until client disconnects.

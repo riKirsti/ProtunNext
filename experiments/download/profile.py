@@ -25,6 +25,8 @@ def main():
     environment=dict(kernel=os.uname().release,architecture=os.uname().machine,
                      scope="native host diagnostic; instrumented frame-pointer build; not throughput acceptance",
                      perf=subprocess.check_output(["perf","version"],text=True).strip(),
+                     compiler=(ROOT/"target/erasure-audit/toolchain.txt").read_text(),
+                     event="cpu-clock", frequency_hz=499, call_graph="frame pointers", client_cpus=cpus[2:4],
                      builds=json.loads((ROOT/"target/erasure-audit/builds.json").read_text()),
                      binaries={p.name:hashlib.sha256(p.read_bytes()).hexdigest() for p in [binary,peer]})
     (output/"environment.json").write_text(json.dumps(environment,indent=2))

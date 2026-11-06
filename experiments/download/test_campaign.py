@@ -94,6 +94,12 @@ class DownloadValidity(unittest.TestCase):
                 self.assertFalse(result["blocks"][0]["timing_pass"])
                 self.assertFalse(result["blocks"][0]["capacity_ranking"])
 
+    def test_nonfinite_auxiliary_metrics_cannot_hide_saturation(self):
+        self.fixture()
+        for value in [float("nan"),float("inf"),-1,0]:
+            self.rows[0]["metrics"][0]["peer"]["cpu_seconds"]=value
+            self.assertTrue(self.analyze()["errors"])
+
 
 if __name__ == "__main__":
     unittest.main()
