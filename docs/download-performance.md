@@ -39,6 +39,8 @@ and [socket implementation](https://github.com/torvalds/linux/blob/v6.12/net/cor
 
 Historical archives lack the new measurement fields: their original numbers
 remain unchanged, but they do not pass this resource-budget evaluation.
+The [offline budget recheck](benchmarks/download-budget-check.md) retains each
+cohort separately and records the missing evidence explicitly.
 
 The [initial download baseline and profiles](benchmarks/download-baseline.md)
 retain the original failures, corrected cohorts, per-target speed/CPU/RSS and
