@@ -34,6 +34,22 @@ def prepare(candidate="HEAD", baseline=BASELINE):
         original = 'TunnResult::Err(e) => Err(Error::Protocol(format!("WireGuard: {e:?}"))),'
         assert text.count(original) == 1
         session.write_text(text.replace(original, 'TunnResult::Err(e) => { eprintln!("DOWNLOAD_SESSION_ERROR {e:?}"); Err(Error::Protocol(format!("WireGuard: {e:?}"))) },'), encoding="utf-8")
+        text = session.read_text(encoding="utf-8")
+        original = 'let result = Self::output(self.tunnel.decapsulate(None, packet, output));'
+        assert text.count(original) == 1
+        session.write_text(text.replace(original, '''if packet.first().is_some_and(|kind| *kind != 4) {
+            eprintln!("DOWNLOAD_CONTROL pid={} len={} header={:?}", std::process::id(), packet.len(), packet.get(..packet.len().min(12)));
+        }
+        let result = Self::output(self.tunnel.decapsulate(None, packet, output));'''), encoding="utf-8")
+        text = session.read_text(encoding="utf-8")
+        original = 'TunnResult::WriteToNetwork(p) => Ok(Output::Network(p.len())),'
+        assert text.count(original) == 1
+        session.write_text(text.replace(original, '''TunnResult::WriteToNetwork(p) => {
+            if p.first().is_some_and(|kind| *kind != 4) {
+                eprintln!("DOWNLOAD_CONTROL_SEND pid={} len={} header={:?}", std::process::id(), p.len(), p.get(..p.len().min(12)));
+            }
+            Ok(Output::Network(p.len()))
+        },'''), encoding="utf-8")
         with (dest / "src/lib.rs").open("a", encoding="utf-8") as f:
             f.write('\n#[cfg(target_os="linux")] pub mod worker_probe;\n')
         (dest / "src/bin/erasure-probe.rs").write_text("fn main(){protun_next::worker_probe::run();}\n", encoding="utf-8")

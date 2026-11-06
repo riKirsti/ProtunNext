@@ -594,7 +594,7 @@ fn client(binary: &str, proto: &str, flows: usize, blocks: u64, family: &str, ap
         std::fs::write(path, std::process::id().to_string()).unwrap();
         wait_file("NEXT_PROFILE_GO");
     }
-    let before = connection.snapshot();
+    let before = connection.wait_for_stats(connection.request_stats(), Duration::from_secs(2));
     peer.0.stdin.as_mut().unwrap().write_all(b"G").unwrap();
     let start = Instant::now();
     let cpu_start = cpu();
@@ -604,23 +604,17 @@ fn client(binary: &str, proto: &str, flows: usize, blocks: u64, family: &str, ap
     assert_eq!(line.trim(), "NEXT_DONE");
     let used = cpu() - cpu_start;
     let seconds = start.elapsed().as_secs_f64();
-    let after = connection.snapshot();
     peer.0.stdin.take().unwrap().write_all(b"D").unwrap();
     line.clear();
     peer_out.read_line(&mut line).unwrap();
     assert_eq!(line.trim(), "NEXT_DRAIN");
+    let after = connection.wait_for_stats(connection.request_stats(), Duration::from_secs(2));
     generator.0.stdin.take().unwrap().write_all(b"D").unwrap();
     let mut load_text = String::new();
     load_out.read_to_string(&mut load_text).unwrap();
     assert!(generator.0.wait().unwrap().success());
     connection.disconnect();
     let counters = connection.disconnect_and_wait().unwrap();
-    assert_eq!(
-        counters.invalid_packets, 0,
-        "rejected packets: {counters:?}"
-    );
-    assert_eq!(counters.outer_eof, 0);
-    assert_eq!(counters.outer_io_errors, 0);
     // SAFETY: signal only our owned, still-live child; socket stays open until client disconnects.
     unsafe {
         libc::kill(peer.0.id() as libc::pid_t, libc::SIGTERM);
@@ -639,4 +633,10 @@ fn client(binary: &str, proto: &str, flows: usize, blocks: u64, family: &str, ap
     emit(
         serde_json::json!({"role":"download-client","effective_sources_sha256":option_env!("NEXT_BUILD_ID").unwrap_or("unstamped-local-build"),"protocol":proto,"flows":flows,"blocks_per_flow":blocks,"family":family,"application":application,"seconds":seconds,"client_cpu_seconds":used,"client_rss_kib":rss(),"load":metric(&load_text),"peer":metric(&peer_text),"before":before,"after":after,"counters":counters,"namespace":namespace(),"kernel":std::fs::read_to_string("/proc/sys/kernel/osrelease").unwrap().trim(),"arch":std::env::consts::ARCH,"scope":"Kernel TCP HTTP/HTTPS, two inner network stacks, production Connection/TUN worker; outer sockets on loopback. No physical NIC, RTT/loss or Proton WAN acceptance. CPU excludes asynchronous kernel work; RSS excludes kernel/auxiliary memory."}),
     );
+    assert_eq!(
+        counters.invalid_packets, 0,
+        "rejected packets; full metrics retained above"
+    );
+    assert_eq!(counters.outer_eof, 0);
+    assert_eq!(counters.outer_io_errors, 0);
 }

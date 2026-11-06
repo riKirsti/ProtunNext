@@ -88,6 +88,9 @@ jobs:
           bash experiments/audit/build.sh "$(rustc -vV | sed -n 's/^host: //p')"
           export PATH="$(dirname "$(find /usr/lib -path '*linux-tools*' -name perf -type f | head -1)"):$PATH"
           sudo env "PATH=$PATH" python3 experiments/download/profile.py
+      - name: Make root-owned perf data readable for artifact retention
+        if: always()
+        run: sudo chown -R "$(id -u):$(id -g)" target/erasure-audit
       - uses: actions/upload-artifact@v4
         if: always()
         with:
