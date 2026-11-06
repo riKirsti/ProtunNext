@@ -60,6 +60,11 @@ frame-pointer/debug-info build. It retains perf data, reports and the actual
 native host kernel. These profiles are diagnostics, not supported-LTS kernel
 acceptance or normal-release speed measurements. Native ARM64 results never
 substitute for ARM64 Linux 6.12/6.18 device evidence.
+An additional `--system` capture records all four test CPUs, retaining a separate
+system-wide report and a PID-filtered client report. This exposes deferred kernel
+work, but system totals include peer/load/background work and are not attributable
+client energy costs. The workflow's `profiles_only` input avoids repeating the
+normal-release download matrices when refining these diagnostics.
 
 Run `python3 -m unittest discover -s experiments/download -p 'test_*.py' -v`.
 Build with `BASELINE=<immutable commit> bash experiments/audit/build.sh <target>`.

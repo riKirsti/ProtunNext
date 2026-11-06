@@ -80,6 +80,9 @@ def metrics(row, env):
     load, peer = m["load"], m["peer"]
     for auxiliary in [load,peer]:
         assert all(math.isfinite(auxiliary[k]) and auxiliary[k]>0 for k in ["cpu_seconds","seconds"]), "invalid auxiliary accounting"
+    for key in ["wire_cpu_seconds","server_cpu_seconds"]:
+        if key in peer:
+            assert math.isfinite(peer[key]) and peer[key]>=0, "invalid peer thread accounting"
     assert load["verified"] is True and load["bytes"] == row["bytes"] == 65536*row["blocks_per_flow"]*row["flows"]
     assert m["namespace"] == load["namespace"] == peer["outer_namespace"] != peer["namespace"], "kernel TCP bypasses tunnel"
     assert peer["handshakes"] >= 1

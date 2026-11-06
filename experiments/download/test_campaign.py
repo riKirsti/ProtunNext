@@ -100,6 +100,16 @@ class DownloadValidity(unittest.TestCase):
             self.rows[0]["metrics"][0]["peer"]["cpu_seconds"]=value
             self.assertTrue(self.analyze()["errors"])
 
+    def test_separate_peer_roles_use_individual_core_budgets(self):
+        self.fixture()
+        for row in self.rows:
+            row["metrics"][0]["peer"].update(cpu_seconds=10,wire_cpu_seconds=5,server_cpu_seconds=5)
+        self.assertTrue(self.analyze()["blocks"][0]["capacity_ranking"])
+        self.rows[0]["metrics"][0]["peer"]["wire_cpu_seconds"]=9
+        self.assertFalse(self.analyze()["blocks"][0]["capacity_ranking"])
+        self.rows[0]["metrics"][0]["peer"]["wire_cpu_seconds"]=float("nan")
+        self.assertTrue(self.analyze()["errors"])
+
 
 if __name__ == "__main__":
     unittest.main()

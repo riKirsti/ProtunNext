@@ -1,19 +1,22 @@
 name: download-performance
 on:
-  push:
-    branches: [performance/download-path]
   workflow_dispatch:
     inputs:
       baseline:
         type: string
         default: f7bf03f5b4dc3981eaadedbf3a7841c5ed5ee5c1
         description: Immutable baseline commit (merged PR 4)
+      profiles_only:
+        type: boolean
+        default: false
+        description: Run separate native diagnostics without repeating download matrices
 permissions: {contents: read}
 concurrency:
-  group: download-${{ github.ref }}
+  group: download-${{ github.ref }}-${{ inputs.profiles_only }}
   cancel-in-progress: true
 jobs:
   lts:
+    if: ${{ !inputs.profiles_only }}
     strategy:
       fail-fast: false
       matrix:
@@ -71,11 +74,13 @@ jobs:
       - name: Validate analyzer negative controls
         run: python3 -m unittest discover -s experiments/download -p 'test_*.py' -v
       - name: Build normal-release diagnostic variants
+        if: ${{ !inputs.profiles_only }}
         env:
           BASELINE: ${{ inputs.baseline }}
         run: |
           bash experiments/audit/build.sh "$(rustc -vV | sed -n 's/^host: //p')"
       - name: Native downloads (actual host kernel recorded, not LTS acceptance)
+        if: ${{ !inputs.profiles_only }}
         run: sudo python3 experiments/audit/native.py --download
       - name: Install profiler
         run: sudo apt-get update && sudo apt-get install -y linux-tools-generic
@@ -88,6 +93,7 @@ jobs:
           bash experiments/audit/build.sh "$(rustc -vV | sed -n 's/^host: //p')"
           export PATH="$(dirname "$(find /usr/lib -path '*linux-tools*' -name perf -type f | head -1)"):$PATH"
           sudo env "PATH=$PATH" python3 experiments/download/profile.py
+          sudo env "PATH=$PATH" python3 experiments/download/profile.py --system
       - name: Make root-owned perf data readable for artifact retention
         if: always()
         run: sudo chown -R "$(id -u):$(id -g)" target/erasure-audit

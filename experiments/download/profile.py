@@ -3,6 +3,7 @@
 Never use profiled throughput as a normal-release performance comparison.
 Requires perf and CAP_PERFMON/root, on an explicitly recorded native host kernel.
 """
+import argparse
 import hashlib
 import json
 import os
@@ -15,8 +16,8 @@ import time
 ROOT=pathlib.Path(__file__).resolve().parents[2]
 
 
-def main():
-    output=ROOT/"target/erasure-audit/results/profiles"
+def main(system=False):
+    output=ROOT/"target/erasure-audit/results"/("profiles-system" if system else "profiles")
     output.mkdir(parents=True,exist_ok=True)
     binary=ROOT/"target/erasure-audit/bin/erase"
     peer=ROOT/"target/erasure-audit/bin/main"
@@ -27,6 +28,7 @@ def main():
                      perf=subprocess.check_output(["perf","version"],text=True).strip(),
                      compiler=(ROOT/"target/erasure-audit/toolchain.txt").read_text(),
                      event="cpu-clock", frequency_hz=499, call_graph="frame pointers", client_cpus=[cpus[2]],
+                     sampling_scope="all four test CPUs including deferred kernel work" if system else "client process and worker threads",
                      builds=json.loads((ROOT/"target/erasure-audit/builds.json").read_text()),
                      binaries={p.name:hashlib.sha256(p.read_bytes()).hexdigest() for p in [binary,peer]})
     (output/"environment.json").write_text(json.dumps(environment,indent=2))
@@ -45,7 +47,9 @@ def main():
                         assert process.poll() is None and time.monotonic()<deadline, "fixture did not warm"
                         time.sleep(.05)
                     pid=int(ready.read_text())
-                    profiler=subprocess.Popen(["perf","record","-e","cpu-clock","-F","499","-g","--call-graph","fp","--inherit","-p",str(pid),"-o",str(output/f"{protocol}.data")],stdout=perf_log,stderr=subprocess.STDOUT)
+                    (output/f"{protocol}-target.json").write_text(json.dumps(dict(pid=pid,threads=[int(t.name) for t in pathlib.Path(f"/proc/{pid}/task").iterdir()],cpus=cpus[:4])))
+                    target=["-a","-C",",".join(map(str,cpus[:4]))] if system else ["--inherit","-p",str(pid)]
+                    profiler=subprocess.Popen(["perf","record","-e","cpu-clock","-F","499","-g","--call-graph","fp",*target,"-o",str(output/f"{protocol}.data")],stdout=perf_log,stderr=subprocess.STDOUT)
                     time.sleep(.3)
                     assert profiler.poll() is None, "perf attachment failed; see retained log"
                     go.touch()
@@ -58,10 +62,16 @@ def main():
                     except ProcessLookupError: pass
                     process.wait()
             with (output/f"{protocol}-report.txt").open("w") as report:
-                subprocess.run(["perf","report","--stdio","--no-children","--sort","comm,dso,symbol","-i",str(output/f"{protocol}.data")],stdout=report,check=True)
+                selected=["--pid",str(pid)] if system else []
+                subprocess.run(["perf","report","--stdio","--no-children","-n",*selected,"--sort","comm,dso,symbol","-i",str(output/f"{protocol}.data")],stdout=report,check=True)
+            if system:
+                with (output/f"{protocol}-system-report.txt").open("w") as report:
+                    subprocess.run(["perf","report","--stdio","--no-children","-n","--sort","cpu,comm,dso,symbol","-i",str(output/f"{protocol}.data")],stdout=report,check=True)
             with (output/f"{protocol}-header.txt").open("w") as header:
                 subprocess.run(["perf","report","--stdio","--header-only","-i",str(output/f"{protocol}.data")],stdout=header,check=True)
 
 
 if __name__=="__main__":
-    main()
+    parser=argparse.ArgumentParser()
+    parser.add_argument("--system",action="store_true")
+    main(parser.parse_args().system)
