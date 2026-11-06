@@ -26,7 +26,7 @@ See [Linux network namespaces](https://man7.org/linux/man-pages/man7/network_nam
 and [TCP semantics](https://man7.org/linux/man-pages/man7/tcp.7.html).
 
 Each outer protocol has IPv4 HTTP and IPv6 HTTPS, each with 1/8 inner flows.
-Each sample transfers 512 MiB total, plus 4 MiB warmup per flow. Each cell retains
+Each sample transfers 2 GiB total, plus 4 MiB warmup per flow. Each cell retains
 four same-binary controls followed by ABBA/BAAB, for 96 samples per allocation.
 This is an initial baseline campaign, not the complete IPv4/IPv6 x HTTP/HTTPS
 acceptance matrix. Minimum measured duration is 2 seconds; interval skew above
@@ -38,8 +38,21 @@ CPU is process time, including synchronous kernel calls; 100% means one core.
 Peak RSS includes lifetime setup but excludes kernel and auxiliary memory.
 The initial fixture has loopback outer traffic, one allocation per target, no
 injected RTT/loss, no physical NIC and no thermal/Proton-WAN acceptance. Its
-serial peer can limit throughput: >=0.85 auxiliary core disqualifies capacity
-ranking. A lower average does not prove the absence of transient bottlenecks.
+serial peer can limit throughput: >=0.85 core in the peer wire thread, peer
+server/control work or load process disqualifies capacity ranking. Wire worker,
+load, client and inner HTTP server use separate logical CPUs 0/1/2/3. Process
+and main-thread clocks separate peer costs. A lower average does not prove the
+absence of transient bottlenecks. This is one current production packet worker,
+not a many-core scaling test.
+
+Early fixture-development runs remain invalid/inconclusive evidence. BusyBox
+does not accept `nodad`, and IPv6 address activation needed a readiness check.
+Initial 512 MiB samples often finished before the 2s screen. Background multicast
+from the peer TUN also bypassed the missing peer AllowedIPs filter and could
+initiate crossed handshakes, producing `UnexpectedPacket` before warmup finished.
+The real-session regression includes the unfiltered negative control. Delayed
+Stealth startup is exercised before the measurement matrix. No throughput loss
+or crypto-authentication defect is attributed to production from these failures.
 
 Normal-release comparisons and profiling are separate. `profile.py` attaches
 `perf` to the warmed client process, including worker threads, in a separate
@@ -59,6 +72,9 @@ Runtime fingerprints exclude injected probes, so a harness-only PR is explicitly
 reported as baseline characterization. Effective source/binary identities still
 identify the entire executable and fixed baseline auxiliaries. Source archives,
 compiler information, raw samples and invalidity reasons are retained.
+The present diagnostic overlay also logs rejection classes and public control
+headers identically in both archives; the effective source digest includes it.
+No keys or application bodies are logged. Production source files stay unchanged.
 
 ## Next experiments and promotion gates
 
@@ -78,6 +94,16 @@ compiler information, raw samples and invalidity reasons are retained.
    the existing routing/control functions.
 6. Evaluate client-only representative PGO with fixed uninstrumented auxiliaries
    and held-out workloads after promising paths stabilize.
+
+An additional architectural hypothesis is kernel WireGuard plus a local UDP
+bridge implementing Proton's TCP/Stealth framing. This could move inner crypto
+and packet delivery into the kernel for all three transports, at the cost of
+local socket work and integration complexity. It is unimplemented and unmeasured.
+WireGuard's [namespace/socket ownership documentation](https://www.wireguard.com/netns/)
+and [wstunnel's WireGuard use case](https://github.com/erebe/wstunnel) establish
+underlying building blocks and a generic wrapping use case, not compatibility
+with Proton or a ProtunNext speed gain. Preserve Proton wire format, capture,
+private services, routing and lifecycle before considering promotion.
 
 Official capability references (none constitutes a ProtunNext speed claim):
 

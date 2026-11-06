@@ -623,6 +623,17 @@ mod tests {
                     client.decrypt(&competing[..n], &mut client_reply),
                     Ok(Output::Network(92))
                 ));
+                // The real trace also has a queued client SYN before the old
+                // response arrives. A new initiation replaces its saved context.
+                let mut syn = [0u8; 20];
+                syn[0] = 0x45;
+                syn[2..4].copy_from_slice(&20u16.to_be_bytes());
+                syn[12..16].copy_from_slice(&[10, 2, 0, 2]);
+                syn[16..20].copy_from_slice(&[10, 2, 0, 3]);
+                assert!(matches!(
+                    client.encrypt(&syn, &mut client_reply),
+                    Ok(Output::Network(148))
+                ));
             } else {
                 assert!(matches!(tick, Output::None));
             }

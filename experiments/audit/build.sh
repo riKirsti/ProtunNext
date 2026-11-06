@@ -6,7 +6,8 @@ target=${1:?Rust target required}
 python3 experiments/audit/prepare.py --baseline "${BASELINE:-f7bf03f5b4dc3981eaadedbf3a7841c5ed5ee5c1}"
 mkdir -p target/erasure-audit/bin
 { rustc -vV; cargo -vV; printf 'target=%s\nprofile=release thin-LTO codegen-units=1 panic=abort\nRUSTFLAGS=%s\n' "$target" "${RUSTFLAGS-}"; } > target/erasure-audit/toolchain.txt
-for name in main erase; do
+# Fail on candidate fixture regressions before paying for two release builds.
+for name in erase main; do
   export CARGO_TARGET_DIR="$PWD/target/erasure-audit/cargo-$name"
   export NEXT_BUILD_ID="$(python3 -c "import json; print(json.load(open('target/erasure-audit/builds.json'))['$name']['effective_sources_sha256'])")"
   source="$(python3 -c "import json; print(json.load(open('target/erasure-audit/builds.json'))['$name']['path'])")"
