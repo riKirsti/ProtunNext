@@ -4,8 +4,8 @@ on:
     inputs:
       baseline:
         type: string
-        default: ae9c9e86da8509261812813c9438e7ea625e19f5
-        description: Baseline commit (default is merged PR 3)
+        default: f7bf03f5b4dc3981eaadedbf3a7841c5ed5ee5c1
+        description: Baseline commit (default is merged PR 4)
 permissions: {contents: read}
 jobs:
   lts:

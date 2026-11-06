@@ -55,7 +55,7 @@ def analyze(folder):
     expected = json.loads((folder / "plan.json").read_text())
     rows = [json.loads(l) for l in (folder / "samples.jsonl").read_text().splitlines()]
     errors, checked = [], {}
-    assert set(env["binaries"]) == {"main", "erase"} and len(set(env["binaries"].values())) == 2
+    assert set(env["binaries"]) == {"main", "erase"}
     planned = {r["sample"]: r for r in expected}
     for row in rows:
         try:

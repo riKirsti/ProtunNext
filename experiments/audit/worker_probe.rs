@@ -21,6 +21,8 @@ use std::{
 };
 #[path = "../tests/common/mod.rs"]
 mod common;
+#[path = "download_probe.rs"]
+mod download;
 fn emit(v: serde_json::Value) {
     println!("NEXT_JSON {}", v);
 }
@@ -790,6 +792,9 @@ fn client(peer_bin: &str, proto: &str, size: usize, window: usize, seconds: f64,
 }
 pub fn run() {
     let a: Vec<_> = std::env::args().collect();
+    if download::dispatch(&a) {
+        return;
+    }
     if a[1] == "identity" {
         println!(
             "{}",

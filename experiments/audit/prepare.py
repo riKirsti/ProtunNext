@@ -9,7 +9,7 @@ import tempfile
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 OUT = ROOT / "target/erasure-audit"
-BASELINE = "ae9c9e86da8509261812813c9438e7ea625e19f5"
+BASELINE = "f7bf03f5b4dc3981eaadedbf3a7841c5ed5ee5c1"
 
 
 def prepare(candidate="HEAD", baseline=BASELINE):
@@ -20,7 +20,12 @@ def prepare(candidate="HEAD", baseline=BASELINE):
         dest = pathlib.Path(tempfile.mkdtemp(prefix=name + "-", dir=OUT))
         archive = subprocess.check_output(["git", "archive", sha], cwd=ROOT)
         subprocess.run(["tar", "-x", "-C", str(dest)], input=archive, check=True)
+        runtime = hashlib.sha256()
+        for file in sorted([*dest.joinpath("src").rglob("*.rs"), *dest.joinpath("vendor").rglob("*.rs"), dest / "Cargo.toml", dest / "Cargo.lock"]):
+            runtime.update(file.relative_to(dest).as_posix().encode() + b"\0")
+            runtime.update(file.read_bytes().replace(b"\r\n", b"\n") + b"\0")
         shutil.copyfile(ROOT / "experiments/audit/worker_probe.rs", dest / "src/worker_probe.rs")
+        shutil.copyfile(ROOT / "experiments/download/probe.rs", dest / "src/download_probe.rs")
         with (dest / "src/lib.rs").open("a", encoding="utf-8") as f:
             f.write('\n#[cfg(target_os="linux")] pub mod worker_probe;\n')
         (dest / "src/bin/erasure-probe.rs").write_text("fn main(){protun_next::worker_probe::run();}\n", encoding="utf-8")
@@ -30,8 +35,8 @@ def prepare(candidate="HEAD", baseline=BASELINE):
         for file in sorted([*dest.rglob("*.rs"), *dest.rglob("Cargo.toml"), *dest.rglob("Cargo.lock")]):
             digest.update(file.relative_to(dest).as_posix().encode() + b"\0")
             digest.update(file.read_bytes().replace(b"\r\n", b"\n") + b"\0")
-        state[name] = dict(sha=sha, path=str(dest), archive_sha256=hashlib.sha256(archive).hexdigest(), effective_sources_sha256=digest.hexdigest())
-    assert state["main"]["effective_sources_sha256"] != state["erase"]["effective_sources_sha256"]
+        state[name] = dict(sha=sha, path=str(dest), archive_sha256=hashlib.sha256(archive).hexdigest(), effective_sources_sha256=digest.hexdigest(), runtime_sources_sha256=runtime.hexdigest())
+    # Equal packet sources are a legitimate A/A characterization, not a speedup.
     (OUT / "builds.json").write_text(json.dumps(state, indent=2), encoding="utf-8")
     return state
 

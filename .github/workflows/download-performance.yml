@@ -1,0 +1,97 @@
+name: download-performance
+on:
+  push:
+    branches: [performance/download-path]
+  workflow_dispatch:
+    inputs:
+      baseline:
+        type: string
+        default: f7bf03f5b4dc3981eaadedbf3a7841c5ed5ee5c1
+        description: Immutable baseline commit (merged PR 4)
+permissions: {contents: read}
+jobs:
+  lts:
+    strategy:
+      fail-fast: false
+      matrix:
+        kernel: [6.12.115, 6.18.60]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 0}
+      - uses: dtolnay/rust-toolchain@1.99.1
+        with: {targets: x86_64-unknown-linux-musl}
+      - uses: actions/cache/restore@v4
+        with:
+          path: target/lts-kernels/${{ matrix.kernel }}/
+          key: lts-kernel-${{ runner.arch }}-${{ matrix.kernel }}-${{ hashFiles('scripts/test-linux-lts.sh') }}
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends qemu-system-x86 busybox-static musl-tools flex bison libelf-dev libssl-dev bc cpio
+      - name: Build missing supported kernel and check functionality
+        run: |
+          if [ ! -s target/lts-kernels/${{ matrix.kernel }}/bzImage ]; then
+            bash scripts/test-linux-lts.sh '${{ matrix.kernel }}'
+          fi
+      - name: Build normal-release isolated variants and fixed auxiliaries
+        env:
+          BASELINE: ${{ inputs.baseline }}
+          CC_x86_64_unknown_linux_musl: musl-gcc
+        run: bash experiments/audit/build.sh x86_64-unknown-linux-musl
+      - name: Real inner TCP downloads on supported kernel
+        run: sudo python3 experiments/audit/lts.py '${{ matrix.kernel }}' --download
+      - name: Publish results including failures and inconclusive cells
+        if: always()
+        run: |
+          sudo chown -R "$(id -u):$(id -g)" target/erasure-audit
+          file=target/erasure-audit/results/download/${{ matrix.kernel }}/summary.md
+          if [ -f "$file" ]; then cat "$file" >> "$GITHUB_STEP_SUMMARY"; fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: download-${{ matrix.kernel }}
+          path: |
+            target/erasure-audit/results/
+            target/erasure-audit/builds.json
+            target/erasure-audit/toolchain.txt
+            target/erasure-audit/*.log
+  native:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 0}
+      - uses: dtolnay/rust-toolchain@1.99.1
+      - name: Validate analyzer negative controls
+        run: python3 -m unittest discover -s experiments/download -p 'test_*.py' -v
+      - name: Build normal-release diagnostic variants
+        env:
+          BASELINE: ${{ inputs.baseline }}
+        run: bash experiments/audit/build.sh "$(rustc -vV | sed -n 's/^host: //p')"
+      - name: Native downloads (actual host kernel recorded, not LTS acceptance)
+        run: sudo python3 experiments/audit/native.py --download
+      - name: Install profiler
+        if: always()
+        run: sudo apt-get update && sudo apt-get install -y linux-tools-generic
+      - name: Profile a separate frame-pointer build
+        if: always()
+        env:
+          BASELINE: ${{ inputs.baseline }}
+          RUSTFLAGS: -C force-frame-pointers=yes
+          CARGO_PROFILE_RELEASE_DEBUG: '1'
+        run: |
+          bash experiments/audit/build.sh "$(rustc -vV | sed -n 's/^host: //p')"
+          export PATH="$(dirname "$(find /usr/lib -path '*linux-tools*' -name perf -type f | head -1)"):$PATH"
+          sudo env "PATH=$PATH" python3 experiments/download/profile.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: download-${{ matrix.os }}
+          path: |
+            target/erasure-audit/results/
+            target/erasure-audit/builds.json
+            target/erasure-audit/toolchain.txt
+            target/erasure-audit/*.log

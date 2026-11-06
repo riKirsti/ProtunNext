@@ -3,7 +3,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 target=${1:?Rust target required}
-python3 experiments/audit/prepare.py --baseline "${BASELINE:-ae9c9e86da8509261812813c9438e7ea625e19f5}"
+python3 experiments/audit/prepare.py --baseline "${BASELINE:-f7bf03f5b4dc3981eaadedbf3a7841c5ed5ee5c1}"
 mkdir -p target/erasure-audit/bin
 { rustc -vV; cargo -vV; printf 'target=%s\nprofile=release thin-LTO codegen-units=1 panic=abort\nRUSTFLAGS=%s\n' "$target" "${RUSTFLAGS-}"; } > target/erasure-audit/toolchain.txt
 for name in main erase; do
