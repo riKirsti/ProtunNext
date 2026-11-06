@@ -29,6 +29,12 @@ def arguments(row, peer):
             str(row["blocks_per_flow"]), row["family"], row["application"]]
 
 
+def smoke_arguments(peer):
+    return [["download-client",peer,protocol,str(flows),"16",family,application]
+            for protocol in ["udp","tcp","stealth"]
+            for family,application,flows in [("v4","http",1),("v6","https",8)]]
+
+
 def guest_script():
     lines = ["#!/bin/sh", "export PATH=/bin", "mount -t proc proc /proc",
              "mount -t sysfs sysfs /sys", "mount -t devtmpfs devtmpfs /dev",
@@ -37,6 +43,12 @@ def guest_script():
              'echo "ERASURE_CPUS $(cat /sys/devices/system/cpu/online)"',
              "sha256sum /bin/main /bin/erase", "result=0",
              "export NEXT_PEER_CPUS=0 NEXT_LOAD_CPUS=1 NEXT_CLIENT_CPUS=2,3"]
+    for args in smoke_arguments("/bin/main"):
+        command=["setsid","timeout","-s","KILL","30","unshare","-n","/bin/main",*args]
+        lines += ["echo " + shlex.quote("DOWNLOAD_SMOKE " + " ".join(args[2:])),
+                  shlex.join(command)+" &", "sample_pid=$!", 'wait "$sample_pid"', "code=$?",
+                  'kill -KILL -- "-$sample_pid" 2>/dev/null',
+                  'if [ "$code" != 0 ]; then echo "ERASURE_EXIT 1"; poweroff -f; fi']
     for row in plan():
         command = ["setsid", "timeout", "-s", "KILL", "180", "unshare", "-n", "/bin/"+row["build"], *arguments(row, "/bin/main")]
         lines += ["echo " + shlex.quote("ERASURE_CASE " + json.dumps(row, separators=(",", ":"))),

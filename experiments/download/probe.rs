@@ -62,7 +62,9 @@ fn tun(family: &str, peer: bool) -> File {
     );
     let (local, remote, _) = addresses(family, peer);
     ip(&["link", "set", "lo", "up"]);
-    ip(&["addr", "add", local, "dev", "pndl", "nodad"]);
+    // BusyBox ip does not implement nodad. TUN is IFF_NOARP, for which the
+    // Linux IPv6 stack already skips duplicate-address detection.
+    ip(&["addr", "add", local, "dev", "pndl"]);
     ip(&["link", "set", "pndl", "mtu", "1280", "up"]);
     ip(&["route", "add", remote, "dev", "pndl"]);
     tun

@@ -75,10 +75,8 @@ jobs:
       - name: Native downloads (actual host kernel recorded, not LTS acceptance)
         run: sudo python3 experiments/audit/native.py --download
       - name: Install profiler
-        if: always()
         run: sudo apt-get update && sudo apt-get install -y linux-tools-generic
       - name: Profile a separate frame-pointer build
-        if: always()
         env:
           BASELINE: ${{ inputs.baseline }}
           RUSTFLAGS: -C force-frame-pointers=yes

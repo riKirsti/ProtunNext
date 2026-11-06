@@ -38,6 +38,21 @@ def run(download=False):
     process_env = dict(os.environ, NEXT_PEER_CPUS=str(cpus[0]), NEXT_LOAD_CPUS=str(cpus[1]),
                        NEXT_CLIENT_CPUS=",".join(map(str, cpus[2:4])), NEXT_WARM_SECONDS="1", NEXT_PEER_VECTORED="1")
     with (output / "guest.log").open("w") as log:
+        if download:
+            for arguments in campaign.smoke_arguments(str(bins["main"])):
+                log.write("DOWNLOAD_SMOKE " + " ".join(arguments[2:]) + "\n")
+                log.flush()
+                process = subprocess.Popen(["unshare", "-n", str(bins["main"]), *arguments], env=process_env,
+                                           stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
+                try:
+                    code = process.wait(timeout=30)
+                finally:
+                    try:
+                        os.killpg(process.pid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+                    process.wait()
+                assert code == 0, "download smoke failed; see retained guest.log"
         for row in expected:
             log.write("ERASURE_CASE " + json.dumps(row) + "\n")
             log.flush()
