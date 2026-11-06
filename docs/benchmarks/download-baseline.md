@@ -202,6 +202,23 @@ Direct client-process perf captures, including worker threads, on native Linux 7
 
 Kernel-mode samples include TUN injection, copies, allocation, synchronization and inner TCP/loopback work. They do not establish that TUN writes alone dominate or predict the split on a forwarding router. TUN/coalescing is the next experimental hypothesis, subject to actual device and NIC validation.
 
+## Corrected profiling workflow verification
+
+[All nine cross-platform regression jobs passed](https://github.com/riKirsti/ProtunNext/actions/runs/42143804198) on commit `e58e22b9e7fc8eddeea100a8d7cb0ebef34d1b6f`. Later changes select an available profiler package and document results; shipped source is unchanged. [The corrected profiling-only workflow](https://github.com/riKirsti/ProtunNext/actions/runs/42144360650) passed both native targets on `6efacc19b4801c002912592913437bf9fa30e009`.
+
+This separate allocation repeated all six verified 1 GiB diagnostic downloads per target (process/system capture, three transports). Matching executables are now retained and their hashes were checked against both profile environments. These profiles are additional observations, not pooled with the first allocation or normal-release throughput. The different self-sample split on x64 reinforces that exact percentages are allocation/workload observations, not universal constants.
+
+| Target | Transport | Kernel-mode self samples % | ChaCha20-Poly1305 open self samples % | AES-GCM decrypt self samples % |
+|---|---|---:|---:|---:|
+| ARM64, repeat allocation | UDP | 57.76 | 30.61 | 0.00 |
+| ARM64, repeat allocation | TCP | 59.20 | 28.83 | 0.00 |
+| ARM64, repeat allocation | Stealth | 47.08 | 29.59 | 9.12 |
+| x64, repeat allocation | UDP | 63.00 | 24.75 | 0.00 |
+| x64, repeat allocation | TCP | 65.13 | 22.34 | 0.00 |
+| x64, repeat allocation | Stealth | 61.65 | 22.10 | 2.85 |
+
+Raw profiles and matching executables: [ARM64](https://github.com/riKirsti/ProtunNext/actions/runs/42144360650/artifacts/13468428469), [x64](https://github.com/riKirsti/ProtunNext/actions/runs/42144360650/artifacts/13469169038).
+
 ## Decision and next implementation
 
 1. Prioritize Linux TUN delivery and kernel-boundary costs. Prototype proper receive coalescing with negotiated offload metadata/checksums, compare against the current ordinary-packet path, and keep one production default chosen by repeatable evidence. Raw TUN caller compatibility must remain intact.
