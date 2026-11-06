@@ -21,7 +21,7 @@ on:
         description: Optional workload block for a focused retest
 permissions: {contents: read}
 concurrency:
-  group: download-${{ github.ref }}-${{ inputs.profiles_only }}
+  group: download-${{ github.ref }}-${{ inputs.profiles_only }}-${{ inputs.kernel }}-${{ inputs.block }}
   cancel-in-progress: true
 jobs:
   lts:
