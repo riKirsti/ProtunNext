@@ -6,6 +6,10 @@ baseline. No fixed percentage CPU or 8/32 MiB memory threshold rejects a
 candidate. Compare throughput against total CPU, bounded memory, loaded latency,
 reliability and sustained thermal behavior on each target.
 
+The [initial download baseline and profiles](benchmarks/download-baseline.md)
+retain the original failures, corrected cohorts, per-target speed/CPU/RSS and
+capacity limitations. This measurement-only change claims no production gain.
+
 ## First implementation: measurement
 
 `experiments/download/probe.rs` is injected identically into isolated archives by
