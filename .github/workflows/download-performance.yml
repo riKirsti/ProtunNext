@@ -70,7 +70,8 @@ jobs:
       - name: Build normal-release diagnostic variants
         env:
           BASELINE: ${{ inputs.baseline }}
-        run: bash experiments/audit/build.sh "$(rustc -vV | sed -n 's/^host: //p')"
+        run: |
+          bash experiments/audit/build.sh "$(rustc -vV | sed -n 's/^host: //p')"
       - name: Native downloads (actual host kernel recorded, not LTS acceptance)
         run: sudo python3 experiments/audit/native.py --download
       - name: Install profiler
