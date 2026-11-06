@@ -19,8 +19,8 @@ def plan():
             for role, builds in [("aa", ["main"] * 4), ("compare", order)]:
                 for slot, build in enumerate(builds):
                     rows.append(dict(sample=len(rows)+1, block=block, protocol=protocol, family=family,
-                                     application=application, flows=flows, blocks_per_flow=8192//flows,
-                                     bytes=512*1024*1024, role=role, slot=slot, build=build))
+                                     application=application, flows=flows, blocks_per_flow=32768//flows,
+                                     bytes=2*1024*1024*1024, role=role, slot=slot, build=build))
     return rows
 
 
@@ -45,11 +45,12 @@ def guest_script():
              'echo "ERASURE_CLOCK $(cat /sys/devices/system/clocksource/clocksource0/current_clocksource)"',
              'echo "ERASURE_CPUS $(cat /sys/devices/system/cpu/online)"',
              "sha256sum /bin/main /bin/erase", "result=0",
-             "export NEXT_PEER_CPUS=0 NEXT_LOAD_CPUS=1 NEXT_CLIENT_CPUS=2,3"]
+             "export NEXT_PEER_CPUS=0 NEXT_LOAD_CPUS=1 NEXT_CLIENT_CPUS=2 NEXT_SERVER_CPUS=3"]
     for args in smoke_arguments("/bin/main"):
         command=["setsid","timeout","-s","KILL","30","unshare","-n","/bin/main",*args]
+        prefix = "NEXT_DOWNLOAD_START_DELAY_MS=1250 " if args[2] == "stealth" else ""
         lines += ["echo " + shlex.quote("DOWNLOAD_SMOKE " + " ".join(args[2:])),
-                  shlex.join(command)+" &", "sample_pid=$!", 'wait "$sample_pid"', "code=$?",
+                  prefix+shlex.join(command)+" &", "sample_pid=$!", 'wait "$sample_pid"', "code=$?",
                   'kill -KILL -- "-$sample_pid" 2>/dev/null',
                   'if [ "$code" != 0 ]; then echo "ERASURE_EXIT 1"; poweroff -f; fi']
     for row in plan():
@@ -92,7 +93,9 @@ def metrics(row, env):
     seconds, cpu = m["seconds"], m["client_cpu_seconds"]
     assert all(math.isfinite(v) and v > 0 for v in [seconds, cpu, load["seconds"], peer["seconds"], m["client_rss_kib"]])
     skew = abs(seconds/load["seconds"]-1)
-    aux = max(m[name]["cpu_seconds"]/m[name]["seconds"] for name in ["load", "peer"])
+    aux = max(load["cpu_seconds"]/load["seconds"],
+              peer.get("wire_cpu_seconds",peer["cpu_seconds"])/peer["seconds"],
+              peer.get("server_cpu_seconds",0)/peer["seconds"])
     return dict(Mbps=load["bytes"]*8/load["seconds"]/1e6, CPU_ns_per_byte=cpu*1e9/load["bytes"],
                 CPU_core_percent=cpu/seconds*100, peak_RSS_MiB=m["client_rss_kib"]/1024,
                 short=load["seconds"]<2, interval_skew=skew, auxiliary_core_fraction=aux,

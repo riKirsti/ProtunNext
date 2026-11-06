@@ -37,12 +37,15 @@ def run(download=False):
     (output / "hardware.txt").write_text(subprocess.check_output(["lscpu"], text=True))
     process_env = dict(os.environ, NEXT_PEER_CPUS=str(cpus[0]), NEXT_LOAD_CPUS=str(cpus[1]),
                        NEXT_CLIENT_CPUS=",".join(map(str, cpus[2:4])), NEXT_WARM_SECONDS="1", NEXT_PEER_VECTORED="1")
+    if download:
+        process_env.update(NEXT_CLIENT_CPUS=str(cpus[2]), NEXT_SERVER_CPUS=str(cpus[3]))
     with (output / "guest.log").open("w") as log:
         if download:
             for arguments in campaign.smoke_arguments(str(bins["main"])):
                 log.write("DOWNLOAD_SMOKE " + " ".join(arguments[2:]) + "\n")
                 log.flush()
-                process = subprocess.Popen(["unshare", "-n", str(bins["main"]), *arguments], env=process_env,
+                smoke_env = dict(process_env, NEXT_DOWNLOAD_START_DELAY_MS="1250" if arguments[2] == "stealth" else "0")
+                process = subprocess.Popen(["unshare", "-n", str(bins["main"]), *arguments], env=smoke_env,
                                            stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
                 try:
                     code = process.wait(timeout=30)

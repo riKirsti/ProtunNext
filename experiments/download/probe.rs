@@ -7,6 +7,30 @@ use std::sync::{Arc, Barrier};
 
 const BLOCK: usize = 65536;
 const WARM_BLOCKS: u64 = 64;
+static WIRE_CPU_START: AtomicU64 = AtomicU64::new(0);
+
+fn clock_cpu(clock: libc::clockid_t) -> u64 {
+    let mut value = libc::timespec {
+        tv_sec: 0,
+        tv_nsec: 0,
+    };
+    // SAFETY: clock comes from pthread_getcpuclockid for our live main thread.
+    assert_eq!(unsafe { libc::clock_gettime(clock, &mut value) }, 0);
+    value.tv_sec as u64 * 1_000_000_000 + value.tv_nsec as u64
+}
+
+fn advance_responder(
+    session: &mut Session,
+    confirmed: bool,
+    now: Duration,
+    output: &mut [u8],
+) -> crate::Result<Output> {
+    if confirmed {
+        session.advance(now, output)
+    } else {
+        Ok(Output::None)
+    }
+}
 
 pub(super) fn dispatch(args: &[String]) -> bool {
     match args.get(1).map(String::as_str) {
@@ -265,6 +289,7 @@ fn peer(proto: &str, flows: usize, blocks: u64, family: &str, application: &str)
     let listener = TcpListener::bind(addresses(family, true).2).unwrap();
     let https = application == "https";
     thread::spawn(move || {
+        pin("NEXT_SERVER_CPUS");
         let mut workers = Vec::new();
         for _ in 0..flows {
             let (socket, _) = listener.accept().unwrap();
@@ -370,11 +395,22 @@ fn peer(proto: &str, flows: usize, blocks: u64, family: &str, application: &str)
     let mut measured = None;
     let mut timer = Instant::now();
     let mut handshakes = 0;
-    thread::spawn(|| {
+    let mut confirmed = false;
+    if let Ok(delay) = std::env::var("NEXT_DOWNLOAD_START_DELAY_MS") {
+        thread::sleep(Duration::from_millis(delay.parse().unwrap()));
+    }
+    let mut wire_clock = 0;
+    // SAFETY: live main pthread and correctly sized clock-id output.
+    assert_eq!(
+        unsafe { libc::pthread_getcpuclockid(libc::pthread_self(), &mut wire_clock) },
+        0
+    );
+    thread::spawn(move || {
         let mut input = std::io::stdin();
         let mut marker = [0];
         while input.read_exact(&mut marker).is_ok() {
             if marker[0] == b'G' {
+                WIRE_CPU_START.store(clock_cpu(wire_clock), Ordering::Release);
                 PEER_CPU_START.store((cpu() * 1e9) as u64, Ordering::Release);
                 PEER_WALL_START.store(monotonic_ns(), Ordering::Release);
             } else {
@@ -394,6 +430,7 @@ fn peer(proto: &str, flows: usize, blocks: u64, family: &str, application: &str)
                 (
                     (cpu() * 1e9 - c as f64) / 1e9,
                     (monotonic_ns() - t) as f64 / 1e9,
+                    (clock_cpu(wire_clock) - WIRE_CPU_START.load(Ordering::Acquire)) as f64 / 1e9,
                 )
             });
             println!("NEXT_DRAIN");
@@ -407,9 +444,13 @@ fn peer(proto: &str, flows: usize, blocks: u64, family: &str, application: &str)
                 }
                 < 60
         {
-            if let Output::Network(n) = session
-                .advance(linux::boottime().unwrap(), &mut wire)
-                .unwrap()
+            if let Output::Network(n) = advance_responder(
+                &mut session,
+                confirmed,
+                linux::boottime().unwrap(),
+                &mut wire,
+            )
+            .unwrap()
             {
                 network.queue(&wire[..n], &mut queue, &mut pool);
             }
@@ -449,7 +490,14 @@ fn peer(proto: &str, flows: usize, blocks: u64, family: &str, application: &str)
                 Receive::Packet => {}
             }
             progress = true;
-            match session.decrypt(packet.data(), &mut plain).unwrap() {
+            let result = session.decrypt(packet.data(), &mut plain).unwrap();
+            // This is a responder fixture. Before a data/keepalive confirms the
+            // session, update_timers can initiate a competing handshake. That
+            // manufactured crossed handshake rejects the client's older reply.
+            if packet.data().starts_with(&[4, 0, 0, 0]) {
+                confirmed = true;
+            }
+            match result {
                 Output::Network(n) => {
                     if n == 92 {
                         handshakes += 1;
@@ -517,14 +565,83 @@ fn peer(proto: &str, flows: usize, blocks: u64, family: &str, application: &str)
             );
         }
     }
-    let (used, seconds) = measured.expect("peer timing not stopped");
+    let (used, seconds, wire_used) = measured.expect("peer timing not stopped");
     let tls = match &network {
         Peer::Stream(s) => s.io().metadata(),
         _ => None,
     };
     emit(
-        serde_json::json!({"role":"peer","effective_sources_sha256":option_env!("NEXT_BUILD_ID").unwrap_or("unstamped-local-build"),"cpu_seconds":used,"seconds":seconds,"rss_kib":rss(),"outer_namespace":outer_namespace,"namespace":namespace(),"handshakes":handshakes,"tls":tls}),
+        serde_json::json!({"role":"peer","effective_sources_sha256":option_env!("NEXT_BUILD_ID").unwrap_or("unstamped-local-build"),"cpu_seconds":used,"wire_cpu_seconds":wire_used,"server_cpu_seconds":(used-wire_used).max(0.0),"seconds":seconds,"rss_kib":rss(),"outer_namespace":outer_namespace,"namespace":namespace(),"handshakes":handshakes,"tls":tls}),
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn delayed_responder_timer_does_not_manufacture_crossed_handshakes() {
+        let now = linux::boottime().unwrap();
+        let wall = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
+        for gated in [false, true] {
+            let mut client =
+                Session::new([7; 32], Session::public_key([9; 32]), None, now, wall).unwrap();
+            let mut peer =
+                Session::new([9; 32], Session::public_key([7; 32]), None, now, wall).unwrap();
+            let mut init = [0; 256];
+            let Output::Network(init_len) = client.initiate(&mut init).unwrap() else {
+                panic!("init")
+            };
+            let mut competing = [0; 256];
+            let tick = if gated {
+                advance_responder(
+                    &mut peer,
+                    false,
+                    now + Duration::from_secs(1),
+                    &mut competing,
+                )
+            } else {
+                peer.advance(now + Duration::from_secs(1), &mut competing)
+            }
+            .unwrap();
+            let mut client_reply = [0; 256];
+            if !gated {
+                let Output::Network(n) = tick else {
+                    panic!("old peer should initiate before receiving client init")
+                };
+                assert_eq!(n, 148);
+                assert!(matches!(
+                    client.decrypt(&competing[..n], &mut client_reply),
+                    Ok(Output::Network(92))
+                ));
+            } else {
+                assert!(matches!(tick, Output::None));
+            }
+            let mut response = [0; 256];
+            let Output::Network(n) = peer.decrypt(&init[..init_len], &mut response).unwrap() else {
+                panic!("response")
+            };
+            let result = client.decrypt(&response[..n], &mut client_reply);
+            if gated {
+                assert!(matches!(result, Ok(Output::Network(32))));
+                assert!(matches!(
+                    peer.decrypt(&client_reply[..32], &mut competing),
+                    Ok(Output::None)
+                ));
+                assert!(matches!(
+                    advance_responder(
+                        &mut peer,
+                        true,
+                        now + Duration::from_secs(2),
+                        &mut competing
+                    ),
+                    Ok(Output::None)
+                ));
+            } else {
+                assert!(result.unwrap_err().to_string().contains("UnexpectedPacket"));
+            }
+        }
+    }
 }
 
 fn client(binary: &str, proto: &str, flows: usize, blocks: u64, family: &str, application: &str) {
