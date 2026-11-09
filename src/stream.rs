@@ -344,6 +344,31 @@ mod tests {
         io.close(&mut pool).unwrap();
         assert_eq!(pool.available(), 9);
     }
+    #[cfg(not(any(windows, target_vendor = "apple")))]
+    #[test]
+    fn borrowed_prefetch_delivers_valid_prefix_before_malformed_tail() {
+        let (mut wire, expected) = frames(2);
+        wire.extend_from_slice(&[0x40, 16]);
+        let mut io = FramedIo::borrowing(io::Cursor::new(wire), 4).unwrap();
+        let mut pool = PacketPool::new(10, 65535).unwrap();
+        let mut output = pool.take().unwrap();
+        for packet in expected {
+            assert_eq!(
+                io.receive_borrowed(&mut output, &mut pool, |io, consume| consume(io.get_ref()))
+                    .unwrap(),
+                Receive::Packet
+            );
+            assert_eq!(output.data(), packet);
+        }
+        assert!(
+            io.receive_borrowed(&mut output, &mut pool, |_, _| panic!(
+                "invalid stream must not be read again"
+            ))
+            .is_err()
+        );
+        io.close(&mut pool).unwrap();
+        assert_eq!(pool.available(), 9);
+    }
     struct Short {
         bytes: Vec<u8>,
         max: usize,
