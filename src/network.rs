@@ -214,7 +214,11 @@ pub(crate) trait WireSocket: Read + Write {
     fn diagnostics(&self) -> crate::performance::IoCounters {
         Default::default()
     }
-    fn receive_frame(stream: &mut FramedIo<Self>, packet: &mut Packet) -> Result<Receive>
+    fn receive_frame(
+        stream: &mut FramedIo<Self>,
+        packet: &mut Packet,
+        _pool: &mut PacketPool,
+    ) -> Result<Receive>
     where
         Self: Sized,
     {
@@ -367,19 +371,19 @@ impl<S: WireSocket> WireSocket for TlsIo<S> {
     fn diagnostics(&self) -> crate::performance::IoCounters {
         self.socket().diagnostics()
     }
-    fn receive_frame(stream: &mut FramedIo<Self>, packet: &mut Packet) -> Result<Receive> {
+    fn receive_frame(
+        stream: &mut FramedIo<Self>,
+        packet: &mut Packet,
+        pool: &mut PacketPool,
+    ) -> Result<Receive> {
         #[cfg(any(windows, target_vendor = "apple"))]
         {
+            let _ = pool;
             stream.receive(packet)
         }
         #[cfg(not(any(windows, target_vendor = "apple")))]
         {
-            stream.receive_using(packet, |io, decoder, _| {
-                Ok(io.read_plaintext(|data| {
-                    decoder.feed(data).map_err(io::Error::other)?;
-                    Ok(data.len())
-                })?)
-            })
+            stream.receive_borrowed(packet, pool, |io, consume| io.read_plaintext(consume))
         }
     }
     fn register(&mut self, r: &mio::Registry, t: Token, i: Interest) -> io::Result<()> {
@@ -418,8 +422,8 @@ impl<S: WireSocket> Network for Stream<S> {
     fn fd(&self) -> i32 {
         self.0.io().fd()
     }
-    fn receive(&mut self, packet: &mut Packet, _: &mut PacketPool) -> Result<Receive> {
-        S::receive_frame(&mut self.0, packet)
+    fn receive(&mut self, packet: &mut Packet, pool: &mut PacketPool) -> Result<Receive> {
+        S::receive_frame(&mut self.0, packet, pool)
     }
     fn pending(&self) -> usize {
         self.0.pending()
