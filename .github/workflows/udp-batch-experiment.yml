@@ -16,6 +16,10 @@ on:
         type: boolean
         default: false
         description: Also run full normal-release download campaigns
+      rate_bps:
+        type: string
+        default: '0'
+        description: Optional aggregate test rate in bits/s (0 = unpaced; paced samples use 128 MiB)
 permissions: {contents: read}
 defaults:
   run:
@@ -77,7 +81,9 @@ jobs:
         run: |
           bash experiments/audit/build.sh "$(rustc -vV | sed -n 's/^host: //p')"
       - name: Compare verified downloads across all transports
-        run: sudo python3 experiments/audit/native.py --download
+        env:
+          NEXT_DOWNLOAD_RATE_BPS: ${{ inputs.rate_bps || '0' }}
+        run: sudo env "NEXT_DOWNLOAD_RATE_BPS=$NEXT_DOWNLOAD_RATE_BPS" python3 experiments/audit/native.py --download
       - name: Retain raw results even on failure
         if: always()
         run: |

@@ -12,6 +12,9 @@ BASELINE = "f7bf03f5b4dc3981eaadedbf3a7841c5ed5ee5c1"
 
 def plan():
     rows = []
+    rate = int(os.environ.get("NEXT_DOWNLOAD_RATE_BPS", "0"))
+    assert rate >= 0, "invalid offered download rate"
+    total_blocks = 2048 if rate else 32768
     for protocol in ["udp", "tcp", "stealth"]:
         for family, application, flows in [("v4", "http", 1), ("v4", "http", 8),
                                             ("v6", "https", 1), ("v6", "https", 8)]:
@@ -20,8 +23,11 @@ def plan():
             for role, builds in [("aa", ["main"] * 4), ("compare", order)]:
                 for slot, build in enumerate(builds):
                     rows.append(dict(sample=len(rows)+1, block=block, protocol=protocol, family=family,
-                                     application=application, flows=flows, blocks_per_flow=32768//flows,
-                                     bytes=2*1024*1024*1024, role=role, slot=slot, build=build))
+                                     application=application, flows=flows, blocks_per_flow=total_blocks//flows,
+                                     bytes=total_blocks*65536, role=role, slot=slot, build=build))
+                    if rate:
+                        assert rate >= flows, "offered rate cannot be split across flows"
+                        rows[-1]["offered_rate_bps"] = rate
     selected=os.environ.get("NEXT_DOWNLOAD_BLOCK","")
     if selected:
         assert selected in {r["block"] for r in rows}, "unknown download workload block"
@@ -51,6 +57,7 @@ def guest_script():
              'echo "ERASURE_CPUS $(cat /sys/devices/system/cpu/online)"',
              "sha256sum /bin/main /bin/erase", "result=0",
              "export NEXT_PEER_CPUS=0 NEXT_LOAD_CPUS=1 NEXT_CLIENT_CPUS=2 NEXT_SERVER_CPUS=3"]
+    lines.append("export NEXT_DOWNLOAD_RATE_BPS=" + str(int(os.environ.get("NEXT_DOWNLOAD_RATE_BPS", "0"))))
     for args in smoke_arguments("/bin/main"):
         command=["setsid","timeout","-s","KILL","30","unshare","-n","/bin/main",*args]
         prefix = "NEXT_DOWNLOAD_START_DELAY_MS=1250 " if args[2] == "stealth" else ""
@@ -100,6 +107,11 @@ def metrics(row, env):
         assert tls["vectored"] is True and tls["version"] == "Some(TLSv1_3)"
     seconds, cpu = m["seconds"], m["client_cpu_seconds"]
     assert all(math.isfinite(v) and v > 0 for v in [seconds, cpu, load["seconds"], peer["seconds"], m["client_rss_kib"]])
+    if "offered_rate_bps" in row:
+        rate = row["offered_rate_bps"]
+        assert isinstance(rate, int) and not isinstance(rate, bool) and rate > 0
+        assert m.get("offered_rate_bps") == rate, "offered rate identity mismatch"
+        assert abs(load["bytes"]*8/load["seconds"]/rate-1) <= .05, "offered rate was not sustained"
     skew = abs(seconds/load["seconds"]-1)
     aux = max(load["cpu_seconds"]/load["seconds"],
               peer.get("wire_cpu_seconds",peer["cpu_seconds"])/peer["seconds"],
@@ -140,7 +152,8 @@ def analyze(folder):
         groups[row["block"]].append(row)
     blocks = []
     for name, group in groups.items():
-        block = dict(block=name, capacity_ranking=False)
+        paced = any(r.get("offered_rate_bps", 0) for r in group)
+        block = dict(block=name, capacity_ranking=False, rate_controlled=bool(paced))
         if any(r["sample"] not in checked for r in group):
             block["validity"] = "invalid/incomplete"
         else:
@@ -154,7 +167,7 @@ def analyze(folder):
             auxiliary = any(checked[r["sample"]]["auxiliary_limited"] for r in group)
             block.update(control=control,result=result,AA_pass=aa,timing_pass=timing,auxiliary_limited=auxiliary,
                          validity="usable" if aa and timing else "inconclusive-control/timing",
-                         capacity_ranking=aa and timing and not auxiliary)
+                         capacity_ranking=aa and timing and not auxiliary and not paced)
         blocks.append(block)
     baseline_runtime = env["sources"]["main"].get("runtime_sources_sha256")
     same_runtime = bool(baseline_runtime) and baseline_runtime == env["sources"]["erase"].get("runtime_sources_sha256")
@@ -169,6 +182,7 @@ def publish(folder):
            "", "CPU is client process cost (100% = one core); peak RSS excludes kernel and auxiliary memory.",
            "A/A screen: 5% for throughput and CPU/byte; minimum transfer 2s; interval skew <=2%.",
            "Peer/load >=0.85 core disqualifies capacity ranking. Noise and failures are retained.",
+           "Rate-controlled samples measure resource cost at equal offered load and cannot rank maximum capacity.",
            "This loopback fixture is not NIC, RTT/loss, thermal, mobile or Proton WAN acceptance.", "",
            "| Workload | Validity | Download Mbps base / candidate | CPU ns/B base / candidate | CPU core % base / candidate | Peak RSS MiB base / candidate | Capacity ranking |",
            "|---|---|---:|---:|---:|---:|---|"]
