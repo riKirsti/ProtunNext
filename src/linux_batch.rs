@@ -9,7 +9,7 @@ use crate::{
 use std::{collections::VecDeque, io, net::UdpSocket, os::fd::AsRawFd};
 
 pub(crate) const MAX_BATCH: usize = 32;
-const BATCH_SIZE: usize = 16;
+const BATCH_SIZE: usize = 32;
 #[repr(C, align(8))]
 struct Control([u8; 64]);
 struct Received {
@@ -443,10 +443,14 @@ mod tests {
                 let mut tx = Batch::new(&a, offload);
                 let mut rx = Batch::new(&b, offload);
                 let mut pool = PacketPool::new(96, 65535).unwrap();
-                let mut queue = PacketQueue::new(64).unwrap();
-                let sizes = [
+                let mut queue = PacketQueue::new(96).unwrap();
+                let mut sizes = vec![
                     0, 16, 16, 1280, 1280, 1280, 1280, 1280, 1280, 1280, 1280, 100, 5000, 1280,
                 ];
+                // Cross two full syscall batches and exercise a short final
+                // datagram, including GSO groups that exceed the 64 KiB limit.
+                sizes.extend(std::iter::repeat_n(1280, 2 * MAX_BATCH));
+                sizes.push(17);
                 let expected: Vec<Vec<u8>> = sizes
                     .iter()
                     .enumerate()
