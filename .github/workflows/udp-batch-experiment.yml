@@ -1,14 +1,62 @@
-name: udp-batch-experiment
+name: native-download-validation
 on:
   pull_request:
-    paths: ['src/linux_batch.rs', '.github/workflows/udp-batch-experiment.yml']
+    paths:
+      - src/linux_batch.rs
+      - experiments/download/**
+      - experiments/audit/**
+      - .github/workflows/udp-batch-experiment.yml
   workflow_dispatch:
+    inputs:
+      baseline:
+        type: string
+        default: f3e7502217153bad5decc8ef700f5afee6d0652e
+        description: Immutable 40-character baseline commit (merged PR 5)
+      run_downloads:
+        type: boolean
+        default: false
+        description: Also run full normal-release download campaigns
 permissions: {contents: read}
+defaults:
+  run:
+    shell: bash
+env:
+  BASELINE: ${{ inputs.baseline || 'f3e7502217153bad5decc8ef700f5afee6d0652e' }}
 concurrency:
   group: udp-batch-${{ github.ref }}
   cancel-in-progress: true
 jobs:
+  checks:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: dtolnay/rust-toolchain@1.99.1
+      - name: Validate analyzers and injected socket regressions
+        run: |
+          [[ "$BASELINE" =~ ^[0-9a-f]{40}$ ]]
+          python3 -m unittest discover -s experiments/download -p 'test_*.py' -v
+          python3 -m unittest discover -s experiments/audit -p 'test_*.py' -v
+          python3 experiments/audit/prepare.py --baseline "$BASELINE"
+          source=$(python3 -c "import json; print(json.load(open('target/erasure-audit/builds.json'))['erase']['path'])")
+          cargo test --locked --lib --no-default-features --features unix --manifest-path "$source/Cargo.toml" 2>&1 | tee target/erasure-audit/probe-regressions.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: download-checks-${{ matrix.os }}
+          path: |
+            target/erasure-audit/builds.json
+            target/erasure-audit/probe-regressions.log
   download:
+    needs: checks
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_downloads }}
     strategy:
       fail-fast: false
       matrix:
@@ -26,8 +74,6 @@ jobs:
           python3 -m unittest discover -s experiments/download -p 'test_*.py' -v
           python3 -m unittest discover -s experiments/audit -p 'test_*.py' -v
       - name: Build candidate and fixed baseline auxiliaries
-        env:
-          BASELINE: 4c1abe891ba094e8209d9cfc382471489e710dfc
         run: |
           bash experiments/audit/build.sh "$(rustc -vV | sed -n 's/^host: //p')"
       - name: Compare verified downloads across all transports

@@ -3,42 +3,54 @@
 **Decision: do not promote 32-packet batching from this campaign.** All 192/192
 downloads are valid, but all 24 cells are auxiliary-limited. Throughput changes
 are small and inconsistent across workloads and architectures. Retain 16 as
-the accepted production recommendation and keep this candidate as a draft
-experiment. No production speedup is established.
+the production batch limit. PR #6 restores that limit and retains the stronger
+socket regression, reusable validation workflow and historical findings.
+No production speedup is established.
 
-PR #5's screenshot-era tree (`4c1abe8`) is the immutable baseline. This
-candidate increases the connected UDP syscall batch from 16 to 32, using the
+PR #5's screenshot-era tree (`4c1abe8`) was the immutable experimental baseline.
+The historical candidate increased the UDP syscall batch from 16 to 32, using the
 existing maximum descriptor count. The packet-worker budget, queue limits,
 wire format and platform selection remain unchanged. TCP and Stealth are
-negative controls because this change only affects the Linux/Android UDP path.
+negative controls because that change only affected the Linux/Android UDP path.
 
 The hypothesis is that fewer socket syscalls per downloaded byte can reduce
 the kernel-boundary cost observed in the receive profiles. Larger bursts can
 also increase latency or resource contention; throughput improvement is
-unproven. This candidate is experimental and must not be promoted based on
+unproven. The historical candidate must not be promoted based on
 successful functional tests alone.
 
-The separate experiment workflow builds isolated normal-release archives,
-keeps peer/load binaries fixed to the baseline, and runs all 12 download cells
+The completed experiment built isolated normal-release archives,
+kept peer/load binaries fixed to the baseline, and ran all 12 download cells
 on native x64 and ARM64 CI. Each cell retains A/A controls and ABBA/BAAB order,
 verified payloads, CPU per byte, peak RSS, source/binary identities and failed
 samples. Auxiliary saturation, short samples and noisy controls keep their
 existing disqualification rules. Native CI results are not supported-LTS,
 router, physical NIC, Android or Proton WAN acceptance.
 
-The real UDP regression crosses two full batches and includes a short tail
+The retained UDP regression crosses several full batches and includes a short tail
 after several GSO groups, with IPv4/IPv6 and offload enabled/disabled.
 Existing partial-send ownership tests remain.
 
 The earlier [Travel screening](travel-decision-20261105.md) found no convincing
-case for changing the batch limit in its UDP request/reply workload. This new
-experiment evaluates sustained inner TCP downloads instead. Native CI cannot
+case for changing the batch limit in its UDP request/reply workload. This
+experiment evaluated sustained inner TCP downloads instead. Native CI cannot
 overrule that device-specific recommendation without a fresh device comparison.
 
 Before promotion, repeat any clean gain on Linux 6.12/6.18 and actual target
 devices; measure loaded latency, upload/duplex fairness, kernel buffer usage
 and longer reliability runs. No release or device change is part of this
-experiment. Results will be recorded with their actual source identities.
+experiment. Historical results below retain their actual source identities.
+
+## Reusable validation workflow
+
+`udp-batch-experiment.yml` now runs analyzer and injected Rust regressions on
+native x64 and ARM64 for relevant pull requests. Full normal-release download
+campaigns are an explicit manual option (`run_downloads=true`), so test-only
+changes do not automatically repeat the historical performance campaign.
+The default immutable baseline is merged PR #5 (`f3e7502`); a manual campaign
+can select another immutable commit. Both client variants use the same fixture,
+and baseline peer/load binaries remain fixed. Changing the baseline does not
+rewrite any historical results below.
 
 ## November 9 native ARM64 results
 
@@ -91,8 +103,9 @@ kernel socket buffers. No kernel-memory or fixed-rate latency claim is made.
 and [normal-release download campaign](https://github.com/riKirsti/ProtunNext/actions/runs/42701875883)
 identify the tested code commit `bd56faebe4b090ac1dac4bf07ab634a666553075`.
 Both download jobs pass the injected Rust regressions and all 20 Python
-analyzer tests. The subsequent documentation/test-comment corrections do not
-change runtime behavior. Full sample plans, source/binary hashes, compiler
+analyzer tests. Those checks validate the historical 32-packet candidate;
+PR #6's later restoration of 16 has separate checks and makes no new download
+performance claim. Full sample plans, source/binary hashes, compiler
 identity, CPU/byte, RSS, counters and controls remain in each raw artifact.
 
 The next performance priority is a benchmark allocation with demonstrable
