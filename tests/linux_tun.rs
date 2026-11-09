@@ -144,7 +144,7 @@ fn tun_roundtrips() {
                 } else {
                     Box::new(tcp)
                 };
-                Reference::Stream(FramedIo::new(io, 8).unwrap())
+                Reference::Stream(Box::new(FramedIo::new(io, 8).unwrap()))
             };
             let mut session =
                 Session::new([9; 32], Session::public_key([7; 32]), None, now, wall).unwrap();
@@ -375,7 +375,7 @@ impl Duplex for TcpStream {}
 impl Duplex for rustls::StreamOwned<rustls::ServerConnection, TcpStream> {}
 enum Reference {
     Udp(UdpSocket),
-    Stream(FramedIo<Box<dyn Duplex>>),
+    Stream(Box<FramedIo<Box<dyn Duplex>>>),
 }
 impl Reference {
     fn receive(&mut self, packet: &mut Packet) {

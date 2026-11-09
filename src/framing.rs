@@ -96,6 +96,75 @@ impl Decoder {
     fn at(&self, n: usize) -> u8 {
         self.bytes[(self.head + n) % self.bytes.len()]
     }
+    #[cfg(not(any(windows, target_vendor = "apple")))]
+    pub(crate) fn output_capacity(&self, input: &[u8]) -> usize {
+        if self.len != 0 || input.len() < 2 {
+            return MAX_BODY + 16;
+        }
+        let field = u16::from_be_bytes([input[0], input[1]]);
+        (field & 0x3fff) as usize + if field >> 14 == 2 { 16 } else { 0 }
+    }
+    fn frame(&mut self, header: [u8; 2]) -> Result<(usize, usize)> {
+        if self.failed {
+            return Err(Error::Invalid("decoder is poisoned"));
+        }
+        let field = u16::from_be_bytes(header);
+        let size = (field & 0x3fff) as usize;
+        let kind = field >> 14;
+        if kind == 1 || kind == 3 || (kind == 2 && self.previous.is_none()) || size < 16 {
+            self.failed = true;
+            return Err(Error::Invalid("invalid TCP frame"));
+        }
+        Ok((size, if kind == 2 { 16 } else { 0 }))
+    }
+    /// Extract one complete frame directly from a borrowed receive span. Only
+    /// fragmented frames enter circular storage; the unconsumed suffix stays
+    /// with the caller. Prediction context is shared with the buffered path.
+    pub fn decode_from(&mut self, input: &mut &[u8], output: &mut Packet) -> Result<bool> {
+        if self.failed {
+            return Err(Error::Invalid("decoder is poisoned"));
+        }
+        if self.len != 0 {
+            if self.len < 2 {
+                let n = (2 - self.len).min(input.len());
+                self.feed(&input[..n])?;
+                *input = &input[n..];
+            }
+            if self.len < 2 {
+                return Ok(false);
+            }
+            let (size, _) = self.frame([self.at(0), self.at(1)])?;
+            let n = (size + 2).saturating_sub(self.len).min(input.len());
+            self.feed(&input[..n])?;
+            *input = &input[n..];
+            return self.decode_into(output);
+        }
+        if input.len() < 2 {
+            self.feed(input)?;
+            *input = &[];
+            return Ok(false);
+        }
+        let (size, prefix) = self.frame([input[0], input[1]])?;
+        if input.len() < size + 2 {
+            self.feed(input)?;
+            *input = &[];
+            return Ok(false);
+        }
+        if output.writable().len() < size + prefix {
+            return Err(Error::Full);
+        }
+        if prefix != 0 {
+            output.writable()[..prefix]
+                .copy_from_slice(&next_header(self.previous.expect("checked context")));
+        }
+        output.writable()[prefix..prefix + size].copy_from_slice(&input[2..size + 2]);
+        output.set_len(size + prefix)?;
+        if let Some(header) = data_header(output.data()) {
+            self.previous = Some(header);
+        }
+        *input = &input[size + 2..];
+        Ok(true)
+    }
     pub fn decode_into(&mut self, output: &mut Packet) -> Result<bool> {
         if self.failed {
             return Err(Error::Invalid("decoder is poisoned"));
@@ -103,26 +172,14 @@ impl Decoder {
         if self.len < 2 {
             return Ok(false);
         }
-        let field = u16::from_be_bytes([self.at(0), self.at(1)]);
-        let size = (field & 0x3fff) as usize;
-        let kind = field >> 14;
-        if kind == 1
-            || kind == 3
-            || (kind == 2 && self.previous.is_none())
-            || (kind == 0 && size < 16)
-            || (kind == 2 && size < 16)
-        {
-            self.failed = true;
-            return Err(Error::Invalid("invalid TCP frame"));
-        }
+        let (size, prefix) = self.frame([self.at(0), self.at(1)])?;
         if self.len < size + 2 {
             return Ok(false);
         }
-        let prefix = if kind == 2 { 16 } else { 0 };
         if output.writable().len() < size + prefix {
             return Err(Error::Full);
         }
-        if kind == 2 {
+        if prefix != 0 {
             output.writable()[..16]
                 .copy_from_slice(&next_header(self.previous.expect("checked context")));
         }
@@ -198,5 +255,78 @@ mod tests {
         let mut p = packet(&mut pool, 9);
         e.frame(&mut p).unwrap();
         assert_eq!(&p.data()[..2], &[0, 40]);
+    }
+    #[test]
+    fn direct_and_fragmented_spans_preserve_prediction_and_wraparound() {
+        let mut pool = PacketPool::new(2, 200).unwrap();
+        let mut encoder = Encoder::default();
+        let mut wire = Vec::new();
+        let mut expected = Vec::new();
+        for counter in [0, 1, 5, 6, u64::MAX, 0] {
+            let mut p = packet(&mut pool, counter);
+            expected.push(p.data().to_vec());
+            encoder.frame(&mut p).unwrap();
+            wire.extend_from_slice(p.data());
+            pool.recycle(p).unwrap();
+        }
+        // Every receive-span size exercises a different mixture of complete
+        // frames, split headers/bodies and normal/predicted transitions.
+        for chunk in 1..=wire.len() {
+            let mut decoder = Decoder::new(MAX_BODY + 2).unwrap();
+            let mut out = pool.take().unwrap();
+            for _ in 0..128 {
+                let mut observed = Vec::new();
+                for bytes in wire.chunks(chunk) {
+                    let mut input = bytes;
+                    while !input.is_empty() {
+                        if decoder.decode_from(&mut input, &mut out).unwrap() {
+                            observed.push(out.data().to_vec());
+                        }
+                    }
+                }
+                assert_eq!(observed, expected);
+                assert_eq!(decoder.buffered(), 0);
+            }
+            pool.recycle(out).unwrap();
+        }
+    }
+    #[test]
+    fn direct_output_pressure_keeps_input_and_prediction_retryable() {
+        let mut pool = PacketPool::new(2, 200).unwrap();
+        let mut small = PacketPool::new(1, 16).unwrap();
+        let mut encoder = Encoder::default();
+        let mut decoder = Decoder::new(20000).unwrap();
+        let mut output = pool.take().unwrap();
+        let mut short = small.take().unwrap();
+        for counter in [0, 1] {
+            let mut p = packet(&mut pool, counter);
+            let expected = p.data().to_vec();
+            encoder.frame(&mut p).unwrap();
+            let mut input = p.data();
+            assert!(matches!(
+                decoder.decode_from(&mut input, &mut short),
+                Err(Error::Full)
+            ));
+            assert_eq!(input, p.data());
+            assert!(decoder.decode_from(&mut input, &mut output).unwrap());
+            assert_eq!(output.data(), expected);
+            assert!(input.is_empty());
+            assert_eq!(decoder.buffered(), 0);
+            pool.recycle(p).unwrap();
+        }
+    }
+    #[test]
+    fn direct_invalid_frames_poison_until_reset() {
+        let mut pool = PacketPool::new(1, 200).unwrap();
+        let mut output = pool.take().unwrap();
+        for header in [[0x40, 16], [0xc0, 16], [0x80, 16], [0, 15]] {
+            let mut decoder = Decoder::new(20000).unwrap();
+            let mut input = header.as_slice();
+            assert!(decoder.decode_from(&mut input, &mut output).is_err());
+            assert!(decoder.decode_from(&mut &[][..], &mut output).is_err());
+            assert!(decoder.feed(&[]).is_err());
+            decoder.reset();
+            assert!(!decoder.decode_from(&mut &[][..], &mut output).unwrap());
+        }
     }
 }
