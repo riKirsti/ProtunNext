@@ -7,7 +7,9 @@ rustls on Windows/Apple and unbuffered rustls on Linux/Android at compile time.
 There is no runtime adapter switch or backend tuning matrix.
 Linux/Android use recvmmsg/sendmmsg; Windows/Apple use their native Mio sockets.
 UDP offload is negotiated inside the batch adapter and preserves datagram
-boundaries. The maximum available batch is 16; the worker never waits to fill it.
+boundaries. The restored PR #5 maximum batch is 16. This experimental branch
+tests 32 in a separate [download comparison](benchmarks/udp-batch-experiment.md);
+the worker never waits to fill it. A new production default is not yet accepted.
 Partial sends retain every unaccepted packet exactly once.
 
 The [latest platform decision](tls-selection-20261105.md) combines actual x64
