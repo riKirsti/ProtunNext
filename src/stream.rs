@@ -191,7 +191,7 @@ impl<S: Read + Write> FramedIo<S> {
                     && pool.available() > 2
                 {
                     let mut packet = pool
-                        .take_sized(65535)
+                        .take_sized(self.decoder.output_capacity(input))
                         .ok_or_else(|| io::Error::other(Error::Full))?;
                     match self.decoder.decode_from(&mut input, &mut packet) {
                         Ok(true) => self
@@ -368,6 +368,24 @@ mod tests {
         );
         io.close(&mut pool).unwrap();
         assert_eq!(pool.available(), 9);
+    }
+    #[cfg(not(any(windows, target_vendor = "apple")))]
+    #[test]
+    fn borrowed_mtu_frames_do_not_promote_the_compact_pool_to_jumbo_buffers() {
+        let (wire, _) = frames(80);
+        let mut io = FramedIo::borrowing(io::Cursor::new(wire), 64).unwrap();
+        let mut pool = PacketPool::compact(96, 2048, 65535).unwrap();
+        let reservation = pool.reserved_bytes();
+        let mut output = pool.take_sized(65535).unwrap();
+        assert_eq!(
+            io.receive_borrowed(&mut output, &mut pool, |io, consume| consume(io.get_ref()))
+                .unwrap(),
+            Receive::Packet
+        );
+        assert_eq!(io.received.len(), 64);
+        io.close(&mut pool).unwrap();
+        pool.recycle(output).unwrap();
+        assert_eq!(pool.reserved_bytes(), reservation);
     }
     struct Short {
         bytes: Vec<u8>,
