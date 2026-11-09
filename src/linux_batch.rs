@@ -9,7 +9,7 @@ use crate::{
 use std::{collections::VecDeque, io, net::UdpSocket, os::fd::AsRawFd};
 
 pub(crate) const MAX_BATCH: usize = 32;
-const BATCH_SIZE: usize = 32;
+const BATCH_SIZE: usize = 16;
 #[repr(C, align(8))]
 struct Control([u8; 64]);
 struct Received {
@@ -447,7 +447,7 @@ mod tests {
                 let mut sizes = vec![
                     0, 16, 16, 1280, 1280, 1280, 1280, 1280, 1280, 1280, 1280, 100, 5000, 1280,
                 ];
-                // Cross two full syscall batches and exercise a short final
+                // Cross several full syscall batches and exercise a short final
                 // datagram after several GSO groups.
                 sizes.extend(std::iter::repeat_n(1280, 2 * MAX_BATCH));
                 sizes.push(17);
