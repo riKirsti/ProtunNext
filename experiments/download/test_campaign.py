@@ -56,6 +56,45 @@ class DownloadValidity(unittest.TestCase):
         self.assertTrue(result["blocks"][0]["capacity_ranking"])
         self.assertAlmostEqual(result["blocks"][0]["result"]["Mbps"]["change_percent"],0)
 
+    def test_rate_controlled_plan_is_balanced_and_explicit(self):
+        with mock.patch.dict(campaign.os.environ,{"NEXT_DOWNLOAD_RATE_BPS":"200000000"}):
+            rows=campaign.plan()
+            self.assertEqual(len(rows),96)
+            for row in rows:
+                self.assertEqual(row["bytes"],128*1024*1024)
+                self.assertEqual(row["bytes"],65536*row["flows"]*row["blocks_per_flow"])
+                self.assertEqual(row["offered_rate_bps"],200000000)
+            self.assertIn("export NEXT_DOWNLOAD_RATE_BPS=200000000",campaign.guest_script())
+        with mock.patch.dict(campaign.os.environ,{"NEXT_DOWNLOAD_RATE_BPS":"-1"}):
+            with self.assertRaises(AssertionError):campaign.plan()
+
+    def test_rate_controlled_samples_cannot_claim_maximum_capacity(self):
+        self.fixture()
+        rate=200000000
+        for expected,row in zip(self.expected,self.rows):
+            expected["offered_rate_bps"]=row["offered_rate_bps"]=rate
+            m=row["metrics"][0]
+            m["offered_rate_bps"]=rate
+            seconds=row["bytes"]*8/rate
+            m["seconds"]=m["load"]["seconds"]=m["peer"]["seconds"]=seconds
+        result=self.analyze()
+        self.assertFalse(result["errors"])
+        self.assertTrue(result["blocks"][0]["rate_controlled"])
+        self.assertTrue(result["blocks"][0]["AA_pass"])
+        self.assertTrue(result["blocks"][0]["timing_pass"])
+        self.assertFalse(result["blocks"][0]["auxiliary_limited"])
+        self.assertFalse(result["blocks"][0]["capacity_ranking"])
+        self.rows[0]["metrics"][0]["offered_rate_bps"]=0
+        self.assertTrue(self.analyze()["errors"])
+        self.rows[0]["metrics"][0]["offered_rate_bps"]=rate
+        self.rows[0]["metrics"][0]["load"]["seconds"]*=2
+        self.assertTrue(self.analyze()["errors"])
+
+    def test_unplanned_rate_limit_cannot_pass_as_unpaced_capacity(self):
+        self.fixture()
+        self.rows[0]["metrics"][0]["offered_rate_bps"]=200000000
+        self.assertTrue(self.analyze()["errors"])
+
     def test_wrong_identity_bypassed_tunnel_payload_failure_and_outer_errors(self):
         self.fixture()
         for name, value in [("effective_sources_sha256","wrong"),("namespace","net:[2]"),

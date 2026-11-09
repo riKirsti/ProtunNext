@@ -109,9 +109,20 @@ fn template() -> Vec<u8> {
         .collect()
 }
 
-fn send_body(io: &mut dyn Duplex, blocks: u64, flow: u64) {
+fn offered_rate() -> u64 {
+    std::env::var("NEXT_DOWNLOAD_RATE_BPS")
+        .map(|value| value.parse().expect("invalid download test rate"))
+        .unwrap_or(0)
+}
+
+fn send_body(io: &mut dyn Duplex, blocks: u64, flow: u64, rate: u64) {
     let mut body = template();
+    let start = Instant::now();
     for sequence in 0..blocks {
+        if rate != 0 {
+            let due = Duration::from_secs_f64(sequence as f64 * BLOCK as f64 * 8.0 / rate as f64);
+            thread::sleep(due.saturating_sub(start.elapsed()));
+        }
         body[..8].copy_from_slice(&sequence.to_be_bytes());
         body[8..16].copy_from_slice(&flow.to_be_bytes());
         io.write_all(&body).unwrap();
@@ -275,6 +286,8 @@ fn peer(proto: &str, flows: usize, blocks: u64, family: &str, application: &str)
     let mut device = tun(family, true);
     let listener = TcpListener::bind(addresses(family, true).2).unwrap();
     let https = application == "https";
+    let rate = offered_rate();
+    assert!(rate == 0 || rate >= flows as u64);
     thread::spawn(move || {
         pin("NEXT_SERVER_CPUS");
         let mut workers = Vec::new();
@@ -309,7 +322,7 @@ fn peer(proto: &str, flows: usize, blocks: u64, family: &str, application: &str)
                     WARM_BLOCKS * BLOCK as u64
                 )
                 .unwrap();
-                send_body(&mut *io, WARM_BLOCKS, flow);
+                send_body(&mut *io, WARM_BLOCKS, flow, 0);
                 assert_eq!(header(&mut *io), request);
                 write!(
                     io,
@@ -317,7 +330,7 @@ fn peer(proto: &str, flows: usize, blocks: u64, family: &str, application: &str)
                     blocks * BLOCK as u64
                 )
                 .unwrap();
-                send_body(&mut *io, blocks, flow);
+                send_body(&mut *io, blocks, flow, rate / flows as u64);
             }));
         }
         for worker in workers {
@@ -763,7 +776,7 @@ fn client(binary: &str, proto: &str, flows: usize, blocks: u64, family: &str, ap
         .unwrap()
     };
     emit(
-        serde_json::json!({"role":"download-client","effective_sources_sha256":option_env!("NEXT_BUILD_ID").unwrap_or("unstamped-local-build"),"protocol":proto,"flows":flows,"blocks_per_flow":blocks,"family":family,"application":application,"seconds":seconds,"client_cpu_seconds":used,"client_rss_kib":rss(),"load":metric(&load_text),"peer":metric(&peer_text),"before":before,"after":after,"counters":counters,"namespace":namespace(),"kernel":std::fs::read_to_string("/proc/sys/kernel/osrelease").unwrap().trim(),"arch":std::env::consts::ARCH,"scope":"Kernel TCP HTTP/HTTPS, two inner network stacks, production Connection/TUN worker; outer sockets on loopback. No physical NIC, RTT/loss or Proton WAN acceptance. CPU excludes asynchronous kernel work; RSS excludes kernel/auxiliary memory."}),
+        serde_json::json!({"role":"download-client","offered_rate_bps":offered_rate(),"effective_sources_sha256":option_env!("NEXT_BUILD_ID").unwrap_or("unstamped-local-build"),"protocol":proto,"flows":flows,"blocks_per_flow":blocks,"family":family,"application":application,"seconds":seconds,"client_cpu_seconds":used,"client_rss_kib":rss(),"load":metric(&load_text),"peer":metric(&peer_text),"before":before,"after":after,"counters":counters,"namespace":namespace(),"kernel":std::fs::read_to_string("/proc/sys/kernel/osrelease").unwrap().trim(),"arch":std::env::consts::ARCH,"scope":"Kernel TCP HTTP/HTTPS, two inner network stacks, production Connection/TUN worker; outer sockets on loopback. No physical NIC, RTT/loss or Proton WAN acceptance. CPU excludes asynchronous kernel work; RSS excludes kernel/auxiliary memory."}),
     );
     assert_eq!(
         counters.invalid_packets, 0,
