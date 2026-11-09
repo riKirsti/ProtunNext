@@ -21,6 +21,8 @@ use std::{
 };
 #[path = "../tests/common/mod.rs"]
 mod common;
+#[path = "download_probe.rs"]
+mod download;
 fn emit(v: serde_json::Value) {
     println!("NEXT_JSON {}", v);
 }
@@ -216,13 +218,25 @@ impl Read for PeerTls {
 }
 impl Write for PeerTls {
     fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
-        self.inner.write(b)
+        match self.inner.write(b) {
+            Ok(0) if !b.is_empty() => Err(std::io::ErrorKind::WouldBlock.into()),
+            result => result,
+        }
     }
     fn write_vectored(&mut self, b: &[IoSlice<'_>]) -> std::io::Result<usize> {
-        if self.vectored {
+        let result = if self.vectored {
             rustls::Stream::new(&mut self.inner.conn, &mut self.inner.sock).write_vectored(b)
         } else {
             self.inner.write_vectored(b)
+        };
+        // Rustls Writer may accept zero plaintext when its bounded buffer is
+        // full. Preserve the nonblocking contract instead of manufacturing a
+        // fatal FramedIo WriteZero. No input was consumed in this case.
+        match result {
+            Ok(0) if b.iter().any(|part| !part.is_empty()) => {
+                Err(std::io::ErrorKind::WouldBlock.into())
+            }
+            result => result,
         }
     }
     fn flush(&mut self) -> std::io::Result<()> {
@@ -790,6 +804,9 @@ fn client(peer_bin: &str, proto: &str, size: usize, window: usize, seconds: f64,
 }
 pub fn run() {
     let a: Vec<_> = std::env::args().collect();
+    if download::dispatch(&a) {
+        return;
+    }
     if a[1] == "identity" {
         println!(
             "{}",
@@ -820,6 +837,68 @@ pub fn run() {
 #[cfg(test)]
 mod audit_tests {
     use super::*;
+    #[test]
+    fn peer_tls_buffer_backpressure_preserves_unconsumed_plaintext() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let endpoint = listener.local_addr().unwrap();
+        let server = thread::spawn(move || {
+            let (socket, _) = listener.accept().unwrap();
+            socket
+                .set_read_timeout(Some(Duration::from_secs(5)))
+                .unwrap();
+            socket
+                .set_write_timeout(Some(Duration::from_secs(5)))
+                .unwrap();
+            let mut peer = PeerTls::new(socket, true);
+            while peer.inner.conn.is_handshaking() {
+                peer.inner.conn.complete_io(&mut peer.inner.sock).unwrap();
+            }
+            peer.inner.sock.socket.set_nonblocking(true).unwrap();
+            peer.inner.conn.set_buffer_limit(Some(0));
+            let parts = [IoSlice::new(b"abc"), IoSlice::new(b"def")];
+            assert_eq!(
+                rustls::Stream::new(&mut peer.inner.conn, &mut peer.inner.sock)
+                    .write_vectored(&parts)
+                    .unwrap(),
+                0
+            );
+            assert_eq!(
+                peer.write_vectored(&parts).unwrap_err().kind(),
+                std::io::ErrorKind::WouldBlock
+            );
+            assert_eq!(
+                peer.write(b"abc").unwrap_err().kind(),
+                std::io::ErrorKind::WouldBlock
+            );
+            peer.inner.conn.set_buffer_limit(Some(65536));
+            assert_eq!(peer.write_vectored(&parts).unwrap(), 6);
+            peer.inner.conn.send_close_notify();
+            peer.flush().unwrap();
+        });
+        let config = rustls::ClientConfig::builder_with_provider(std::sync::Arc::new(
+            rustls::crypto::ring::default_provider(),
+        ))
+        .with_safe_default_protocol_versions()
+        .unwrap()
+        .with_root_certificates(common::roots())
+        .with_no_client_auth();
+        let socket = TcpStream::connect(endpoint).unwrap();
+        socket
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+        let mut client = rustls::StreamOwned::new(
+            rustls::ClientConnection::new(
+                std::sync::Arc::new(config),
+                "localhost".try_into().unwrap(),
+            )
+            .unwrap(),
+            socket,
+        );
+        let mut body = Vec::new();
+        client.read_to_end(&mut body).unwrap();
+        assert_eq!(&body, b"abcdef");
+        server.join().unwrap();
+    }
     #[test]
     fn actual_pinned_streamowned_fallback_and_corrected_peer_batch_differ() {
         for vectored in [false, true] {

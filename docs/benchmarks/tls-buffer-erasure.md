@@ -22,9 +22,11 @@ change.
 
 ## Measurement
 
-The existing two-variant audit runner now accepts `--baseline` (default:
-`ae9c9e86da8509261812813c9438e7ea625e19f5`, merged PR #3). Candidate defaults to
-the checked-out commit. The legacy internal candidate label is `erase`; report
+The existing two-variant audit runner accepts `--baseline` (new default:
+`f7bf03f5b4dc3981eaadedbf3a7841c5ed5ee5c1`, merged PR #4). Candidate defaults to
+the checked-out commit. The
+PR4 results themselves used explicit merged-PR3 baseline `ae9c9e8`. The legacy
+internal candidate label is `erase`; report
 columns identify baseline and candidate. The peer and generator are separately
 identified baseline binaries, fixed for both sides. No PR #3 gain is credited
 to this change.

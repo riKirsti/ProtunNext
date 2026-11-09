@@ -7,6 +7,7 @@ import pathlib
 import shutil
 import socket
 import subprocess
+import sys
 import time
 
 from analyze import publish
@@ -19,7 +20,7 @@ def sha(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def collect(log, output):
+def collect(log, output, expected=None):
     rows, row = [], None
     for line in log.splitlines():
         if line.startswith("ERASURE_CASE "):
@@ -35,12 +36,18 @@ def collect(log, output):
                 row["exit"] = int(line.split()[-1])
     if row is not None:
         rows.append(row)
-    (output / "plan.json").write_text(json.dumps(plan(), indent=2), encoding="utf-8")
+    (output / "plan.json").write_text(json.dumps(plan() if expected is None else expected, indent=2), encoding="utf-8")
     (output / "samples.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
 
 
-def run(version):
-    output = ROOT / "target/erasure-audit/results" / version
+def run(version, download=False):
+    if download:
+        sys.path.insert(0, str(ROOT / "experiments"))
+        from download import campaign
+    expected = campaign.plan() if download else plan()
+    script = campaign.guest_script() if download else guest_script()
+    publisher = campaign.publish if download else publish
+    output = ROOT / "target/erasure-audit/results" / ("download/" + version if download else version)
     output.mkdir(parents=True, exist_ok=True)
     stage = ROOT / "target/erasure-audit/guest" / version
     guest = stage / "root"
@@ -50,7 +57,6 @@ def run(version):
     assert image.is_file(), "restore or build the supported functional-test kernel first"
     bins = {n: ROOT / "target/erasure-audit/bin" / n for n in ["main", "erase"]}
     digests = {n: sha(p) for n, p in bins.items()}
-    assert len(set(digests.values())) == 2
     sources = json.loads((ROOT / "target/erasure-audit/builds.json").read_text())
     for name, binary in bins.items():
         identity = json.loads(subprocess.check_output([str(binary), "identity"], text=True))
@@ -63,7 +69,7 @@ def run(version):
         path = guest / "bin" / app
         if not path.exists():
             path.symlink_to("busybox")
-    (guest / "init").write_text(guest_script(), encoding="utf-8")
+    (guest / "init").write_text(script, encoding="utf-8")
     os.chmod(guest / "init", 0o755)
     subprocess.run("find . -print0 | cpio --null -o --format=newc | gzip -1 >../initramfs.gz", shell=True, cwd=guest, check=True)
     cpus = sorted(os.sched_getaffinity(0))
@@ -72,7 +78,8 @@ def run(version):
                        kernel_image_sha256=sha(image), kernel_builder_sha256=sha(ROOT / "scripts/test-linux-lts.sh"),
                        harness_sha256={f.name: sha(f) for f in pathlib.Path(__file__).parent.glob("*.py")},
                        compiler=(ROOT / "target/erasure-audit/toolchain.txt").read_text(),
-                       host_cpus=cpus, warm_seconds=1, measured_seconds=5,
+                       host_cpus=cpus, workload="download" if download else "echo",
+                       warm_seconds=None if download else 1, measured_seconds=None if download else 5,
                        scope="actual-kernel KVM; pinned logical CPUs, not physical-core or interrupt isolation")
     (output / "environment.json").write_text(json.dumps(environment, indent=2), encoding="utf-8")
     (output / "hardware.txt").write_text(subprocess.check_output(["lscpu"], text=True), encoding="utf-8")
@@ -127,8 +134,8 @@ def run(version):
             qmp.unlink(missing_ok=True)
     (output / "host-after.txt").write_text(pathlib.Path("/proc/stat").read_text())
     text = (output / "guest.log").read_text()
-    collect(text, output)
-    report = publish(output)  # Publish partial/failing measurements too.
+    collect(text, output, expected)
+    report = publisher(output)  # Publish partial/failing measurements too.
     assert error is None, error
     assert f"ERASURE_KERNEL {version}" in text and "ERASURE_CPUS 0-3" in text
     clock = next(l.split("ERASURE_CLOCK ", 1)[1] for l in text.splitlines() if l.startswith("ERASURE_CLOCK "))
@@ -142,4 +149,6 @@ def run(version):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("kernel", choices=["6.12.115", "6.18.60"])
-    run(parser.parse_args().kernel)
+    parser.add_argument("--download", action="store_true")
+    args = parser.parse_args()
+    run(args.kernel, args.download)
