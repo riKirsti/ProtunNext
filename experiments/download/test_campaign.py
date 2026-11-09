@@ -90,6 +90,11 @@ class DownloadValidity(unittest.TestCase):
         self.rows[0]["metrics"][0]["load"]["seconds"]*=2
         self.assertTrue(self.analyze()["errors"])
 
+    def test_unplanned_rate_limit_cannot_pass_as_unpaced_capacity(self):
+        self.fixture()
+        self.rows[0]["metrics"][0]["offered_rate_bps"]=200000000
+        self.assertTrue(self.analyze()["errors"])
+
     def test_wrong_identity_bypassed_tunnel_payload_failure_and_outer_errors(self):
         self.fixture()
         for name, value in [("effective_sources_sha256","wrong"),("namespace","net:[2]"),

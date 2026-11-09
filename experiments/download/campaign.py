@@ -107,10 +107,10 @@ def metrics(row, env):
         assert tls["vectored"] is True and tls["version"] == "Some(TLSv1_3)"
     seconds, cpu = m["seconds"], m["client_cpu_seconds"]
     assert all(math.isfinite(v) and v > 0 for v in [seconds, cpu, load["seconds"], peer["seconds"], m["client_rss_kib"]])
+    assert m.get("offered_rate_bps", 0) == row.get("offered_rate_bps", 0), "offered rate identity mismatch"
     if "offered_rate_bps" in row:
         rate = row["offered_rate_bps"]
         assert isinstance(rate, int) and not isinstance(rate, bool) and rate > 0
-        assert m.get("offered_rate_bps") == rate, "offered rate identity mismatch"
         assert abs(load["bytes"]*8/load["seconds"]/rate-1) <= .05, "offered rate was not sustained"
     skew = abs(seconds/load["seconds"]-1)
     aux = max(load["cpu_seconds"]/load["seconds"],

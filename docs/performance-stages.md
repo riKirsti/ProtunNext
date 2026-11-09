@@ -11,7 +11,7 @@ Research is open-ended; earlier prototypes do not exclude different designs.
 | Stage | Scope | Status |
 |---|---|---|
 | 1 | Real inner TCP/HTTPS baseline and complete-path profiling | Initial foundation merged in PR #5; PR #6 retains batch-screening evidence and regression checks |
-| 2 | Simple receive-path improvements: framing/copies, scheduling, batching, bounded storage | Active; one PR against merged PR #6 |
+| 2 | Simple receive-path improvements: framing/copies, scheduling, batching, bounded storage | Evaluated in PR #7; review/merge pending |
 | 3 | Genuine receive-side TUN coalescing and offload metadata | Review before starting |
 | 4 | Multicore receive architectures and asynchronous decryption | Review before starting |
 | 5 | Alternative acceleration: crypto implementations, native WireGuard, advanced I/O/TLS, CPU/NIC coordination and kernel bypass | Review the evidence-backed shortlist before starting |
@@ -52,3 +52,18 @@ for each candidate. Finish with evidence-backed recommendations and the next
 stage review; do not equate a passing test count with a performance improvement.
 Controlled measurements support selection; physical-device and Proton WAN
 validation remain explicit evidence gaps until actually performed.
+
+## Stage 2 result
+
+[PR #7](https://github.com/riKirsti/ProtunNext/pull/7) retains direct complete-frame
+extraction and compact borrowed-TLS packet ownership. All 504 downloads in the
+completed retained cohorts are valid. The clearest result is lower Stealth peak
+client RSS, reproduced on both x64 LTS kernels and native x64/ARM64. Matched-load
+ARM64 CPU reductions are observed; x64 CPU changes are small/mixed. Maximum
+download-speed gains remain unproven. Worker bounds and UDP batch 16 remain.
+See the [complete evaluation](benchmarks/stage2-receive.md) for source identities,
+controls, original limitations and platform-specific recommendations.
+
+Stage 3 has not started. After this stage's review, first revisit the agreed
+goal, merged baseline, TUN/kernel profile evidence, raw-TUN compatibility,
+offload/checksum/segmentation correctness and validation criteria in chat.
