@@ -28,7 +28,8 @@ jobs:
       - name: Build candidate and fixed baseline auxiliaries
         env:
           BASELINE: 4c1abe891ba094e8209d9cfc382471489e710dfc
-        run: bash experiments/audit/build.sh "$(rustc -vV | sed -n 's/^host: //p')"
+        run: |
+          bash experiments/audit/build.sh "$(rustc -vV | sed -n 's/^host: //p')"
       - name: Compare verified downloads across all transports
         run: sudo python3 experiments/audit/native.py --download
       - name: Retain raw results even on failure
