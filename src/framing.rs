@@ -96,6 +96,7 @@ impl Decoder {
     fn at(&self, n: usize) -> u8 {
         self.bytes[(self.head + n) % self.bytes.len()]
     }
+    #[cfg(not(any(windows, target_vendor = "apple")))]
     pub(crate) fn output_capacity(&self, input: &[u8]) -> usize {
         if self.len != 0 || input.len() < 2 {
             return MAX_BODY + 16;

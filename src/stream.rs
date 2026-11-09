@@ -190,6 +190,9 @@ impl<S: Read + Write> FramedIo<S> {
                     && self.received.len() < self.limit
                     && pool.available() > 2
                 {
+                    if input.len() < 2 && self.decoder.buffered() == 0 {
+                        break;
+                    }
                     let mut packet = pool
                         .take_sized(self.decoder.output_capacity(input))
                         .ok_or_else(|| io::Error::other(Error::Full))?;
