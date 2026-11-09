@@ -30,6 +30,11 @@ pub struct FramedIo<S> {
     pending: PacketQueue,
     limit: usize,
     scratch: Box<[u8]>,
+    first: usize,
+    end: usize,
+    received: PacketQueue,
+    #[cfg(not(any(windows, target_vendor = "apple")))]
+    receive_error: Option<Error>,
 }
 impl<S: Read + Write> FramedIo<S> {
     pub fn new(io: S, queue_limit: usize) -> Result<Self> {
@@ -47,6 +52,11 @@ impl<S: Read + Write> FramedIo<S> {
             pending: PacketQueue::new(queue_limit)?,
             limit: queue_limit,
             scratch: vec![0; scratch].into_boxed_slice(),
+            first: 0,
+            end: 0,
+            received: PacketQueue::new(queue_limit)?,
+            #[cfg(not(any(windows, target_vendor = "apple")))]
+            receive_error: None,
         })
     }
     pub fn queue(&mut self, mut packet: Packet) -> std::result::Result<(), Rejected> {
@@ -113,26 +123,102 @@ impl<S: Read + Write> FramedIo<S> {
         })
     }
     pub fn receive(&mut self, output: &mut Packet) -> Result<Receive> {
-        self.receive_using(output, |io, decoder, scratch| {
-            let capacity = scratch.len().min(decoder.remaining());
-            if capacity == 0 {
+        for _ in 0..64 {
+            let mut input = &self.scratch[self.first..self.end];
+            let result = self.decoder.decode_from(&mut input, output);
+            self.first = self.end - input.len();
+            if result? {
+                return Ok(Receive::Packet);
+            }
+            self.first = 0;
+            self.end = 0;
+            if self.scratch.is_empty() {
                 return Err(Error::Full);
             }
-            let n = io.read(&mut scratch[..capacity])?;
-            decoder.feed(&scratch[..n])?;
-            Ok(n)
-        })
+            match self.io.read(&mut self.scratch) {
+                Ok(0) if self.decoder.buffered() == 0 => return Ok(Receive::Eof),
+                Ok(0) => {
+                    return Err(io::Error::new(
+                        io::ErrorKind::UnexpectedEof,
+                        "partial WireGuard TCP frame",
+                    )
+                    .into());
+                }
+                Ok(n) => self.end = n,
+                Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
+                    return Ok(Receive::WouldBlock);
+                }
+                Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
+                Err(e) => return Err(e.into()),
+            }
+        }
+        // Caller must reschedule without relying on another edge-triggered event.
+        Ok(Receive::Yield)
     }
-    pub(crate) fn receive_using(
+    #[cfg(not(any(windows, target_vendor = "apple")))]
+    pub(crate) fn receive_borrowed(
         &mut self,
         output: &mut Packet,
-        mut read: impl FnMut(&mut S, &mut Decoder, &mut [u8]) -> Result<usize>,
+        pool: &mut PacketPool,
+        mut read: impl FnMut(&mut S, &mut dyn FnMut(&[u8]) -> io::Result<usize>) -> io::Result<usize>,
     ) -> Result<Receive> {
+        if let Some(mut packet) = self.received.pop() {
+            std::mem::swap(output, &mut packet);
+            pool.recycle(packet)?;
+            return Ok(Receive::Packet);
+        }
+        if let Some(error) = self.receive_error.take() {
+            return Err(error);
+        }
         for _ in 0..64 {
             if self.decoder.decode_into(output)? {
                 return Ok(Receive::Packet);
             }
-            match read(&mut self.io, &mut self.decoder, &mut self.scratch) {
+            let mut produced = false;
+            let result = read(&mut self.io, &mut |data| {
+                let mut input = data;
+                produced = self
+                    .decoder
+                    .decode_from(&mut input, output)
+                    .map_err(io::Error::other)?;
+                // Consume this TLS record while it is borrowed. Prefetch only
+                // already available frames, bounded by the queue and pool;
+                // reserve two buffers for the worker/control path. Any suffix
+                // that cannot be extracted now uses the existing bounded ring.
+                while produced
+                    && !input.is_empty()
+                    && self.received.len() < self.limit
+                    && pool.available() > 2
+                {
+                    let mut packet = pool
+                        .take_sized(65535)
+                        .ok_or_else(|| io::Error::other(Error::Full))?;
+                    match self.decoder.decode_from(&mut input, &mut packet) {
+                        Ok(true) => self
+                            .received
+                            .push(packet)
+                            .map_err(|_| io::Error::other(Error::Full))?,
+                        Ok(false) => {
+                            pool.recycle(packet).map_err(io::Error::other)?;
+                            break;
+                        }
+                        Err(error) => {
+                            pool.recycle(packet).map_err(io::Error::other)?;
+                            // Deliver the valid prefix before reporting a later
+                            // malformed frame, just like incremental decoding.
+                            self.receive_error = Some(error);
+                            return Ok(data.len());
+                        }
+                    }
+                }
+                self.decoder.feed(input).map_err(io::Error::other)?;
+                Ok(data.len())
+            });
+            if produced {
+                result?;
+                return Ok(Receive::Packet);
+            }
+            match result {
                 Ok(0) if self.decoder.buffered() == 0 => return Ok(Receive::Eof),
                 Ok(0) => {
                     return Err(io::Error::new(
@@ -142,14 +228,11 @@ impl<S: Read + Write> FramedIo<S> {
                     .into());
                 }
                 Ok(_) => {}
-                Err(Error::Io(e)) if e.kind() == io::ErrorKind::WouldBlock => {
-                    return Ok(Receive::WouldBlock);
-                }
-                Err(Error::Io(e)) if e.kind() == io::ErrorKind::Interrupted => continue,
-                Err(e) => return Err(e),
+                Err(e) if e.kind() == io::ErrorKind::WouldBlock => return Ok(Receive::WouldBlock),
+                Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
+                Err(e) => return Err(e.into()),
             }
         }
-        // Caller must reschedule without relying on another edge-triggered event.
         Ok(Receive::Yield)
     }
     pub fn pending(&self) -> usize {
@@ -165,12 +248,102 @@ impl<S: Read + Write> FramedIo<S> {
         while let Some(p) = self.pending.pop() {
             pool.recycle(p)?;
         }
+        while let Some(p) = self.received.pop() {
+            pool.recycle(p)?;
+        }
         Ok(self.io)
     }
 }
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn frames(count: usize) -> (Vec<u8>, Vec<Vec<u8>>) {
+        let mut pool = PacketPool::new(1, 200).unwrap();
+        let mut encoder = Encoder::default();
+        let mut wire = Vec::new();
+        let mut expected = Vec::new();
+        for n in 0..count {
+            let mut p = pool.take().unwrap();
+            p.writable()[..80].fill(n as u8);
+            p.writable()[..4].copy_from_slice(&[4, 0, 0, 0]);
+            p.writable()[4..8].copy_from_slice(&7u32.to_le_bytes());
+            p.writable()[8..16].copy_from_slice(&(n as u64).to_le_bytes());
+            p.set_len(80).unwrap();
+            expected.push(p.data().to_vec());
+            encoder.frame(&mut p).unwrap();
+            wire.extend_from_slice(p.data());
+            pool.recycle(p).unwrap();
+        }
+        (wire, expected)
+    }
+    #[test]
+    fn complete_receive_spans_bypass_ring_and_preserve_unconsumed_frames() {
+        let (wire, expected) = frames(80);
+        let mut io = FramedIo::new(io::Cursor::new(wire), 64).unwrap();
+        let mut pool = PacketPool::new(1, 200).unwrap();
+        let mut output = pool.take().unwrap();
+        for packet in expected {
+            assert_eq!(io.receive(&mut output).unwrap(), Receive::Packet);
+            assert_eq!(output.data(), packet);
+            assert_eq!(io.decoder.buffered(), 0);
+        }
+        assert_eq!(io.receive(&mut output).unwrap(), Receive::Eof);
+    }
+    #[test]
+    fn receive_fragmented_eof_is_not_a_clean_close() {
+        for bytes in [vec![0], vec![0, 16, 1, 2, 3]] {
+            let mut io = FramedIo::new(io::Cursor::new(bytes), 64).unwrap();
+            let mut pool = PacketPool::new(1, 200).unwrap();
+            let mut output = pool.take().unwrap();
+            assert!(
+                matches!(io.receive(&mut output), Err(Error::Io(e)) if e.kind() == io::ErrorKind::UnexpectedEof)
+            );
+        }
+    }
+    #[cfg(not(any(windows, target_vendor = "apple")))]
+    #[test]
+    fn borrowed_records_bound_prefetch_and_fallback_under_pool_pressure() {
+        for count in [3, 6, 96] {
+            for limit in [1, 4, 64] {
+                let (wire, expected) = frames(80);
+                let mut io = FramedIo::borrowing(io::Cursor::new(wire), limit).unwrap();
+                let mut pool = PacketPool::new(count, 65535).unwrap();
+                let mut output = pool.take().unwrap();
+                for packet in expected {
+                    let result = io
+                        .receive_borrowed(&mut output, &mut pool, |io, consume| {
+                            let first = io.position() as usize;
+                            let n = consume(&io.get_ref()[first..])?;
+                            io.set_position((first + n) as u64);
+                            Ok(n)
+                        })
+                        .unwrap();
+                    assert_eq!(result, Receive::Packet);
+                    assert_eq!(output.data(), packet);
+                    assert!(io.received.len() <= limit);
+                    assert!(pool.available() >= 2);
+                }
+                io.close(&mut pool).unwrap();
+                assert_eq!(pool.available(), count - 1);
+            }
+        }
+    }
+    #[cfg(not(any(windows, target_vendor = "apple")))]
+    #[test]
+    fn closing_borrowed_stream_recycles_prefetched_packet_ownership() {
+        let (wire, _) = frames(8);
+        let mut io = FramedIo::borrowing(io::Cursor::new(wire), 4).unwrap();
+        let mut pool = PacketPool::new(10, 65535).unwrap();
+        let mut output = pool.take().unwrap();
+        assert_eq!(
+            io.receive_borrowed(&mut output, &mut pool, |io, consume| consume(io.get_ref()))
+                .unwrap(),
+            Receive::Packet
+        );
+        assert_eq!(io.received.len(), 4);
+        io.close(&mut pool).unwrap();
+        assert_eq!(pool.available(), 9);
+    }
     struct Short {
         bytes: Vec<u8>,
         max: usize,
