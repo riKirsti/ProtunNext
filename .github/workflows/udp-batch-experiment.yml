@@ -20,6 +20,10 @@ on:
         type: string
         default: '0'
         description: Optional aggregate test rate in bits/s (0 = unpaced; paced samples use 128 MiB)
+      block:
+        type: string
+        default: ''
+        description: Optional workload block for a focused comparison
 permissions: {contents: read}
 defaults:
   run:
@@ -83,7 +87,8 @@ jobs:
       - name: Compare verified downloads across all transports
         env:
           NEXT_DOWNLOAD_RATE_BPS: ${{ inputs.rate_bps || '0' }}
-        run: sudo env "NEXT_DOWNLOAD_RATE_BPS=$NEXT_DOWNLOAD_RATE_BPS" python3 experiments/audit/native.py --download
+          NEXT_DOWNLOAD_BLOCK: ${{ inputs.block }}
+        run: sudo env "NEXT_DOWNLOAD_RATE_BPS=$NEXT_DOWNLOAD_RATE_BPS" "NEXT_DOWNLOAD_BLOCK=$NEXT_DOWNLOAD_BLOCK" python3 experiments/audit/native.py --download
       - name: Retain raw results even on failure
         if: always()
         run: |

@@ -96,6 +96,13 @@ impl Decoder {
     fn at(&self, n: usize) -> u8 {
         self.bytes[(self.head + n) % self.bytes.len()]
     }
+    pub(crate) fn output_capacity(&self, input: &[u8]) -> usize {
+        if self.len != 0 || input.len() < 2 {
+            return MAX_BODY + 16;
+        }
+        let field = u16::from_be_bytes([input[0], input[1]]);
+        (field & 0x3fff) as usize + if field >> 14 == 2 { 16 } else { 0 }
+    }
     fn frame(&mut self, header: [u8; 2]) -> Result<(usize, usize)> {
         if self.failed {
             return Err(Error::Invalid("decoder is poisoned"));
