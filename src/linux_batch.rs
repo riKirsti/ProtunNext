@@ -448,7 +448,7 @@ mod tests {
                     0, 16, 16, 1280, 1280, 1280, 1280, 1280, 1280, 1280, 1280, 100, 5000, 1280,
                 ];
                 // Cross two full syscall batches and exercise a short final
-                // datagram, including GSO groups that exceed the 64 KiB limit.
+                // datagram after several GSO groups.
                 sizes.extend(std::iter::repeat_n(1280, 2 * MAX_BATCH));
                 sizes.push(17);
                 let expected: Vec<Vec<u8>> = sizes
