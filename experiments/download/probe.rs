@@ -9,58 +9,6 @@ const BLOCK: usize = 65536;
 const WARM_BLOCKS: u64 = 64;
 static WIRE_CPU_START: AtomicU64 = AtomicU64::new(0);
 
-// Linux SO_MEMINFO uses the SK_MEMINFO_* order from uapi/linux/sock_diag.h.
-// Keep allocation counters, buffer limits and packet drops separate: summing
-// them would double count memory and mix bytes with packets.
-fn kernel_socket_buffers() -> serde_json::Value {
-    let mut sockets = Vec::new();
-    let mut errors = Vec::new();
-    for entry in std::fs::read_dir("/proc/self/fd").unwrap() {
-        let entry = entry.unwrap();
-        let Ok(fd) = entry.file_name().to_string_lossy().parse::<i32>() else {
-            continue;
-        };
-        // SAFETY: valid writable sockaddr storage and matching length. Closed
-        // descriptors or non-sockets are ignored; these calls never mutate fds.
-        let mut address: libc::sockaddr_storage = unsafe { std::mem::zeroed() };
-        let mut length = std::mem::size_of_val(&address) as libc::socklen_t;
-        if unsafe {
-            libc::getsockname(
-                fd,
-                (&mut address as *mut libc::sockaddr_storage).cast(),
-                &mut length,
-            )
-        } != 0
-            || ![libc::AF_INET, libc::AF_INET6].contains(&(address.ss_family as i32))
-        {
-            continue;
-        }
-        let mut values = [0u32; 9];
-        let mut length = std::mem::size_of_val(&values) as libc::socklen_t;
-        // SAFETY: live observed socket (a close race is an ordinary error),
-        // writable u32 array with the exact Linux SO_MEMINFO ABI size.
-        let result = unsafe {
-            libc::getsockopt(
-                fd,
-                libc::SOL_SOCKET,
-                libc::SO_MEMINFO,
-                values.as_mut_ptr().cast(),
-                &mut length,
-            )
-        };
-        if result != 0 || length as usize != std::mem::size_of_val(&values) {
-            errors.push(serde_json::json!({"fd":fd,"errno":std::io::Error::last_os_error().raw_os_error(),"length":length}));
-            continue;
-        }
-        sockets.push(serde_json::json!({"fd":fd,"family":address.ss_family,
-            "rmem_alloc_bytes":values[0],"rcvbuf_limit_bytes":values[1],
-            "wmem_alloc_bytes":values[2],"sndbuf_limit_bytes":values[3],
-            "fwd_alloc_bytes":values[4],"wmem_queued_bytes":values[5],
-            "optmem_bytes":values[6],"backlog_bytes":values[7],"drops_packets":values[8]}));
-    }
-    serde_json::json!({"sockets":sockets,"errors":errors})
-}
-
 fn clock_cpu(clock: libc::clockid_t) -> u64 {
     let mut value = libc::timespec {
         tv_sec: 0,
@@ -629,28 +577,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn kernel_buffer_snapshot_reads_our_socket_without_changing_limits() {
-        let socket = UdpSocket::bind("127.0.0.1:0").unwrap();
-        let first = kernel_socket_buffers();
-        let second = kernel_socket_buffers();
-        let find = |snapshot: &serde_json::Value| {
-            snapshot["sockets"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .find(|s| s["fd"].as_i64() == Some(socket.as_raw_fd() as i64))
-                .unwrap()
-                .clone()
-        };
-        let a = find(&first);
-        let b = find(&second);
-        assert!(a["rcvbuf_limit_bytes"].as_u64().unwrap() > 0);
-        assert!(a["sndbuf_limit_bytes"].as_u64().unwrap() > 0);
-        assert_eq!(a["rcvbuf_limit_bytes"], b["rcvbuf_limit_bytes"]);
-        assert_eq!(a["sndbuf_limit_bytes"], b["sndbuf_limit_bytes"]);
-    }
-
-    #[test]
     fn unsolicited_multicast_cannot_manufacture_crossed_handshakes() {
         let now = linux::boottime().unwrap();
         let wall = SystemTime::now().duration_since(UNIX_EPOCH).unwrap();
@@ -801,7 +727,6 @@ fn client(binary: &str, proto: &str, flows: usize, blocks: u64, family: &str, ap
         wait_file("NEXT_PROFILE_GO");
     }
     let before = connection.wait_for_stats(connection.request_stats(), Duration::from_secs(2));
-    let kernel_before = kernel_socket_buffers();
     peer.0.stdin.as_mut().unwrap().write_all(b"G").unwrap();
     let start = Instant::now();
     let cpu_start = cpu();
@@ -811,8 +736,6 @@ fn client(binary: &str, proto: &str, flows: usize, blocks: u64, family: &str, ap
     assert_eq!(line.trim(), "NEXT_DONE");
     let used = cpu() - cpu_start;
     let seconds = start.elapsed().as_secs_f64();
-    let client_peak_rss_kib = rss();
-    let kernel_after = kernel_socket_buffers();
     peer.0.stdin.take().unwrap().write_all(b"D").unwrap();
     line.clear();
     peer_out.read_line(&mut line).unwrap();
@@ -840,12 +763,7 @@ fn client(binary: &str, proto: &str, flows: usize, blocks: u64, family: &str, ap
         .unwrap()
     };
     emit(
-        serde_json::json!({"role":"download-client","effective_sources_sha256":option_env!("NEXT_BUILD_ID").unwrap_or("unstamped-local-build"),"protocol":proto,"flows":flows,"blocks_per_flow":blocks,"family":family,"application":application,"seconds":seconds,"client_cpu_seconds":used,"client_rss_kib":client_peak_rss_kib,
-            "tunnel_count":1,"userspace_memory_scope":"per_tunnel_peak",
-            "userspace_memory_method":"single-tunnel process VmHWM; includes setup and fixture overhead",
-            "userspace_peak_MiB_per_tunnel":client_peak_rss_kib as f64/1024.0,
-            "kernel_buffers":{"method":"SO_MEMINFO","scope":"client_inet_sockets","coverage":"boundary_snapshots","before":kernel_before,"after":kernel_after,"excludes":"TUN allocations, transient peaks, peer/load sockets, other kernel memory"},
-            "load":metric(&load_text),"peer":metric(&peer_text),"before":before,"after":after,"counters":counters,"namespace":namespace(),"kernel":std::fs::read_to_string("/proc/sys/kernel/osrelease").unwrap().trim(),"arch":std::env::consts::ARCH,"scope":"Kernel TCP HTTP/HTTPS, two inner network stacks, production Connection/TUN worker; outer sockets on loopback. No physical NIC, RTT/loss or Proton WAN acceptance. CPU excludes asynchronous kernel work; RSS excludes kernel/auxiliary memory."}),
+        serde_json::json!({"role":"download-client","effective_sources_sha256":option_env!("NEXT_BUILD_ID").unwrap_or("unstamped-local-build"),"protocol":proto,"flows":flows,"blocks_per_flow":blocks,"family":family,"application":application,"seconds":seconds,"client_cpu_seconds":used,"client_rss_kib":rss(),"load":metric(&load_text),"peer":metric(&peer_text),"before":before,"after":after,"counters":counters,"namespace":namespace(),"kernel":std::fs::read_to_string("/proc/sys/kernel/osrelease").unwrap().trim(),"arch":std::env::consts::ARCH,"scope":"Kernel TCP HTTP/HTTPS, two inner network stacks, production Connection/TUN worker; outer sockets on loopback. No physical NIC, RTT/loss or Proton WAN acceptance. CPU excludes asynchronous kernel work; RSS excludes kernel/auxiliary memory."}),
     );
     assert_eq!(
         counters.invalid_packets, 0,

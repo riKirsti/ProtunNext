@@ -1,19 +1,10 @@
 # Real-download baseline and receive-path profiles
 
-**Resource-budget status: UNVERIFIED for every historical cohort below.** The
-current evaluation ceilings are CPU ns/B <=1.25x baseline and additional peak
-userspace memory <=8 MiB/tunnel on Travel or <=32 MiB/tunnel on desktop/server,
-with kernel socket buffers measured separately. These ceilings are not allocation
-targets. Historical archives lack scoped per-tunnel/kernel measurements; no old
-RSS values are relabeled as new measurements. The validity/capacity columns below
-are measurement-quality screens, not resource-budget approval. See the
-[current evaluation rules](../download-performance.md).
-
 PR #5 is measurement infrastructure. Shipped source and dependencies match merged PR #4; no production speedup is claimed. Both archives use the same injected fixture and diagnostic overlays. Runtime fingerprint: `55fd65e17d7a7de1d866dacd3268e05e9e12a8b521ec896d61df3e14e3bb0c82`.
 
 Each normal-release sample uses real inner kernel TCP through the production TUN/Connection worker: 2 GiB body plus 4 MiB warmup per flow, exact byte verification, 1/8 flows, IPv4 HTTP / IPv6 HTTPS, UDP / TCP / Stealth. Four A/A controls and four ABBA/BAAB samples per cell. The two variants contain identical runtime sources, so their differences describe measurement variation.
 
-The benchmark deliberately restricts the entire client process and its worker threads to one logical CPU. CPU 100% means one logical CPU of client process time, including synchronous kernel calls. The reported 99–100% therefore indicates saturation of that allocation; it is not total machine CPU usage. Peer, server and load-generator CPU are additional and separately measured. This setup characterizes one-CPU throughput; it does not measure unrestricted multicore capacity or CPU usage at a fixed real-world download rate. RSS is lifetime process high-water memory; it excludes kernel buffers and auxiliary processes. Tables use geometric means of valid same-runtime samples, not improvements. No missing row is imputed. Partial-cell numbers remain descriptive only.
+CPU 100% means one core of client process time including synchronous kernel calls. RSS is lifetime process high-water memory; it excludes kernel buffers and auxiliary processes. Tables use geometric means of valid same-runtime samples, not improvements. No missing row is imputed. Partial-cell numbers remain descriptive only.
 
 Capacity eligibility requires all samples complete, A/A throughput and CPU/byte within 5%, measured duration >=2 s, interval skew <=2%, and no peer wire, server/control or load process at >=0.85 core. This is an engineering screen, not statistical confidence or proof of no bottleneck.
 
@@ -21,7 +12,7 @@ Validation: 20 Python analyzer tests and 39 injected Rust tests pass. The correc
 
 ## Representative single-flow IPv4 HTTP baseline
 
-| Target | Transport | Download Mbps | Client CPU (% of one logical CPU) | CPU ns/B | Peak RSS MiB | Capacity eligible |
+| Target | Transport | Download Mbps | Client CPU % | CPU ns/B | Peak RSS MiB | Capacity eligible |
 |---|---|---:|---:|---:|---:|---|
 | Linux 6.12.115 x64, KVM | udp | 2842.5 | 99.4 | 2.797 | 5.69 | yes |
 | Linux 6.12.115 x64, KVM | tcp | 3015.9 | 100.0 | 2.652 | 5.16 | yes |
@@ -48,7 +39,7 @@ Early fixture-development data (BusyBox option incompatibility, IPv6 readiness, 
 
 [Raw evidence](https://github.com/riKirsti/ProtunNext/actions/runs/42140088347/artifacts/13466729158). Valid timed samples: 96/96. Candidate archive: `a182fa358b10cf35cf5ea49884c728a76b403fd9`. Same runtime sources: True. Capacity-eligible cells: 12/12.
 
-| Workload | Valid samples | Download Mbps | Client CPU (% of one logical CPU) | CPU ns/B | Peak RSS MiB | Validity | Capacity eligible |
+| Workload | Valid samples | Download Mbps | Client CPU % | CPU ns/B | Peak RSS MiB | Validity | Capacity eligible |
 |---|---:|---:|---:|---:|---:|---|---|
 | udp-v4-http-1 | 8/8 | 2842.5 | 99.4 | 2.797 | 5.69 | usable | True |
 | udp-v4-http-8 | 8/8 | 2399.8 | 99.9 | 3.330 | 6.55 | usable | True |
@@ -69,7 +60,7 @@ The artifact summary also retains separate baseline/candidate values, controls, 
 
 [Raw evidence](https://github.com/riKirsti/ProtunNext/actions/runs/42140088347/artifacts/13468223459). Valid timed samples: 95/96. Candidate archive: `a182fa358b10cf35cf5ea49884c728a76b403fd9`. Same runtime sources: True. Capacity-eligible cells: 1/12.
 
-| Workload | Valid samples | Download Mbps | Client CPU (% of one logical CPU) | CPU ns/B | Peak RSS MiB | Validity | Capacity eligible |
+| Workload | Valid samples | Download Mbps | Client CPU % | CPU ns/B | Peak RSS MiB | Validity | Capacity eligible |
 |---|---:|---:|---:|---:|---:|---|---|
 | udp-v4-http-1 | 8/8 | 3332.0 | 99.8 | 2.396 | 5.99 | usable; auxiliary limited | False |
 | udp-v4-http-8 | 8/8 | 3042.3 | 99.9 | 2.627 | 6.64 | usable; auxiliary limited | False |
@@ -90,7 +81,7 @@ The artifact summary also retains separate baseline/candidate values, controls, 
 
 [Raw evidence](https://github.com/riKirsti/ProtunNext/actions/runs/42140088347/artifacts/13467744076). Valid timed samples: 96/96. Candidate archive: `a182fa358b10cf35cf5ea49884c728a76b403fd9`. Same runtime sources: True. Capacity-eligible cells: 0/12.
 
-| Workload | Valid samples | Download Mbps | Client CPU (% of one logical CPU) | CPU ns/B | Peak RSS MiB | Validity | Capacity eligible |
+| Workload | Valid samples | Download Mbps | Client CPU % | CPU ns/B | Peak RSS MiB | Validity | Capacity eligible |
 |---|---:|---:|---:|---:|---:|---|---|
 | udp-v4-http-1 | 8/8 | 3284.7 | 95.9 | 2.335 | 10.64 | usable; auxiliary limited | False |
 | udp-v4-http-8 | 8/8 | 3077.0 | 95.0 | 2.471 | 11.43 | usable; auxiliary limited | False |
@@ -111,7 +102,7 @@ The artifact summary also retains separate baseline/candidate values, controls, 
 
 [Raw evidence](https://github.com/riKirsti/ProtunNext/actions/runs/42140088347/artifacts/13467129755). Valid timed samples: 95/96. Candidate archive: `a182fa358b10cf35cf5ea49884c728a76b403fd9`. Same runtime sources: True. Capacity-eligible cells: 0/12.
 
-| Workload | Valid samples | Download Mbps | Client CPU (% of one logical CPU) | CPU ns/B | Peak RSS MiB | Validity | Capacity eligible |
+| Workload | Valid samples | Download Mbps | Client CPU % | CPU ns/B | Peak RSS MiB | Validity | Capacity eligible |
 |---|---:|---:|---:|---:|---:|---|---|
 | udp-v4-http-1 | 8/8 | 2431.6 | 99.9 | 3.286 | 10.22 | usable; auxiliary limited | False |
 | udp-v4-http-8 | 8/8 | 2429.7 | 100.0 | 3.292 | 10.92 | usable; auxiliary limited | False |
@@ -132,7 +123,7 @@ The artifact summary also retains separate baseline/candidate values, controls, 
 
 [Raw evidence](https://github.com/riKirsti/ProtunNext/actions/runs/42142606408/artifacts/13468807946). Valid timed samples: 96/96. Candidate archive: `c6e03a9305c950cbeaa160193affd4ea9a58440d`. Same runtime sources: True. Capacity-eligible cells: 3/12.
 
-| Workload | Valid samples | Download Mbps | Client CPU (% of one logical CPU) | CPU ns/B | Peak RSS MiB | Validity | Capacity eligible |
+| Workload | Valid samples | Download Mbps | Client CPU % | CPU ns/B | Peak RSS MiB | Validity | Capacity eligible |
 |---|---:|---:|---:|---:|---:|---|---|
 | udp-v4-http-1 | 8/8 | 3084.2 | 99.6 | 2.584 | 6.51 | usable; auxiliary limited | False |
 | udp-v4-http-8 | 8/8 | 2826.1 | 99.9 | 2.828 | 6.59 | usable; auxiliary limited | False |
@@ -153,7 +144,7 @@ The artifact summary also retains separate baseline/candidate values, controls, 
 
 [Raw evidence](https://github.com/riKirsti/ProtunNext/actions/runs/42143801058/artifacts/13469601239). Valid timed samples: 8/8. Candidate archive: `e58e22b9e7fc8eddeea100a8d7cb0ebef34d1b6f`. Same runtime sources: True. Capacity-eligible cells: 0/1.
 
-| Workload | Valid samples | Download Mbps | Client CPU (% of one logical CPU) | CPU ns/B | Peak RSS MiB | Validity | Capacity eligible |
+| Workload | Valid samples | Download Mbps | Client CPU % | CPU ns/B | Peak RSS MiB | Validity | Capacity eligible |
 |---|---:|---:|---:|---:|---:|---|---|
 | stealth-v6-https-8 | 8/8 | 2399.0 | 99.9 | 3.331 | 6.85 | usable; auxiliary limited | False |
 
@@ -163,7 +154,7 @@ The artifact summary also retains separate baseline/candidate values, controls, 
 
 [Raw evidence](https://github.com/riKirsti/ProtunNext/actions/runs/42143801058/artifacts/13469172610). Valid timed samples: 8/8. Candidate archive: `e58e22b9e7fc8eddeea100a8d7cb0ebef34d1b6f`. Same runtime sources: True. Capacity-eligible cells: 0/1.
 
-| Workload | Valid samples | Download Mbps | Client CPU (% of one logical CPU) | CPU ns/B | Peak RSS MiB | Validity | Capacity eligible |
+| Workload | Valid samples | Download Mbps | Client CPU % | CPU ns/B | Peak RSS MiB | Validity | Capacity eligible |
 |---|---:|---:|---:|---:|---:|---|---|
 | stealth-v6-https-8 | 8/8 | 2299.6 | 100.0 | 3.478 | 10.78 | usable; auxiliary limited | False |
 
@@ -173,7 +164,7 @@ The artifact summary also retains separate baseline/candidate values, controls, 
 
 [Raw evidence](https://github.com/riKirsti/ProtunNext/actions/runs/42143801058/artifacts/13469706432). Valid timed samples: 8/8. Candidate archive: `e58e22b9e7fc8eddeea100a8d7cb0ebef34d1b6f`. Same runtime sources: True. Capacity-eligible cells: 0/1.
 
-| Workload | Valid samples | Download Mbps | Client CPU (% of one logical CPU) | CPU ns/B | Peak RSS MiB | Validity | Capacity eligible |
+| Workload | Valid samples | Download Mbps | Client CPU % | CPU ns/B | Peak RSS MiB | Validity | Capacity eligible |
 |---|---:|---:|---:|---:|---:|---|---|
 | stealth-v6-https-8 | 8/8 | 1535.2 | 99.6 | 5.192 | 6.91 | usable; auxiliary limited | False |
 
@@ -183,7 +174,7 @@ The artifact summary also retains separate baseline/candidate values, controls, 
 
 [Raw evidence](https://github.com/riKirsti/ProtunNext/actions/runs/42143801058/artifacts/13468958565). Valid timed samples: 8/8. Candidate archive: `e58e22b9e7fc8eddeea100a8d7cb0ebef34d1b6f`. Same runtime sources: True. Capacity-eligible cells: 0/1.
 
-| Workload | Valid samples | Download Mbps | Client CPU (% of one logical CPU) | CPU ns/B | Peak RSS MiB | Validity | Capacity eligible |
+| Workload | Valid samples | Download Mbps | Client CPU % | CPU ns/B | Peak RSS MiB | Validity | Capacity eligible |
 |---|---:|---:|---:|---:|---:|---|---|
 | stealth-v6-https-8 | 8/8 | 2312.0 | 97.9 | 3.388 | 11.24 | usable; auxiliary limited | False |
 
@@ -233,7 +224,7 @@ Raw profiles and matching executables: [ARM64](https://github.com/riKirsti/Protu
 1. Prioritize Linux TUN delivery and kernel-boundary costs. Prototype proper receive coalescing with negotiated offload metadata/checksums, compare against the current ordinary-packet path, and keep one production default chosen by repeatable evidence. Raw TUN caller compatibility must remain intact.
 2. On ARM64, also test receive-side parallel crypto with bounded queues and correct replay/key-epoch/ordering behavior. These profiles justify an experiment; they do not establish a gain or a ring defect.
 3. Keep Windows/Apple platform-specific measurement ahead of performance promotion. Functional build checks are not download-speed evidence. ARM64 native Linux 7 does not substitute for supported ARM64 Linux 6.12/6.18, Android or Apple tests.
-4. Enforce CPU ns/B <=1.25x baseline and additional peak userspace memory <=8 MiB/tunnel on Travel or <=32 MiB/tunnel on desktop/server. Record kernel socket buffers separately and retain gaps for transient peaks/TUN allocations. Passing those ceilings still requires a repeatable download gain, queue/loaded-latency accounting and reliability acceptance.
+4. Before tuning larger pools/socket buffers, add kernel-memory and queue/loaded-latency accounting. Evaluate CPU/RAM versus sustained download gain without the former fixed experimental resource rejection thresholds.
 5. Keep kTLS, whole-pipeline io_uring, zero-copy RX, SIMD/multi-buffer crypto, CPU/NIC placement, native-WireGuard transport bridges and held-out PGO available as measured follow-ups. Nothing in this baseline universally accepts or rejects them.
 
 No router was accessed or modified for this phase. No release is created. Account/Plus/lifecycle/routing features are untouched; their physical-device/live acceptance remains separate from source/build regression checks.

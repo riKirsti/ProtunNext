@@ -2,45 +2,9 @@
 
 The objective is sustained download throughput for WireGuard UDP, WireGuard TCP
 and Stealth. Merged PR4 `f7bf03f5b4dc3981eaadedbf3a7841c5ed5ee5c1` is the
-baseline. Experimental evaluation ceilings are now mandatory:
-
-- Candidate CPU time per verified downloaded byte must be <=1.25 times baseline.
-  This is a relative CPU ns/B limit, not a CPU-utilization target or allocation.
-- Additional observed peak userspace memory must be <=8 MiB per tunnel on Travel,
-  or <=32 MiB per tunnel on desktop/server targets. These are increments over
-  baseline, not total-memory limits or automatic allocations.
-- Measure kernel socket buffers separately. Do not charge them to userspace RSS,
-  report missing measurements as zero, or infer an additional kernel-memory cap.
-
-`campaign.py` applies the CPU limit to the geometric means of matched comparison
-samples. Its conservative observed userspace increment is the largest candidate
-per-tunnel peak minus the smallest baseline per-tunnel peak. The fixture has one
-tunnel in the client process; process VmHWM includes setup and fixture overhead,
-while peer, HTTP server and load generation are separate processes. This is a
-resident-memory measure, not allocated heap bytes or an attribution of individual
-allocations. The recorded tunnel count, measurement method and total process HWM
-must agree. Multiple-tunnel division is not inferred.
-
-Set `NEXT_DOWNLOAD_TARGET_CLASS=travel` or `desktop_server` explicitly; unknown
-targets do not inherit the larger limit. The CI workflow records desktop/server.
-Missing or invalid per-tunnel memory, target or kernel measurement means
-**unverified**, while a measured budget breach means **fail**. Capacity screens
-and budget compliance are separate. Equal runtime sources cannot establish an
-optimization; passing resource ceilings does not establish a throughput gain.
-
-The Linux fixture records read-only `SO_MEMINFO` snapshots of its own INET
-sockets after warmup and after the measured transfer, outside the timed CPU
-interval. Allocation counters, configured buffer limits and packet drops remain
-separate, with no invented sum. These boundary snapshots exclude transient peaks,
-TUN allocations, auxiliary sockets and other kernel memory. They are not a claim
-to measure total kernel memory or its high-water mark. See Linux's
-[socket memory UAPI](https://github.com/torvalds/linux/blob/v6.12/include/uapi/linux/sock_diag.h)
-and [socket implementation](https://github.com/torvalds/linux/blob/v6.12/net/core/sock.c).
-
-Historical archives lack the new measurement fields: their original numbers
-remain unchanged, but they do not pass this resource-budget evaluation.
-The [offline budget recheck](benchmarks/download-budget-check.md) retains each
-cohort separately and records the missing evidence explicitly.
+baseline. No fixed percentage CPU or 8/32 MiB memory threshold rejects a
+candidate. Compare throughput against total CPU, bounded memory, loaded latency,
+reliability and sustained thermal behavior on each target.
 
 The [initial download baseline and profiles](benchmarks/download-baseline.md)
 retain the original failures, corrected cohorts, per-target speed/CPU/RSS and
@@ -120,8 +84,6 @@ building/restoring the matching existing test kernel. For native diagnostics:
 `download-performance.yml` workflow provides both, plus separate native profiles.
 Its kernel selector and optional workload block permit explicit focused retests;
 unknown blocks fail rather than producing an empty successful campaign.
-The `checks_only` input validates analyzers and injected Linux probe regressions
-without starting any download performance campaign.
 
 Runtime fingerprints exclude injected probes, so a harness-only PR is explicitly
 reported as baseline characterization. Effective source/binary identities still

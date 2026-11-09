@@ -81,8 +81,6 @@ def run(version, download=False):
                        host_cpus=cpus, workload="download" if download else "echo",
                        warm_seconds=None if download else 1, measured_seconds=None if download else 5,
                        scope="actual-kernel KVM; pinned logical CPUs, not physical-core or interrupt isolation")
-    if download:
-        environment["target_class"] = os.environ.get("NEXT_DOWNLOAD_TARGET_CLASS")
     (output / "environment.json").write_text(json.dumps(environment, indent=2), encoding="utf-8")
     (output / "hardware.txt").write_text(subprocess.check_output(["lscpu"], text=True), encoding="utf-8")
     (output / "host-before.txt").write_text(pathlib.Path("/proc/stat").read_text())

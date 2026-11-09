@@ -33,8 +33,6 @@ def run(download=False):
                binaries={n: sha(p) for n, p in bins.items()}, host_cpus=cpus,
                compiler=(ROOT / "target/erasure-audit/toolchain.txt").read_text(),
                scope="native diagnostic: actual host kernel; not supported-LTS kernel acceptance")
-    if download:
-        env["target_class"] = os.environ.get("NEXT_DOWNLOAD_TARGET_CLASS")
     (output / "environment.json").write_text(json.dumps(env, indent=2))
     (output / "hardware.txt").write_text(subprocess.check_output(["lscpu"], text=True))
     process_env = dict(os.environ, NEXT_PEER_CPUS=str(cpus[0]), NEXT_LOAD_CPUS=str(cpus[1]),
