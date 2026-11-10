@@ -6,14 +6,55 @@ use crate::noise::errors::WireGuardError;
 use core::sync::atomic::{AtomicU64, Ordering};
 use proton_os_interface::lock::{Lock as _, LockFactory};
 use ring::aead::{Aad, LessSafeKey, Nonce, UnboundKey, CHACHA20_POLY1305};
+use std::sync::Arc;
 
 pub struct Session<LF: LockFactory> {
     pub(crate) receiving_index: u32,
     sending_index: u32,
-    receiver: LessSafeKey,
+    receiver: Arc<LessSafeKey>,
     sender: LessSafeKey,
     sending_key_counter: AtomicU64,
     receiving_key_counter: LF::Lock<ReceivingKeyCounterValidator>,
+}
+
+/// An exclusively owned ciphertext buffer and immutable receiving-key lease.
+/// No replay, timer or tunnel state travels to the authentication worker.
+#[cfg(feature = "in-place")]
+pub struct DataJob<P> {
+    packet: P,
+    receiver: u32,
+    counter: u64,
+    key: Arc<LessSafeKey>,
+}
+
+/// Owns authenticated bytes until their tunnel owner commits replay state.
+/// The buffer cannot be exchanged or accessed before that commit.
+#[cfg(feature = "in-place")]
+pub struct AuthenticatedData<P> {
+    pub(super) packet: P,
+    receiver: u32,
+    counter: u64,
+    key: Arc<LessSafeKey>,
+    opened: Option<usize>,
+}
+
+#[cfg(feature = "in-place")]
+impl<P: AsMut<[u8]>> DataJob<P> {
+    pub fn authenticate(mut self) -> AuthenticatedData<P> {
+        let mut nonce = [0u8; 12];
+        nonce[4..].copy_from_slice(&self.counter.to_le_bytes());
+        let opened = self.key.open_in_place(
+            Nonce::assume_unique_for_key(nonce), Aad::empty(),
+            &mut self.packet.as_mut()[DATA_OFFSET..],
+        ).ok().map(|p| p.len());
+        AuthenticatedData { packet: self.packet, receiver: self.receiver,
+            counter: self.counter, key: self.key, opened }
+    }
+}
+
+#[cfg(feature = "in-place")]
+impl<P> AuthenticatedData<P> {
+    pub(super) fn receiver(&self) -> u32 { self.receiver }
 }
 
 impl<LF: LockFactory> std::fmt::Debug for Session<LF> {
@@ -161,9 +202,9 @@ impl<LF: LockFactory> Session<LF> {
         Session {
             receiving_index: local_index,
             sending_index: peer_index,
-            receiver: LessSafeKey::new(
+            receiver: Arc::new(LessSafeKey::new(
                 UnboundKey::new(&CHACHA20_POLY1305, &receiving_key).unwrap(),
-            ),
+            )),
             sender: LessSafeKey::new(UnboundKey::new(&CHACHA20_POLY1305, &sending_key).unwrap()),
             sending_key_counter: AtomicU64::new(0),
             receiving_key_counter: LF::new(Default::default()),
@@ -172,6 +213,29 @@ impl<LF: LockFactory> Session<LF> {
 
     pub(super) fn local_index(&self) -> usize {
         self.receiving_index as usize
+    }
+
+    #[cfg(feature = "in-place")]
+    pub(super) fn prepare_data<P>(&self, receiver: u32, counter: u64, packet: P)
+        -> Result<DataJob<P>, (WireGuardError, P)>
+    {
+        let result = if receiver != self.receiving_index {
+            Err(WireGuardError::WrongIndex)
+        } else { self.receiving_counter_quick_check(counter) };
+        if let Err(e) = result { return Err((e, packet)); }
+        Ok(DataJob { packet, receiver, counter, key: Arc::clone(&self.receiver) })
+    }
+
+    #[cfg(feature = "in-place")]
+    pub(super) fn commit_data<P>(&self, data: &AuthenticatedData<P>)
+        -> Result<usize, WireGuardError>
+    {
+        let len = data.opened.ok_or(WireGuardError::InvalidAeadTag)?;
+        if data.receiver != self.receiving_index || !Arc::ptr_eq(&data.key, &self.receiver) {
+            return Err(WireGuardError::WrongIndex);
+        }
+        self.receiving_counter_mark(data.counter)?;
+        Ok(len)
     }
 
     /// Returns true if receiving counter is good to use
