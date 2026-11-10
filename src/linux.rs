@@ -46,7 +46,9 @@ pub(crate) fn duplicate_nonblocking(fd: i32) -> Result<File> {
     }
     // SAFETY: duplicate is a new owned descriptor from successful fcntl.
     let file = unsafe { File::from_raw_fd(duplicate) };
-    #[cfg(any(target_os = "linux", target_os = "android"))]
+    #[cfg(target_os = "linux")]
+    crate::tun_device::vnet_mode(file.as_raw_fd())?;
+    #[cfg(target_os = "android")]
     {
         let mut info = [0u8; 40];
         // SAFETY: live descriptor, adequately sized Linux ifreq storage for TUNGETIFF.
@@ -93,6 +95,44 @@ pub(crate) fn duplicate_nonblocking(fd: i32) -> Result<File> {
         return Err(std::io::Error::last_os_error().into());
     }
     Ok(file)
+}
+
+/// Prepare a newly created, exclusively owned Linux TUN with IFF_NO_PI and
+/// IFF_VNET_HDR for receive coalescing. Call before attaching it to a worker.
+/// This explicitly sets a 10-byte little-endian metadata header and disables
+/// kernel-to-userspace checksum/segmentation offloads, keeping outbound reads
+/// ordinary IP packets. Raw descriptors are rejected without modification.
+/// On error discard the new descriptor; setup ioctls are not transactional.
+#[cfg(target_os = "linux")]
+pub fn prepare_receive_coalescing(fd: i32) -> Result<()> {
+    let mut info = [0u8; 40];
+    // SAFETY: non-owning descriptor and complete writable Linux ifreq storage.
+    if unsafe { libc::ioctl(fd, libc::TUNGETIFF, info.as_mut_ptr()) } < 0 {
+        return Err(std::io::Error::last_os_error().into());
+    }
+    let flags = i16::from_ne_bytes([info[libc::IFNAMSIZ], info[libc::IFNAMSIZ + 1]]) as i32;
+    let required = libc::IFF_TUN | libc::IFF_NO_PI | libc::IFF_VNET_HDR;
+    if flags & required != required {
+        return Err(Error::Invalid(
+            "create a new TUN with IFF_NO_PI and IFF_VNET_HDR before negotiation",
+        ));
+    }
+    let size = 10i32;
+    let little = 1i32;
+    // SAFETY: live exclusive TUN; header-size and endian setters read complete scalars.
+    if unsafe { libc::ioctl(fd, libc::TUNSETVNETHDRSZ, &size) } < 0 {
+        return Err(std::io::Error::last_os_error().into());
+    }
+    // SAFETY: correctly sized scalar selecting the documented little-endian ABI.
+    if unsafe { libc::ioctl(fd, libc::TUNSETVNETLE, &little) } < 0 {
+        return Err(std::io::Error::last_os_error().into());
+    }
+    // SAFETY: scalar zero disables kernel-to-user offloads on this new device;
+    // receive GSO injection uses the virtio metadata independently.
+    if unsafe { libc::ioctl(fd, libc::TUNSETOFFLOAD, 0) } < 0 {
+        return Err(std::io::Error::last_os_error().into());
+    }
+    Ok(())
 }
 pub fn run_udp(
     tun_fd: i32,

@@ -10,11 +10,21 @@ pub(crate) struct TunDevice {
     handle: TunHandle,
 }
 impl TunDevice {
-    pub(crate) fn new(handle: TunHandle) -> Self {
-        Self {
+    pub(crate) fn new(handle: TunHandle) -> io::Result<Self> {
+        Ok(Self {
             bridge: None,
             handle,
+        })
+    }
+    pub(crate) fn write_queued(&mut self, queue: &crate::packet::PacketQueue) -> io::Result<usize> {
+        let packet = queue.front().ok_or(io::ErrorKind::InvalidInput)?;
+        if self.write(packet.data())? != packet.data().len() {
+            return Err(io::ErrorKind::WriteZero.into());
         }
+        Ok(1)
+    }
+    pub(crate) fn offload_fallbacks(&self) -> u64 {
+        0
     }
     pub(crate) fn attach_waker(&mut self, waker: Arc<mio::Waker>) -> io::Result<()> {
         self.bridge = Some(EventBridge::new(self.handle.read_event()?, waker)?);
