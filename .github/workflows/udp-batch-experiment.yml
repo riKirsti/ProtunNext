@@ -24,6 +24,11 @@ on:
         type: string
         default: ''
         description: Optional workload block for a focused comparison
+      tun_mode:
+        type: choice
+        default: raw
+        options: [raw, compare]
+        description: Raw control or raw baseline versus negotiated receive coalescing
 permissions: {contents: read}
 defaults:
   run:
@@ -31,7 +36,7 @@ defaults:
 env:
   BASELINE: ${{ inputs.baseline || 'f3e7502217153bad5decc8ef700f5afee6d0652e' }}
 concurrency:
-  group: udp-batch-${{ github.ref }}
+  group: udp-batch-${{ github.ref }}-${{ inputs.tun_mode }}-${{ inputs.rate_bps }}-${{ inputs.block }}
   cancel-in-progress: true
 jobs:
   checks:
@@ -88,7 +93,8 @@ jobs:
         env:
           NEXT_DOWNLOAD_RATE_BPS: ${{ inputs.rate_bps || '0' }}
           NEXT_DOWNLOAD_BLOCK: ${{ inputs.block }}
-        run: sudo env "NEXT_DOWNLOAD_RATE_BPS=$NEXT_DOWNLOAD_RATE_BPS" "NEXT_DOWNLOAD_BLOCK=$NEXT_DOWNLOAD_BLOCK" python3 experiments/audit/native.py --download
+          NEXT_DOWNLOAD_TUN_MODE: ${{ inputs.tun_mode || 'raw' }}
+        run: sudo env "NEXT_DOWNLOAD_RATE_BPS=$NEXT_DOWNLOAD_RATE_BPS" "NEXT_DOWNLOAD_BLOCK=$NEXT_DOWNLOAD_BLOCK" "NEXT_DOWNLOAD_TUN_MODE=$NEXT_DOWNLOAD_TUN_MODE" python3 experiments/audit/native.py --download
       - name: Retain raw results even on failure
         if: always()
         run: |

@@ -73,9 +73,14 @@ fn echo_ipv4(packet: &mut [u8], spoof: bool) {
 #[test]
 #[ignore = "requires a disposable network namespace and CAP_NET_ADMIN; never run on a router"]
 fn actual_udp_tcp_tls_engine_tun_roundtrips() {
-    tun_roundtrips();
+    tun_roundtrips(false);
 }
-fn tun_roundtrips() {
+#[test]
+#[ignore = "requires a disposable network namespace and CAP_NET_ADMIN; never run on a router"]
+fn negotiated_receive_only_tun_preserves_transport_and_raw_descriptor_contracts() {
+    tun_roundtrips(true);
+}
+fn tun_roundtrips(vnet: bool) {
     assert_eq!(
         std::env::var("PROTUN_NEXT_NETNS_TEST").as_deref(),
         Ok("1"),
@@ -88,11 +93,42 @@ fn tun_roundtrips() {
         .unwrap();
     let mut request = [0u8; 40];
     request[..3].copy_from_slice(b"pn0");
-    let flags = libc::IFF_TUN | libc::IFF_NO_PI;
+    let flags = libc::IFF_TUN | libc::IFF_NO_PI | if vnet { libc::IFF_VNET_HDR } else { 0 };
     request[16..18].copy_from_slice(&(flags as i16).to_ne_bytes());
     // SAFETY: valid TUN descriptor and 40-byte ifreq storage, private test namespace.
     let configured = unsafe { libc::ioctl(tun.as_raw_fd(), libc::TUNSETIFF, request.as_mut_ptr()) };
     assert_eq!(configured, 0);
+    if vnet {
+        linux::prepare_receive_coalescing(tun.as_raw_fd()).unwrap();
+        let mut size = 0i32;
+        let mut little = 0i32;
+        // SAFETY: live test TUN and correctly sized scalar ioctl outputs.
+        assert_eq!(
+            // SAFETY: live test TUN and correctly sized scalar output.
+            unsafe { libc::ioctl(tun.as_raw_fd(), libc::TUNGETVNETHDRSZ, &mut size) },
+            0
+        );
+        // SAFETY: same descriptor with a correctly sized scalar output.
+        assert_eq!(
+            // SAFETY: live test TUN and correctly sized scalar output.
+            unsafe { libc::ioctl(tun.as_raw_fd(), libc::TUNGETVNETLE, &mut little) },
+            0
+        );
+        assert_eq!((size, little), (10, 1));
+    } else {
+        assert!(linux::prepare_receive_coalescing(tun.as_raw_fd()).is_err());
+        let mut unchanged = [0u8; 40];
+        // SAFETY: live test TUN and complete mutable ifreq storage.
+        assert_eq!(
+            // SAFETY: live test TUN and complete mutable ifreq storage.
+            unsafe { libc::ioctl(tun.as_raw_fd(), libc::TUNGETIFF, unchanged.as_mut_ptr()) },
+            0
+        );
+        assert_eq!(
+            i16::from_ne_bytes([unchanged[16], unchanged[17]]) as i32 & libc::IFF_VNET_HDR,
+            0
+        );
+    }
     ip(&["link", "set", "lo", "up"]);
     ip(&["addr", "add", "10.2.0.2/32", "dev", "pn0"]);
     ip(&["link", "set", "pn0", "mtu", "1500", "up"]);

@@ -95,6 +95,34 @@ class DownloadValidity(unittest.TestCase):
         self.rows[0]["metrics"][0]["offered_rate_bps"]=200000000
         self.assertTrue(self.analyze()["errors"])
 
+    def test_tun_comparison_keeps_controls_raw_and_requires_actual_coalescing(self):
+        with mock.patch.dict(campaign.os.environ,{"NEXT_DOWNLOAD_TUN_MODE":"compare"}):
+            rows=campaign.plan()
+            self.assertEqual(len(rows),96)
+            for row in rows:
+                self.assertEqual(row["tun_mode"],"vnet" if row["build"]=="erase" else "raw")
+            self.assertIn("DOWNLOAD_CANDIDATE_VNET_SMOKE",campaign.guest_script())
+        self.fixture()
+        for expected,row in zip(self.expected,self.rows):
+            mode="vnet" if row["build"]=="erase" else "raw"
+            expected["tun_mode"]=row["tun_mode"]=row["metrics"][0]["tun_mode"]=mode
+            row["metrics"][0]["counters"].update(tun_coalesced_packets=32 if mode=="vnet" else 0,tun_max_write_batch=16,tun_offload_fallbacks=0)
+        self.assertFalse(self.analyze()["errors"])
+        candidate=next(r for r in self.rows if r["build"]=="erase")
+        for key,value in [("tun_coalesced_packets",0),("tun_max_write_batch",1),("tun_max_write_batch",33),("tun_offload_fallbacks",1)]:
+            counters=candidate["metrics"][0]["counters"]
+            saved=counters[key]
+            counters[key]=value
+            self.assertTrue(self.analyze()["errors"])
+            counters[key]=saved
+        candidate["metrics"][0]["tun_mode"]="raw"
+        self.assertTrue(self.analyze()["errors"])
+
+    def test_unplanned_vnet_mode_cannot_pass_as_raw_control(self):
+        self.fixture()
+        self.rows[0]["metrics"][0]["tun_mode"]="vnet"
+        self.assertTrue(self.analyze()["errors"])
+
     def test_wrong_identity_bypassed_tunnel_payload_failure_and_outer_errors(self):
         self.fixture()
         for name, value in [("effective_sources_sha256","wrong"),("namespace","net:[2]"),

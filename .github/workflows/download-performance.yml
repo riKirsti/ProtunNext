@@ -19,9 +19,14 @@ on:
         type: string
         default: ''
         description: Optional workload block for a focused retest
+      tun_mode:
+        type: choice
+        default: raw
+        options: [raw, compare]
+        description: Raw control or raw baseline versus negotiated receive coalescing
 permissions: {contents: read}
 concurrency:
-  group: download-${{ github.ref }}-${{ inputs.profiles_only }}-${{ inputs.kernel }}-${{ inputs.block }}
+  group: download-${{ github.ref }}-${{ inputs.profiles_only }}-${{ inputs.kernel }}-${{ inputs.block }}-${{ inputs.tun_mode }}
   cancel-in-progress: true
 jobs:
   lts:
@@ -55,7 +60,8 @@ jobs:
       - name: Real inner TCP downloads on supported kernel
         env:
           NEXT_DOWNLOAD_BLOCK: ${{ inputs.block }}
-        run: sudo env "NEXT_DOWNLOAD_BLOCK=$NEXT_DOWNLOAD_BLOCK" python3 experiments/audit/lts.py '${{ matrix.kernel }}' --download
+          NEXT_DOWNLOAD_TUN_MODE: ${{ inputs.tun_mode || 'raw' }}
+        run: sudo env "NEXT_DOWNLOAD_BLOCK=$NEXT_DOWNLOAD_BLOCK" "NEXT_DOWNLOAD_TUN_MODE=$NEXT_DOWNLOAD_TUN_MODE" python3 experiments/audit/lts.py '${{ matrix.kernel }}' --download
       - name: Publish results including failures and inconclusive cells
         if: always()
         run: |

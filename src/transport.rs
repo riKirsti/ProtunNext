@@ -10,6 +10,11 @@ pub struct Counters {
     pub pool_pressure: u64,
     pub polls: u64,
     pub tun_backpressure: u64,
+    pub tun_write_calls: u64,
+    pub tun_written_packets: u64,
+    pub tun_coalesced_packets: u64,
+    pub tun_max_write_batch: u64,
+    pub tun_offload_fallbacks: u64,
     pub network_backpressure: u64,
     pub io: crate::performance::IoCounters,
     /// Queue occupancy in packets, measured before flushing a work batch.

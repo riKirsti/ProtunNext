@@ -13,6 +13,8 @@ BASELINE = "f7bf03f5b4dc3981eaadedbf3a7841c5ed5ee5c1"
 def plan():
     rows = []
     rate = int(os.environ.get("NEXT_DOWNLOAD_RATE_BPS", "0"))
+    tun_mode = os.environ.get("NEXT_DOWNLOAD_TUN_MODE", "raw")
+    assert tun_mode in {"raw", "compare"}, "invalid TUN comparison mode"
     assert rate >= 0, "invalid offered download rate"
     total_blocks = 2048 if rate else 32768
     for protocol in ["udp", "tcp", "stealth"]:
@@ -28,6 +30,8 @@ def plan():
                     if rate:
                         assert rate >= flows, "offered rate cannot be split across flows"
                         rows[-1]["offered_rate_bps"] = rate
+                    if tun_mode == "compare":
+                        rows[-1]["tun_mode"] = "vnet" if build == "erase" else "raw"
     selected=os.environ.get("NEXT_DOWNLOAD_BLOCK","")
     if selected:
         assert selected in {r["block"] for r in rows}, "unknown download workload block"
@@ -58,6 +62,7 @@ def guest_script():
              "sha256sum /bin/main /bin/erase", "result=0",
              "export NEXT_PEER_CPUS=0 NEXT_LOAD_CPUS=1 NEXT_CLIENT_CPUS=2 NEXT_SERVER_CPUS=3"]
     lines.append("export NEXT_DOWNLOAD_RATE_BPS=" + str(int(os.environ.get("NEXT_DOWNLOAD_RATE_BPS", "0"))))
+    lines.append("export NEXT_TUN_RECEIVE_MODE=raw")
     for args in smoke_arguments("/bin/main"):
         command=["setsid","timeout","-s","KILL","30","unshare","-n","/bin/main",*args]
         prefix = "NEXT_DOWNLOAD_START_DELAY_MS=1250 " if args[2] == "stealth" else ""
@@ -65,10 +70,18 @@ def guest_script():
                   prefix+shlex.join(command)+" &", "sample_pid=$!", 'wait "$sample_pid"', "code=$?",
                   'kill -KILL -- "-$sample_pid" 2>/dev/null',
                   'if [ "$code" != 0 ]; then echo "ERASURE_EXIT 1"; poweroff -f; fi']
+    if os.environ.get("NEXT_DOWNLOAD_TUN_MODE", "raw") == "compare":
+        for args in smoke_arguments("/bin/main")[:6]:
+            command = ["setsid", "timeout", "-s", "KILL", "30", "unshare", "-n", "/bin/erase", *args]
+            lines += ["echo DOWNLOAD_CANDIDATE_VNET_SMOKE",
+                      "NEXT_TUN_RECEIVE_MODE=vnet " + shlex.join(command) + " &",
+                      "sample_pid=$!", 'wait "$sample_pid"', "code=$?",
+                      'kill -KILL -- "-$sample_pid" 2>/dev/null',
+                      'if [ "$code" != 0 ]; then echo "ERASURE_EXIT 1"; poweroff -f; fi']
     for row in plan():
         command = ["setsid", "timeout", "-s", "KILL", "180", "unshare", "-n", "/bin/"+row["build"], *arguments(row, "/bin/main")]
         lines += ["echo " + shlex.quote("ERASURE_CASE " + json.dumps(row, separators=(",", ":"))),
-                  shlex.join(command)+" &", "sample_pid=$!", 'wait "$sample_pid"', "code=$?",
+                  "NEXT_TUN_RECEIVE_MODE=" + row.get("tun_mode", "raw") + " " + shlex.join(command)+" &", "sample_pid=$!", 'wait "$sample_pid"', "code=$?",
                   'kill -KILL -- "-$sample_pid" 2>/dev/null', 'echo "ERASURE_SAMPLE_EXIT $code"',
                   '[ "$code" = 0 ] || result=1']
     lines += ['echo "ERASURE_EXIT $result"', "poweroff -f"]
@@ -83,6 +96,11 @@ def geometric(values):
 def metrics(row, env):
     assert row["exit"] == 0 and len(row["metrics"]) == 1, "process failed or incomplete metrics"
     m = row["metrics"][0]
+    assert m.get("tun_mode", "raw") == row.get("tun_mode", "raw"), "TUN mode identity mismatch"
+    if row.get("tun_mode") == "vnet":
+        assert m["counters"].get("tun_coalesced_packets", 0) > 0, "coalescing was not exercised"
+        assert 1 < m["counters"].get("tun_max_write_batch", 0) <= 32, "invalid coalescing batch"
+        assert m["counters"].get("tun_offload_fallbacks") == 0, "offload fallback invalidates the coalescing comparison"
     assert m["role"] == "download-client" and m["kernel"] == env["kernel"]
     assert m["effective_sources_sha256"] == env["sources"][row["build"]]["effective_sources_sha256"]
     for name in ["peer", "load"]:

@@ -41,11 +41,14 @@ def run(download=False):
         process_env.update(NEXT_CLIENT_CPUS=str(cpus[2]), NEXT_SERVER_CPUS=str(cpus[3]))
     with (output / "guest.log").open("w") as log:
         if download:
-            for arguments in campaign.smoke_arguments(str(bins["main"])):
+            smokes = [("main", "raw", args) for args in campaign.smoke_arguments(str(bins["main"]))]
+            if os.environ.get("NEXT_DOWNLOAD_TUN_MODE", "raw") == "compare":
+                smokes += [("erase", "vnet", args) for args in campaign.smoke_arguments(str(bins["main"]))[:6]]
+            for build, tun_mode, arguments in smokes:
                 log.write("DOWNLOAD_SMOKE " + " ".join(arguments[2:]) + "\n")
                 log.flush()
-                smoke_env = dict(process_env, NEXT_DOWNLOAD_START_DELAY_MS="1250" if arguments[2] == "stealth" else "0")
-                process = subprocess.Popen(["unshare", "-n", str(bins["main"]), *arguments], env=smoke_env,
+                smoke_env = dict(process_env, NEXT_TUN_RECEIVE_MODE=tun_mode, NEXT_DOWNLOAD_START_DELAY_MS="1250" if arguments[2] == "stealth" else "0")
+                process = subprocess.Popen(["unshare", "-n", str(bins[build]), *arguments], env=smoke_env,
                                            stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
                 try:
                     code = process.wait(timeout=30)
@@ -57,6 +60,8 @@ def run(download=False):
                     process.wait()
                 assert code == 0, "download smoke failed; see retained guest.log"
         for row in expected:
+            if download:
+                process_env["NEXT_TUN_RECEIVE_MODE"] = row.get("tun_mode", "raw")
             log.write("ERASURE_CASE " + json.dumps(row) + "\n")
             log.flush()
             process_env["NEXT_LOAD_SHAPE"] = row.get("shape", "download")

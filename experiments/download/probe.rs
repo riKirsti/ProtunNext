@@ -65,12 +65,37 @@ fn tun(family: &str, peer: bool) -> File {
         .unwrap();
     let mut req = [0u8; 40];
     req[..4].copy_from_slice(b"pndl");
-    req[16..18].copy_from_slice(&((libc::IFF_TUN | libc::IFF_NO_PI) as i16).to_ne_bytes());
+    let mode = std::env::var("NEXT_TUN_RECEIVE_MODE").unwrap_or_else(|_| "raw".into());
+    assert!(matches!(mode.as_str(), "raw" | "vnet"));
+    let vnet = !peer && mode == "vnet";
+    let flags = libc::IFF_TUN | libc::IFF_NO_PI | if vnet { libc::IFF_VNET_HDR } else { 0 };
+    req[16..18].copy_from_slice(&(flags as i16).to_ne_bytes());
     // SAFETY: live TUN fd and correctly sized mutable ifreq storage.
     assert_eq!(
         unsafe { libc::ioctl(tun.as_raw_fd(), libc::TUNSETIFF, req.as_mut_ptr()) },
         0
     );
+    if vnet {
+        // Same kernel-ABI setup in both archives; only the planned client mode
+        // varies. Fixed baseline peer/load processes always use ordinary TUN.
+        let size = 10i32;
+        let little = 1i32;
+        assert_eq!(
+            // SAFETY: new exclusive test TUN and complete scalar input.
+            unsafe { libc::ioctl(tun.as_raw_fd(), libc::TUNSETVNETHDRSZ, &size) },
+            0
+        );
+        assert_eq!(
+            // SAFETY: same descriptor with a complete scalar endian setting.
+            unsafe { libc::ioctl(tun.as_raw_fd(), libc::TUNSETVNETLE, &little) },
+            0
+        );
+        assert_eq!(
+            // SAFETY: scalar zero disables kernel-to-user offloads on the new device.
+            unsafe { libc::ioctl(tun.as_raw_fd(), libc::TUNSETOFFLOAD, 0) },
+            0
+        );
+    }
     let (local, remote, _) = addresses(family, peer);
     ip(&["link", "set", "lo", "up"]);
     // BusyBox ip does not implement nodad. TUN is IFF_NOARP, for which the
@@ -94,6 +119,21 @@ fn tun(family: &str, peer: bool) -> File {
         }
     }
     tun
+}
+
+fn descriptor_mode(fd: i32) -> &'static str {
+    let mut info = [0u8; 40];
+    assert_eq!(
+        // SAFETY: live fixture TUN and complete writable ifreq.
+        unsafe { libc::ioctl(fd, libc::TUNGETIFF, info.as_mut_ptr()) },
+        0
+    );
+    let flags = i16::from_ne_bytes([info[16], info[17]]) as i32;
+    if flags & libc::IFF_VNET_HDR == 0 {
+        "raw"
+    } else {
+        "vnet"
+    }
 }
 
 fn namespace() -> String {
@@ -776,7 +816,7 @@ fn client(binary: &str, proto: &str, flows: usize, blocks: u64, family: &str, ap
         .unwrap()
     };
     emit(
-        serde_json::json!({"role":"download-client","offered_rate_bps":offered_rate(),"effective_sources_sha256":option_env!("NEXT_BUILD_ID").unwrap_or("unstamped-local-build"),"protocol":proto,"flows":flows,"blocks_per_flow":blocks,"family":family,"application":application,"seconds":seconds,"client_cpu_seconds":used,"client_rss_kib":rss(),"load":metric(&load_text),"peer":metric(&peer_text),"before":before,"after":after,"counters":counters,"namespace":namespace(),"kernel":std::fs::read_to_string("/proc/sys/kernel/osrelease").unwrap().trim(),"arch":std::env::consts::ARCH,"scope":"Kernel TCP HTTP/HTTPS, two inner network stacks, production Connection/TUN worker; outer sockets on loopback. No physical NIC, RTT/loss or Proton WAN acceptance. CPU excludes asynchronous kernel work; RSS excludes kernel/auxiliary memory."}),
+        serde_json::json!({"role":"download-client","tun_mode":descriptor_mode(device.as_raw_fd()),"offered_rate_bps":offered_rate(),"effective_sources_sha256":option_env!("NEXT_BUILD_ID").unwrap_or("unstamped-local-build"),"protocol":proto,"flows":flows,"blocks_per_flow":blocks,"family":family,"application":application,"seconds":seconds,"client_cpu_seconds":used,"client_rss_kib":rss(),"load":metric(&load_text),"peer":metric(&peer_text),"before":before,"after":after,"counters":counters,"namespace":namespace(),"kernel":std::fs::read_to_string("/proc/sys/kernel/osrelease").unwrap().trim(),"arch":std::env::consts::ARCH,"scope":"Kernel TCP HTTP/HTTPS, two inner network stacks, production Connection/TUN worker; outer sockets on loopback. No physical NIC, RTT/loss or Proton WAN acceptance. CPU excludes asynchronous kernel work; RSS excludes kernel/auxiliary memory."}),
     );
     assert_eq!(
         counters.invalid_packets, 0,
