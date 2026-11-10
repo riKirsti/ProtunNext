@@ -2983,15 +2983,6 @@ Sanitized measurement output: no password, private key, saved-configuration fing
   "direct_before": {
     "requested_bytes": 100000000,
     "valid": true,
-    "local_port": 21402,
-    "local": [
-      "192.168.7.169",
-      21402
-    ],
-    "peer": [
-      "151.101.129.176",
-      443
-    ],
     "tls": "TLSv1.2",
     "status": 206,
     "content_range": "bytes 0-99999999/148648524",
@@ -3029,15 +3020,6 @@ Sanitized measurement output: no password, private key, saved-configuration fing
   "direct_after": {
     "requested_bytes": 100000000,
     "valid": true,
-    "local_port": 21467,
-    "local": [
-      "192.168.7.169",
-      21467
-    ],
-    "peer": [
-      "151.101.129.176",
-      443
-    ],
     "tls": "TLSv1.2",
     "status": 206,
     "content_range": "bytes 0-99999999/148648524",
