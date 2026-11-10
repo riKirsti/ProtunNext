@@ -23,6 +23,20 @@ evidence, proposed changes, exclusions, validation and completion criteria with
 the user. Preserve independent comparisons inside the stage; do not combine
 unmeasured effects or carry speculative backends into production.
 
+Starting with Stage 3, every stage PR includes absolute baseline/candidate CPU
+usage (100% = one core), peak process memory MiB and verified download Mbps by
+measured platform and by WireGuard UDP, WireGuard TCP and Stealth. Put readable
+tables in the PR and retain full workload tables, immutable source/binary
+identities, GitHub Actions evidence and measurement limits in the stage report.
+Label build-only platforms as performance-unmeasured.
+
+Each stage also temporarily tests its latest production code on the physical
+Travel router for all three transports, comparing against the frozen baseline.
+Use only owned temporary artifacts and narrowly scoped test routing, an automatic
+cleanup watchdog, and independent before/after verification. Preserve Direct mode,
+saved configuration, account/key and installed packages; report failures, noise,
+CPU/memory definitions, WAN limitations and cleanup results explicitly.
+
 ## Stage 2 review, November 9
 
 Baseline: merged PR #6, `02fac0940cdd508a10821048bf1b5a0fe7eed93c`.
@@ -101,6 +115,13 @@ All nine platform jobs and both native release-erasure checks pass.
 The [complete Stage 3 evaluation](benchmarks/stage3-tun.md) retains all workload
 results, preliminary/superseded launches, source identities, profiles and gaps.
 Existing raw callers remain compatible; other platforms keep ordinary delivery.
+The [latest-code physical Travel supplement](benchmarks/stage3-travel.md) records
+CPU %, RSS MiB and verified Mbps for all three transports. All twelve balanced
+comparison downloads succeed; one of twelve baseline A/A sessions fails at warmup.
+WAN controls are noisy/incomplete, and Travel RSS increases despite lower observed
+CPU/byte. Cleanup and independent restoration checks pass. These physical results
+remain separate from the controlled GitHub cohorts and do not establish a clean
+WAN speed ranking.
 Stage 4 has not started. After merge, freeze the merged baseline and review the
 crypto/receive evidence, ordered bounded parallelism, session/replay ownership,
 backpressure, validation and completion criteria before implementation.
