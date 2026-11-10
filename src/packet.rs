@@ -88,6 +88,11 @@ impl Drop for Packet {
         erase(&mut self.bytes);
     }
 }
+impl AsMut<[u8]> for Packet {
+    fn as_mut(&mut self) -> &mut [u8] {
+        self.data_mut()
+    }
+}
 
 pub struct PacketPool {
     free: Vec<Packet>,

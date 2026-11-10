@@ -12,8 +12,8 @@ Research is open-ended; earlier prototypes do not exclude different designs.
 |---|---|---|
 | 1 | Real inner TCP/HTTPS baseline and complete-path profiling | Initial foundation merged in PR #5; PR #6 retains batch-screening evidence and regression checks |
 | 2 | Simple receive-path improvements: framing/copies, scheduling, batching, bounded storage | Merged in PR #7 |
-| 3 | Genuine receive-side TUN coalescing and offload metadata | Evaluated in PR #8; ready for review |
-| 4 | Multicore receive architectures and asynchronous decryption | Review before starting |
+| 3 | Genuine receive-side TUN coalescing and offload metadata | Merged in PR #8 |
+| 4 | Multicore receive architectures and asynchronous decryption | Plan reviewed after PR #8; bounded receive/decryption candidate in progress |
 | 5 | Alternative acceleration: crypto implementations, native WireGuard, advanced I/O/TLS, CPU/NIC coordination and kernel bypass | Review the evidence-backed shortlist before starting |
 | 6 | Client-only PGO, architecture-specific builds and platform tuning | Review before starting |
 | 7 | Combine measured winners and validate real workloads/platforms | Review before starting |
@@ -122,6 +122,29 @@ WAN controls are noisy/incomplete, and Travel RSS increases despite lower observ
 CPU/byte. Cleanup and independent restoration checks pass. These physical results
 remain separate from the controlled GitHub cohorts and do not establish a clean
 WAN speed ranking.
-Stage 4 has not started. After merge, freeze the merged baseline and review the
+The Stage 4 transition review below freezes the merged baseline and revisits
 crypto/receive evidence, ordered bounded parallelism, session/replay ownership,
 backpressure, validation and completion criteria before implementation.
+
+## Stage 4 review, November 9
+
+Frozen baseline: merged PR #8, `a44d520c337611f59d4c7186971919d57de36df8`.
+After coalescing, decryption accounts for roughly 19-45% of sampled client work.
+Travel proves physical coalescing interoperability, but its noisy WAN controls
+and increased RSS do not establish a repeatable speed or memory improvement.
+
+Evaluate a bounded pipeline with one decryption helper plus the existing owner.
+Workers authenticate owned packet buffers using the existing cryptographic
+implementation. Only the connection owner commits replay/session/timer/statistics
+updates and delivers plaintext in receive order. Control messages, rekey, interface
+replacement and shutdown are barriers. Keep small batches serial; no packet
+copying, unbounded queue, new algorithm/backend, mandatory PGO or release.
+
+Use identical baseline/candidate TUN modes and CPU allowances. Native multicore
+comparisons must account for shared helper CPUs and not conceal auxiliary limits.
+Measure real verified downloads, client CPU %, CPU/byte, RSS and Mbps across all
+transports; retain A/A/order controls, immutable identities, failures and gaps.
+Exercise replay/tamper, invalid packets, counter/session changes, ordering,
+backpressure, cancellation, ownership and cleanup. Include temporary latest-code
+Travel comparisons with restoration checks. Keep only justified changes in one
+stage PR, with accept/reject/inconclusive decisions before the next stage review.

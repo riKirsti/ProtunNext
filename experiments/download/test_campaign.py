@@ -123,6 +123,36 @@ class DownloadValidity(unittest.TestCase):
         self.rows[0]["metrics"][0]["tun_mode"]="vnet"
         self.assertTrue(self.analyze()["errors"])
 
+    def test_parallel_plan_matches_tun_and_cpu_contract_and_screens_shared_helpers(self):
+        with mock.patch.dict(campaign.os.environ,{"NEXT_DOWNLOAD_TUN_MODE":"vnet","NEXT_DOWNLOAD_CLIENT_CORES":"2","NEXT_DOWNLOAD_PARALLEL":"1"}):
+            self.fixture()
+            self.assertTrue(all(r["tun_mode"]=="vnet" and r["client_cores"]==2 for r in campaign.plan()))
+            script=campaign.guest_script()
+            self.assertIn("NEXT_CLIENT_CPUS=2,3 NEXT_SERVER_CPUS=0",script)
+            self.assertIn("export NEXT_TUN_RECEIVE_MODE=vnet",script)
+        self.env["cpu_layout"]={"client":[2,3]}
+        for row in self.rows:
+            m=row["metrics"][0]
+            m.update(tun_mode="vnet",client_affinity_cpus=[2,3],shared_peer_server_cpu=True)
+            m["counters"].update(tun_coalesced_packets=32,tun_max_write_batch=16,tun_offload_fallbacks=0)
+            if row["build"]=="erase":
+                m["counters"].update(parallel_batches=1,parallel_helper_packets=8,parallel_owner_packets=8,parallel_max_batch=16)
+            m["peer"].update(cpu_seconds=9,wire_cpu_seconds=4.5,server_cpu_seconds=4.5)
+        result=self.analyze()
+        self.assertFalse(result["errors"])
+        self.assertTrue(result["blocks"][0]["auxiliary_limited"])
+        self.assertFalse(result["blocks"][0]["capacity_ranking"])
+        candidate=next(r for r in self.rows if r["build"]=="erase")["metrics"][0]
+        candidate["client_affinity_cpus"]=[0,1]
+        self.assertTrue(self.analyze()["errors"])
+        candidate["client_affinity_cpus"]=[2,3]
+        for key,bad in [("parallel_batches",0),("parallel_helper_packets",0),("parallel_owner_packets",0),("parallel_max_batch",4),("parallel_max_batch",33)]:
+            saved=candidate["counters"][key];candidate["counters"][key]=bad
+            self.assertTrue(self.analyze()["errors"])
+            candidate["counters"][key]=saved
+        with mock.patch.dict(campaign.os.environ,{"NEXT_DOWNLOAD_CLIENT_CORES":"1","NEXT_DOWNLOAD_PARALLEL":"1"}):
+            with self.assertRaises(AssertionError):campaign.plan()
+
     def test_wrong_identity_bypassed_tunnel_payload_failure_and_outer_errors(self):
         self.fixture()
         for name, value in [("effective_sources_sha256","wrong"),("namespace","net:[2]"),

@@ -6,6 +6,8 @@ pub mod handshake;
 pub mod rate_limiter;
 
 mod session;
+#[cfg(feature = "in-place")]
+pub use session::{AuthenticatedData, DataJob};
 mod timers;
 
 use crate::noise::errors::WireGuardError;
@@ -387,6 +389,47 @@ impl<R: CryptoRng, LF: LockFactory> Tunn<R, LF> {
         self.set_current_session(receiver as usize);
         self.timer_tick(TimerName::TimeLastPacketReceived);
         self.validate_decapsulated_packet(&mut buffer[16..16+len])
+    }
+
+    /// Prepare immutable-key authentication without changing tunnel/replay state.
+    /// The returned job owns its ciphertext buffer throughout authentication.
+    #[cfg(feature = "in-place")]
+    pub fn prepare_data<P: AsMut<[u8]>>(&self, mut packet: P)
+        -> Result<DataJob<P>, (WireGuardError, P)>
+    {
+        let (receiver, counter) = match tunn_parse_incoming_packet(packet.as_mut()) {
+            Ok(Packet::PacketData(p)) => (p.receiver_idx, p.counter),
+            Ok(_) => return Err((WireGuardError::InvalidPacket, packet)),
+            Err(e) => return Err((e, packet)),
+        };
+        match self.sessions[receiver as usize % N_SESSIONS].as_ref() {
+            Some(session) => session.prepare_data(receiver, counter, packet),
+            None => Err((WireGuardError::NoCurrentSession, packet)),
+        }
+    }
+
+    /// Owner-only commit after authentication. Session identity and replay state
+    /// are rechecked before timers, statistics or plaintext delivery are allowed.
+    /// Always returns the owned buffer, including on rejection.
+    #[cfg(feature = "in-place")]
+    pub fn finish_data<P: AsMut<[u8]>>(&mut self, mut data: AuthenticatedData<P>)
+        -> (Result<Option<usize>, WireGuardError>, P)
+    {
+        let receiver = data.receiver();
+        let result = self.sessions[receiver as usize % N_SESSIONS].as_ref()
+            .ok_or(WireGuardError::NoCurrentSession)
+            .and_then(|session| session.commit_data(&data));
+        let result = result.and_then(|len| {
+            self.set_current_session(receiver as usize);
+            self.timer_tick(TimerName::TimeLastPacketReceived);
+            match self.validate_decapsulated_packet(&mut data.packet.as_mut()[16..16+len]) {
+                TunnResult::Done => Ok(None),
+                TunnResult::WriteToTunnelV4(p, _) | TunnResult::WriteToTunnelV6(p, _) => Ok(Some(p.len())),
+                TunnResult::Err(e) => Err(e),
+                _ => unreachable!("IP validation cannot generate protocol output"),
+            }
+        });
+        (result, data.packet)
     }
 
     /// Receives a UDP datagram from the network and parses it.

@@ -82,6 +82,9 @@ def run(version, download=False):
                        warm_seconds=None if download else 1, measured_seconds=None if download else 5,
                        scope="actual-kernel KVM; pinned logical CPUs, not physical-core or interrupt isolation")
     (output / "environment.json").write_text(json.dumps(environment, indent=2), encoding="utf-8")
+    if download and int(os.environ.get("NEXT_DOWNLOAD_CLIENT_CORES", "1")) == 2:
+        environment["cpu_layout"] = dict(client=[2, 3], peer=0, server=0, load=1)
+        (output / "environment.json").write_text(json.dumps(environment, indent=2), encoding="utf-8")
     (output / "hardware.txt").write_text(subprocess.check_output(["lscpu"], text=True), encoding="utf-8")
     (output / "host-before.txt").write_text(pathlib.Path("/proc/stat").read_text())
     qmp = stage / "qmp.sock"

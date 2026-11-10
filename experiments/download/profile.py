@@ -16,7 +16,7 @@ import time
 ROOT=pathlib.Path(__file__).resolve().parents[2]
 
 
-def main(system=False, variant="erase", tun_mode="raw"):
+def main(system=False, variant="erase", tun_mode="raw", client_cores=1):
     output=ROOT/"target/erasure-audit/results"/("profiles-system" if system else "profiles")
     if variant != "erase" or tun_mode != "raw":
         output=output.with_name(output.name+f"-{variant}-{tun_mode}")
@@ -30,7 +30,8 @@ def main(system=False, variant="erase", tun_mode="raw"):
                      scope="native host diagnostic; instrumented frame-pointer build; not throughput acceptance",
                      perf=subprocess.check_output(["perf","version"],text=True).strip(),
                      compiler=(ROOT/"target/erasure-audit/toolchain.txt").read_text(),
-                     event="cpu-clock", frequency_hz=499, call_graph="frame pointers", client_cpus=[cpus[2]],
+                     event="cpu-clock", frequency_hz=499, call_graph="frame pointers", client_cpus=cpus[2:2+client_cores],
+                     shared_peer_server_cpu=client_cores==2,
                      sampling_scope="all four test CPUs including deferred kernel work" if system else "client process and worker threads",
                      builds=json.loads((ROOT/"target/erasure-audit/builds.json").read_text()),
                      binaries={p.name:hashlib.sha256(p.read_bytes()).hexdigest() for p in [binary,peer]})
@@ -41,7 +42,7 @@ def main(system=False, variant="erase", tun_mode="raw"):
             ready,go=stage/"ready",stage/"go"
             env=dict(os.environ,NEXT_PROFILE_READY=str(ready),NEXT_PROFILE_GO=str(go),
                      NEXT_TUN_RECEIVE_MODE=tun_mode,
-                     NEXT_PEER_CPUS=str(cpus[0]),NEXT_LOAD_CPUS=str(cpus[1]),NEXT_CLIENT_CPUS=str(cpus[2]),NEXT_SERVER_CPUS=str(cpus[3]))
+                     NEXT_PEER_CPUS=str(cpus[0]),NEXT_LOAD_CPUS=str(cpus[1]),NEXT_CLIENT_CPUS=",".join(map(str,cpus[2:2+client_cores])),NEXT_SERVER_CPUS=str(cpus[0] if client_cores==2 else cpus[3]),NEXT_SHARED_PEER_SERVER_CPU="1" if client_cores==2 else "0")
             profiler=None
             with (output/f"{protocol}-fixture.log").open("w") as log, (output/f"{protocol}-perf.log").open("w") as perf_log:
                 process=subprocess.Popen(["unshare","-n",str(binary),"download-client",str(peer),protocol,"1","16384","v4","http"],env=env,stdout=log,stderr=subprocess.STDOUT,start_new_session=True)
@@ -80,5 +81,6 @@ if __name__=="__main__":
     parser.add_argument("--system",action="store_true")
     parser.add_argument("--variant",choices=["main","erase"],default="erase")
     parser.add_argument("--tun-mode",choices=["raw","vnet"],default="raw")
+    parser.add_argument("--client-cores",choices=[1,2],type=int,default=1)
     args=parser.parse_args()
-    main(args.system,args.variant,args.tun_mode)
+    main(args.system,args.variant,args.tun_mode,args.client_cores)

@@ -14,7 +14,11 @@ def plan():
     rows = []
     rate = int(os.environ.get("NEXT_DOWNLOAD_RATE_BPS", "0"))
     tun_mode = os.environ.get("NEXT_DOWNLOAD_TUN_MODE", "raw")
-    assert tun_mode in {"raw", "compare"}, "invalid TUN comparison mode"
+    assert tun_mode in {"raw", "compare", "vnet"}, "invalid TUN comparison mode"
+    client_cores = int(os.environ.get("NEXT_DOWNLOAD_CLIENT_CORES", "1"))
+    parallel = os.environ.get("NEXT_DOWNLOAD_PARALLEL", "0") == "1"
+    assert client_cores in {1, 2}, "invalid client CPU allowance"
+    assert not parallel or client_cores == 2, "parallel comparison needs two allowed client CPUs"
     assert rate >= 0, "invalid offered download rate"
     total_blocks = 2048 if rate else 32768
     for protocol in ["udp", "tcp", "stealth"]:
@@ -32,6 +36,12 @@ def plan():
                         rows[-1]["offered_rate_bps"] = rate
                     if tun_mode == "compare":
                         rows[-1]["tun_mode"] = "vnet" if build == "erase" else "raw"
+                    elif tun_mode == "vnet":
+                        rows[-1]["tun_mode"] = "vnet"
+                    if client_cores == 2:
+                        rows[-1].update(client_cores=2, shared_peer_server_cpu=True)
+                    if parallel:
+                        rows[-1]["parallel_receive"] = build == "erase"
     selected=os.environ.get("NEXT_DOWNLOAD_BLOCK","")
     if selected:
         assert selected in {r["block"] for r in rows}, "unknown download workload block"
@@ -62,7 +72,10 @@ def guest_script():
              "sha256sum /bin/main /bin/erase", "result=0",
              "export NEXT_PEER_CPUS=0 NEXT_LOAD_CPUS=1 NEXT_CLIENT_CPUS=2 NEXT_SERVER_CPUS=3"]
     lines.append("export NEXT_DOWNLOAD_RATE_BPS=" + str(int(os.environ.get("NEXT_DOWNLOAD_RATE_BPS", "0"))))
-    lines.append("export NEXT_TUN_RECEIVE_MODE=raw")
+    vnet = os.environ.get("NEXT_DOWNLOAD_TUN_MODE") == "vnet"
+    lines.append("export NEXT_TUN_RECEIVE_MODE=" + ("vnet" if vnet else "raw"))
+    if int(os.environ.get("NEXT_DOWNLOAD_CLIENT_CORES", "1")) == 2:
+        lines.append("export NEXT_CLIENT_CPUS=2,3 NEXT_SERVER_CPUS=0 NEXT_SHARED_PEER_SERVER_CPU=1")
     for args in smoke_arguments("/bin/main"):
         command=["setsid","timeout","-s","KILL","30","unshare","-n","/bin/main",*args]
         prefix = "NEXT_DOWNLOAD_START_DELAY_MS=1250 " if args[2] == "stealth" else ""
@@ -70,7 +83,7 @@ def guest_script():
                   prefix+shlex.join(command)+" &", "sample_pid=$!", 'wait "$sample_pid"', "code=$?",
                   'kill -KILL -- "-$sample_pid" 2>/dev/null',
                   'if [ "$code" != 0 ]; then echo "ERASURE_EXIT 1"; poweroff -f; fi']
-    if os.environ.get("NEXT_DOWNLOAD_TUN_MODE", "raw") == "compare":
+    if os.environ.get("NEXT_DOWNLOAD_TUN_MODE", "raw") in {"compare", "vnet"}:
         for args in smoke_arguments("/bin/main")[:6]:
             command = ["setsid", "timeout", "-s", "KILL", "30", "unshare", "-n", "/bin/erase", *args]
             lines += ["echo DOWNLOAD_CANDIDATE_VNET_SMOKE",
@@ -96,6 +109,17 @@ def geometric(values):
 def metrics(row, env):
     assert row["exit"] == 0 and len(row["metrics"]) == 1, "process failed or incomplete metrics"
     m = row["metrics"][0]
+    if "client_cores" in row:
+        assert len(set(m["client_affinity_cpus"])) == row["client_cores"], "client CPU allowance mismatch"
+        assert m["client_affinity_cpus"] == env["cpu_layout"]["client"], "client CPU pin identity mismatch"
+        assert m["shared_peer_server_cpu"] == row["shared_peer_server_cpu"], "auxiliary CPU layout mismatch"
+    if row.get("parallel_receive"):
+        assert m["counters"].get("parallel_batches", 0) > 0, "parallel receive was not exercised"
+        assert m["counters"].get("parallel_helper_packets", 0) > 0
+        assert m["counters"].get("parallel_owner_packets", 0) > 0
+        assert 8 <= m["counters"].get("parallel_max_batch", 0) <= 32
+    elif "parallel_receive" in row:
+        assert m["counters"].get("parallel_batches", 0) == 0, "baseline unexpectedly used parallel receive"
     assert m.get("tun_mode", "raw") == row.get("tun_mode", "raw"), "TUN mode identity mismatch"
     if row.get("tun_mode") == "vnet":
         assert m["counters"].get("tun_coalesced_packets", 0) > 0, "coalescing was not exercised"
@@ -134,6 +158,8 @@ def metrics(row, env):
     aux = max(load["cpu_seconds"]/load["seconds"],
               peer.get("wire_cpu_seconds",peer["cpu_seconds"])/peer["seconds"],
               peer.get("server_cpu_seconds",0)/peer["seconds"])
+    if row.get("shared_peer_server_cpu"):
+        aux = max(aux, peer["cpu_seconds"]/peer["seconds"])
     return dict(Mbps=load["bytes"]*8/load["seconds"]/1e6, CPU_ns_per_byte=cpu*1e9/load["bytes"],
                 CPU_core_percent=cpu/seconds*100, peak_RSS_MiB=m["client_rss_kib"]/1024,
                 short=load["seconds"]<2, interval_skew=skew, auxiliary_core_fraction=aux,

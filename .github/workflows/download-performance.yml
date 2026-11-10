@@ -22,11 +22,20 @@ on:
       tun_mode:
         type: choice
         default: raw
-        options: [raw, compare]
+        options: [raw, compare, vnet]
         description: Raw control or raw baseline versus negotiated receive coalescing
+      client_cores:
+        type: choice
+        default: '1'
+        options: ['1', '2']
+        description: Same allowed client CPUs for baseline and candidate
+      parallel_receive:
+        type: boolean
+        default: false
+        description: Require actual candidate parallel authentication (two client CPUs)
 permissions: {contents: read}
 concurrency:
-  group: download-${{ github.ref }}-${{ inputs.profiles_only }}-${{ inputs.kernel }}-${{ inputs.block }}-${{ inputs.tun_mode }}
+  group: download-${{ github.ref }}-${{ inputs.profiles_only }}-${{ inputs.kernel }}-${{ inputs.block }}-${{ inputs.tun_mode }}-${{ inputs.client_cores }}-${{ inputs.parallel_receive }}
   cancel-in-progress: true
 jobs:
   lts:
@@ -61,7 +70,9 @@ jobs:
         env:
           NEXT_DOWNLOAD_BLOCK: ${{ inputs.block }}
           NEXT_DOWNLOAD_TUN_MODE: ${{ inputs.tun_mode || 'raw' }}
-        run: sudo env "NEXT_DOWNLOAD_BLOCK=$NEXT_DOWNLOAD_BLOCK" "NEXT_DOWNLOAD_TUN_MODE=$NEXT_DOWNLOAD_TUN_MODE" python3 experiments/audit/lts.py '${{ matrix.kernel }}' --download
+          NEXT_DOWNLOAD_CLIENT_CORES: ${{ inputs.client_cores || '1' }}
+          NEXT_DOWNLOAD_PARALLEL: ${{ inputs.parallel_receive && '1' || '0' }}
+        run: sudo env "NEXT_DOWNLOAD_BLOCK=$NEXT_DOWNLOAD_BLOCK" "NEXT_DOWNLOAD_TUN_MODE=$NEXT_DOWNLOAD_TUN_MODE" "NEXT_DOWNLOAD_CLIENT_CORES=$NEXT_DOWNLOAD_CLIENT_CORES" "NEXT_DOWNLOAD_PARALLEL=$NEXT_DOWNLOAD_PARALLEL" python3 experiments/audit/lts.py '${{ matrix.kernel }}' --download
       - name: Publish results including failures and inconclusive cells
         if: always()
         run: |
@@ -102,7 +113,9 @@ jobs:
         env:
           NEXT_DOWNLOAD_BLOCK: ${{ inputs.block }}
           NEXT_DOWNLOAD_TUN_MODE: ${{ inputs.tun_mode || 'raw' }}
-        run: sudo env "NEXT_DOWNLOAD_BLOCK=$NEXT_DOWNLOAD_BLOCK" "NEXT_DOWNLOAD_TUN_MODE=$NEXT_DOWNLOAD_TUN_MODE" python3 experiments/audit/native.py --download
+          NEXT_DOWNLOAD_CLIENT_CORES: ${{ inputs.client_cores || '1' }}
+          NEXT_DOWNLOAD_PARALLEL: ${{ inputs.parallel_receive && '1' || '0' }}
+        run: sudo env "NEXT_DOWNLOAD_BLOCK=$NEXT_DOWNLOAD_BLOCK" "NEXT_DOWNLOAD_TUN_MODE=$NEXT_DOWNLOAD_TUN_MODE" "NEXT_DOWNLOAD_CLIENT_CORES=$NEXT_DOWNLOAD_CLIENT_CORES" "NEXT_DOWNLOAD_PARALLEL=$NEXT_DOWNLOAD_PARALLEL" python3 experiments/audit/native.py --download
       - name: Install profiler
         run: |
           sudo apt-get update
@@ -116,11 +129,17 @@ jobs:
           BASELINE: ${{ inputs.baseline }}
           RUSTFLAGS: -C force-frame-pointers=yes
           CARGO_PROFILE_RELEASE_DEBUG: '1'
+          NEXT_DOWNLOAD_CLIENT_CORES: ${{ inputs.client_cores || '1' }}
           NEXT_DOWNLOAD_TUN_MODE: ${{ inputs.tun_mode || 'raw' }}
         run: |
           bash experiments/audit/build.sh "$(rustc -vV | sed -n 's/^host: //p')"
           export PATH="$(dirname "$(find /usr/lib -path '*linux-tools*' -name perf -type f | head -1)"):$PATH"
-          if [ "$NEXT_DOWNLOAD_TUN_MODE" = compare ]; then
+          if [ "$NEXT_DOWNLOAD_TUN_MODE" = vnet ]; then
+            sudo env "PATH=$PATH" python3 experiments/download/profile.py --variant main --tun-mode vnet --client-cores "$NEXT_DOWNLOAD_CLIENT_CORES"
+            sudo env "PATH=$PATH" python3 experiments/download/profile.py --variant erase --tun-mode vnet --client-cores "$NEXT_DOWNLOAD_CLIENT_CORES"
+            sudo env "PATH=$PATH" python3 experiments/download/profile.py --system --variant main --tun-mode vnet --client-cores "$NEXT_DOWNLOAD_CLIENT_CORES"
+            sudo env "PATH=$PATH" python3 experiments/download/profile.py --system --variant erase --tun-mode vnet --client-cores "$NEXT_DOWNLOAD_CLIENT_CORES"
+          elif [ "$NEXT_DOWNLOAD_TUN_MODE" = compare ]; then
             sudo env "PATH=$PATH" python3 experiments/download/profile.py --variant main --tun-mode raw
             sudo env "PATH=$PATH" python3 experiments/download/profile.py --variant erase --tun-mode vnet
             sudo env "PATH=$PATH" python3 experiments/download/profile.py --system --variant main --tun-mode raw
