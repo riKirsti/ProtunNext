@@ -285,6 +285,48 @@ mod tests {
         }
     }
 
+    fn rechecksum(bytes: &mut [u8], ip: usize) {
+        bytes[ip + 16..ip + 18].fill(0);
+        let check = !fold(pseudo(bytes, ip, bytes.len() - ip) + sum(&bytes[ip..]));
+        bytes[ip + 16..ip + 18].copy_from_slice(&check.to_be_bytes());
+        if ip == 20 {
+            bytes[10..12].fill(0);
+            let check = !fold(sum(&bytes[..20]));
+            bytes[10..12].copy_from_slice(&check.to_be_bytes());
+        }
+    }
+
+    #[test]
+    fn valid_checksum_changes_still_end_a_group_at_the_first_boundary() {
+        for v6 in [false, true] {
+            let ip = if v6 { 40 } else { 20 };
+            let first = packet(v6, 0, 1000, false);
+            let next = packet(v6, 1000, 1000, false);
+            let mut offsets = vec![ip, ip + 4, ip + 8, ip + 12, ip + 14, ip + 20];
+            offsets.extend(if v6 {
+                vec![1, 7, 23, 39]
+            } else {
+                vec![1, 6, 8, 12, 16]
+            });
+            for offset in offsets {
+                let mut changed = next.clone();
+                changed[offset] ^= 1;
+                rechecksum(&mut changed, ip);
+                assert!(plan([first.as_slice(), changed.as_slice()].into_iter()).is_none());
+            }
+            for flags in [0, 0x01, 0x02, 0x04, 0x11, 0x30, 0x50, 0x90] {
+                let mut changed = next.clone();
+                changed[ip + 13] = flags;
+                rechecksum(&mut changed, ip);
+                assert!(plan([first.as_slice(), changed.as_slice()].into_iter()).is_none());
+            }
+            let mut damaged = packet(v6, 2000, 1000, false);
+            damaged[ip + 32] ^= 1;
+            let packets = [first, next, damaged];
+            assert_eq!(plan(packets.iter().map(Vec::as_slice)).unwrap().count, 2);
+        }
+    }
+
     #[test]
     fn boundaries_control_packets_and_segment_limits_preserve_order() {
         for v6 in [false, true] {
