@@ -49,6 +49,8 @@ pub mod tls;
 mod tls_buffered;
 pub mod tls_unbuffered;
 pub mod transport;
+#[cfg(any(target_os = "linux", test))]
+mod tun_coalesce;
 #[cfg(unix)]
 mod tun_device;
 #[cfg(windows)]

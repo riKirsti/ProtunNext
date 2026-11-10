@@ -29,7 +29,7 @@ pub(crate) fn run_offline(
     stop: &AtomicBool,
     observer: &Observer,
 ) -> Result<Counters> {
-    let mut tun = tun_file.map(TunDevice::new);
+    let mut tun = tun_file.map(TunDevice::new).transpose()?;
     let mut poll = Poll::new()?;
     let waker = std::sync::Arc::new(mio::Waker::new(poll.registry(), CONTROL)?);
     observer.set_waker(waker.clone());
@@ -58,7 +58,7 @@ pub(crate) fn run_offline(
             while let Some(packet) = replies.pop() {
                 pool.recycle(packet)?;
             }
-            tun = replacement.map(TunDevice::new);
+            tun = replacement.map(TunDevice::new).transpose()?;
             #[cfg(windows)]
             if let Some(tun) = &mut tun {
                 tun.attach_waker(waker.clone())?;
@@ -255,7 +255,7 @@ pub(crate) fn run<N: Network>(
     stop: &AtomicBool,
     observer: Option<&crate::connection::Observer>,
 ) -> Result<Counters> {
-    let mut tun = tun_file.map(TunDevice::new);
+    let mut tun = tun_file.map(TunDevice::new).transpose()?;
     let allowed_ips = crate::routing::AllowedIps::new(&config.allowed_ips)?;
     let compatibility_policy = observer.is_some_and(|o| o.compatibility_policy());
     let addresses = observer.map_or_else(Default::default, Observer::addresses);
@@ -316,7 +316,7 @@ pub(crate) fn run<N: Network>(
             if let Some(old) = &tun {
                 old.deregister(poll.registry())?;
             }
-            tun = replacement.map(TunDevice::new);
+            tun = replacement.map(TunDevice::new).transpose()?;
             #[cfg(windows)]
             if let Some(tun) = &mut tun {
                 tun.attach_waker(waker.clone())?;
@@ -696,29 +696,30 @@ pub(crate) fn run<N: Network>(
             }
         }
         for _ in 0..BUDGET {
-            let Some(packet) = to_tun.front() else {
+            if to_tun.is_empty() {
                 break;
-            };
+            }
             let Some(device) = tun.as_mut() else {
                 while let Some(packet) = to_tun.pop() {
                     pool.recycle(packet)?;
                 }
                 break;
             };
-            match device.write(packet.data()) {
-                Ok(n) if n == packet.data().len() => {
-                    pool.recycle(to_tun.pop().expect("front exists"))?
-                }
-                Ok(_) => {
-                    detach_tun(
-                        &mut tun,
-                        &poll,
-                        observer,
-                        Error::Invalid("partial TUN write"),
-                    )?;
-                    tun_ready = false;
-                    tun_writable = false;
-                    break;
+            let fallbacks = device.offload_fallbacks();
+            let delivery = device.write_queued(&to_tun);
+            let fallbacks = device.offload_fallbacks() - fallbacks;
+            counters.tun_write_calls += 1 + fallbacks;
+            counters.tun_offload_fallbacks += fallbacks;
+            match delivery {
+                Ok(count) => {
+                    counters.tun_written_packets += count as u64;
+                    counters.tun_max_write_batch = counters.tun_max_write_batch.max(count as u64);
+                    if count > 1 {
+                        counters.tun_coalesced_packets += count as u64;
+                    }
+                    for _ in 0..count {
+                        pool.recycle(to_tun.pop().expect("accepted prefix"))?;
+                    }
                 }
                 Err(e)
                     if e.kind() == std::io::ErrorKind::WouldBlock
