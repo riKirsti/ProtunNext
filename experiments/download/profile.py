@@ -16,14 +16,17 @@ import time
 ROOT=pathlib.Path(__file__).resolve().parents[2]
 
 
-def main(system=False):
+def main(system=False, variant="erase", tun_mode="raw"):
     output=ROOT/"target/erasure-audit/results"/("profiles-system" if system else "profiles")
+    if variant != "erase" or tun_mode != "raw":
+        output=output.with_name(output.name+f"-{variant}-{tun_mode}")
     output.mkdir(parents=True,exist_ok=True)
-    binary=ROOT/"target/erasure-audit/bin/erase"
+    binary=ROOT/"target/erasure-audit/bin"/variant
     peer=ROOT/"target/erasure-audit/bin/main"
     cpus=sorted(os.sched_getaffinity(0))
     assert len(cpus)>=4
     environment=dict(kernel=os.uname().release,architecture=os.uname().machine,
+                     client_variant=variant, tun_mode=tun_mode,
                      scope="native host diagnostic; instrumented frame-pointer build; not throughput acceptance",
                      perf=subprocess.check_output(["perf","version"],text=True).strip(),
                      compiler=(ROOT/"target/erasure-audit/toolchain.txt").read_text(),
@@ -37,6 +40,7 @@ def main(system=False):
             stage=pathlib.Path(folder)
             ready,go=stage/"ready",stage/"go"
             env=dict(os.environ,NEXT_PROFILE_READY=str(ready),NEXT_PROFILE_GO=str(go),
+                     NEXT_TUN_RECEIVE_MODE=tun_mode,
                      NEXT_PEER_CPUS=str(cpus[0]),NEXT_LOAD_CPUS=str(cpus[1]),NEXT_CLIENT_CPUS=str(cpus[2]),NEXT_SERVER_CPUS=str(cpus[3]))
             profiler=None
             with (output/f"{protocol}-fixture.log").open("w") as log, (output/f"{protocol}-perf.log").open("w") as perf_log:
@@ -74,4 +78,7 @@ def main(system=False):
 if __name__=="__main__":
     parser=argparse.ArgumentParser()
     parser.add_argument("--system",action="store_true")
-    main(parser.parse_args().system)
+    parser.add_argument("--variant",choices=["main","erase"],default="erase")
+    parser.add_argument("--tun-mode",choices=["raw","vnet"],default="raw")
+    args=parser.parse_args()
+    main(args.system,args.variant,args.tun_mode)

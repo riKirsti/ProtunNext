@@ -24,8 +24,10 @@ receiver had a reproduced completion-overflow stall; a temporary corrected
 build passed the targeted burst regression and eight WAN downloads. That
 receiver, its fix and any liburing package are not dependencies of this PR.
 Complete-worker speed/RSS measurements do not justify adopting it as default.
-Software TUN aggregation, production parallel crypto and mandatory PGO remain
-excluded. See the linked reports for retained failures and workload limits.
+Production parallel crypto and mandatory PGO remain excluded. Stage 3 evaluates
+explicitly negotiated Linux receive-side TUN coalescing; see its
+[descriptor contract and evaluation](benchmarks/stage3-tun.md).
+See the linked reports for retained failures and workload limits.
 
 `Options`, `UdpBackend`, `Transport::Tuned`, `Transport::UnbufferedTls`,
 `update_performance_options`, `run_with_options`, the CLI `--performance` switch
@@ -38,8 +40,10 @@ elsewhere. `tls::client*` returns the matching type; downstream CI compiles this
 contract from a separate application. `run_transport_fd` accepts the chosen transport with
 the production policy. Build with ordinary default or existing product features.
 
-Raw TUN is the descriptor contract on Linux/Android; vnet-header software
-segmentation was an unmeasured new contract and is omitted. UDP GSO/GRO operates
+Raw TUN retains its descriptor contract on Linux/Android. Linux additionally
+accepts explicitly prepared receive-only vnet descriptors as described in
+[Stage 3](benchmarks/stage3-tun.md); raw descriptors are never silently converted.
+UDP GSO/GRO operates
 on already encrypted independent WireGuard datagrams, preserving counters/tags;
 receive aggregates are split before authentication. Oversized/truncated datagrams
 are counted and never passed to WireGuard. The library changes no host sysctl,

@@ -11,8 +11,8 @@ Research is open-ended; earlier prototypes do not exclude different designs.
 | Stage | Scope | Status |
 |---|---|---|
 | 1 | Real inner TCP/HTTPS baseline and complete-path profiling | Initial foundation merged in PR #5; PR #6 retains batch-screening evidence and regression checks |
-| 2 | Simple receive-path improvements: framing/copies, scheduling, batching, bounded storage | Evaluated in PR #7; review/merge pending |
-| 3 | Genuine receive-side TUN coalescing and offload metadata | Review before starting |
+| 2 | Simple receive-path improvements: framing/copies, scheduling, batching, bounded storage | Merged in PR #7 |
+| 3 | Genuine receive-side TUN coalescing and offload metadata | Evaluated in PR #8; ready for review |
 | 4 | Multicore receive architectures and asynchronous decryption | Review before starting |
 | 5 | Alternative acceleration: crypto implementations, native WireGuard, advanced I/O/TLS, CPU/NIC coordination and kernel bypass | Review the evidence-backed shortlist before starting |
 | 6 | Client-only PGO, architecture-specific builds and platform tuning | Review before starting |
@@ -22,6 +22,20 @@ One stage per PR. Before each transition, review the goal, frozen baseline,
 evidence, proposed changes, exclusions, validation and completion criteria with
 the user. Preserve independent comparisons inside the stage; do not combine
 unmeasured effects or carry speculative backends into production.
+
+Starting with Stage 3, every stage PR includes absolute baseline/candidate CPU
+usage (100% = one core), peak process memory MiB and verified download Mbps by
+measured platform and by WireGuard UDP, WireGuard TCP and Stealth. Put readable
+tables in the PR and retain full workload tables, immutable source/binary
+identities, GitHub Actions evidence and measurement limits in the stage report.
+Label build-only platforms as performance-unmeasured.
+
+Each stage also temporarily tests its latest production code on the physical
+Travel router for all three transports, comparing against the frozen baseline.
+Use only owned temporary artifacts and narrowly scoped test routing, an automatic
+cleanup watchdog, and independent before/after verification. Preserve Direct mode,
+saved configuration, account/key and installed packages; report failures, noise,
+CPU/memory definitions, WAN limitations and cleanup results explicitly.
 
 ## Stage 2 review, November 9
 
@@ -64,6 +78,50 @@ download-speed gains remain unproven. Worker bounds and UDP batch 16 remain.
 See the [complete evaluation](benchmarks/stage2-receive.md) for source identities,
 controls, original limitations and platform-specific recommendations.
 
-Stage 3 has not started. After this stage's review, first revisit the agreed
-goal, merged baseline, TUN/kernel profile evidence, raw-TUN compatibility,
-offload/checksum/segmentation correctness and validation criteria in chat.
+## Stage 3 review, November 9
+
+Baseline: merged PR #7, `f26fd3d741d125037797ec9953de1d50ebd93c8a`.
+The chat review covers receive-side TUN work across UDP, TCP and Stealth, while
+preserving the existing raw descriptor contract. Earlier profiles identify TUN
+delivery and kernel receive processing as worthwhile candidates; they do not
+establish that coalescing improves maximum throughput.
+
+Implement conservative adjacent inner-TCP aggregation only for explicitly
+negotiated Linux vnet descriptors. Validate original checksums, segmentation,
+metadata, packet order, backpressure and exact ownership before comparing real
+downloads. Raw TUN and other platforms retain ordinary delivery. Keep queue,
+worker and crypto budgets fixed; multicore decryption, alternative backends and
+PGO belong to later stages.
+
+Use fixed PR #7 peer/load binaries, A/A controls and balanced comparisons. Check
+both IPv4 HTTP and IPv6 HTTPS, one/eight flows and all three outer transports.
+Retain failures, source identities, client CPU/byte, RSS, throughput, coalescing
+counters and helper/headroom screens. Supported LTS kernels and native x64/ARM64
+must establish compatibility independently of cross-platform build checks.
+Reduced TUN calls alone do not establish a speedup; report measured benefits,
+regressions and inconclusive cells before selecting a candidate in one stage PR.
+
+## Stage 3 result
+
+[PR #8](https://github.com/riKirsti/ProtunNext/pull/8) retains explicitly negotiated
+Linux receive-side coalescing with original-checksum validation, bounded groups,
+immutable queue ownership and erased copied-header scratch. All 576 final-code
+timed downloads are valid; all 72 workload cells pass control/timing screens.
+At 200 Mbps, client CPU/byte falls 40.26-50.08% on native x64 and 26.20-38.92%
+on native ARM64 across all three transports. Peak client RSS falls in every cell.
+All unpaced cells remain helper-limited; maximum client throughput is unproven.
+All nine platform jobs and both native release-erasure checks pass.
+
+The [complete Stage 3 evaluation](benchmarks/stage3-tun.md) retains all workload
+results, preliminary/superseded launches, source identities, profiles and gaps.
+Existing raw callers remain compatible; other platforms keep ordinary delivery.
+The [latest-code physical Travel supplement](benchmarks/stage3-travel.md) records
+CPU %, RSS MiB and verified Mbps for all three transports. All twelve balanced
+comparison downloads succeed; one of twelve baseline A/A sessions fails at warmup.
+WAN controls are noisy/incomplete, and Travel RSS increases despite lower observed
+CPU/byte. Cleanup and independent restoration checks pass. These physical results
+remain separate from the controlled GitHub cohorts and do not establish a clean
+WAN speed ranking.
+Stage 4 has not started. After merge, freeze the merged baseline and review the
+crypto/receive evidence, ordered bounded parallelism, session/replay ownership,
+backpressure, validation and completion criteria before implementation.

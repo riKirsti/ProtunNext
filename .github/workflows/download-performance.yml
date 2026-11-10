@@ -19,9 +19,14 @@ on:
         type: string
         default: ''
         description: Optional workload block for a focused retest
+      tun_mode:
+        type: choice
+        default: raw
+        options: [raw, compare]
+        description: Raw control or raw baseline versus negotiated receive coalescing
 permissions: {contents: read}
 concurrency:
-  group: download-${{ github.ref }}-${{ inputs.profiles_only }}-${{ inputs.kernel }}-${{ inputs.block }}
+  group: download-${{ github.ref }}-${{ inputs.profiles_only }}-${{ inputs.kernel }}-${{ inputs.block }}-${{ inputs.tun_mode }}
   cancel-in-progress: true
 jobs:
   lts:
@@ -55,7 +60,8 @@ jobs:
       - name: Real inner TCP downloads on supported kernel
         env:
           NEXT_DOWNLOAD_BLOCK: ${{ inputs.block }}
-        run: sudo env "NEXT_DOWNLOAD_BLOCK=$NEXT_DOWNLOAD_BLOCK" python3 experiments/audit/lts.py '${{ matrix.kernel }}' --download
+          NEXT_DOWNLOAD_TUN_MODE: ${{ inputs.tun_mode || 'raw' }}
+        run: sudo env "NEXT_DOWNLOAD_BLOCK=$NEXT_DOWNLOAD_BLOCK" "NEXT_DOWNLOAD_TUN_MODE=$NEXT_DOWNLOAD_TUN_MODE" python3 experiments/audit/lts.py '${{ matrix.kernel }}' --download
       - name: Publish results including failures and inconclusive cells
         if: always()
         run: |
@@ -95,7 +101,8 @@ jobs:
         if: ${{ !inputs.profiles_only }}
         env:
           NEXT_DOWNLOAD_BLOCK: ${{ inputs.block }}
-        run: sudo env "NEXT_DOWNLOAD_BLOCK=$NEXT_DOWNLOAD_BLOCK" python3 experiments/audit/native.py --download
+          NEXT_DOWNLOAD_TUN_MODE: ${{ inputs.tun_mode || 'raw' }}
+        run: sudo env "NEXT_DOWNLOAD_BLOCK=$NEXT_DOWNLOAD_BLOCK" "NEXT_DOWNLOAD_TUN_MODE=$NEXT_DOWNLOAD_TUN_MODE" python3 experiments/audit/native.py --download
       - name: Install profiler
         run: |
           sudo apt-get update
@@ -109,11 +116,19 @@ jobs:
           BASELINE: ${{ inputs.baseline }}
           RUSTFLAGS: -C force-frame-pointers=yes
           CARGO_PROFILE_RELEASE_DEBUG: '1'
+          NEXT_DOWNLOAD_TUN_MODE: ${{ inputs.tun_mode || 'raw' }}
         run: |
           bash experiments/audit/build.sh "$(rustc -vV | sed -n 's/^host: //p')"
           export PATH="$(dirname "$(find /usr/lib -path '*linux-tools*' -name perf -type f | head -1)"):$PATH"
-          sudo env "PATH=$PATH" python3 experiments/download/profile.py
-          sudo env "PATH=$PATH" python3 experiments/download/profile.py --system
+          if [ "$NEXT_DOWNLOAD_TUN_MODE" = compare ]; then
+            sudo env "PATH=$PATH" python3 experiments/download/profile.py --variant main --tun-mode raw
+            sudo env "PATH=$PATH" python3 experiments/download/profile.py --variant erase --tun-mode vnet
+            sudo env "PATH=$PATH" python3 experiments/download/profile.py --system --variant main --tun-mode raw
+            sudo env "PATH=$PATH" python3 experiments/download/profile.py --system --variant erase --tun-mode vnet
+          else
+            sudo env "PATH=$PATH" python3 experiments/download/profile.py
+            sudo env "PATH=$PATH" python3 experiments/download/profile.py --system
+          fi
       - name: Make root-owned perf data readable for artifact retention
         if: always()
         run: sudo chown -R "$(id -u):$(id -g)" target/erasure-audit

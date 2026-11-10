@@ -17,7 +17,9 @@ available for consumers, without implying device acceptance for those targets.
 
 Windows checks the two build families and native CPU before creating Wintun.
 Linux callers create their own interface/routing; deploy only on the two tested
-kernel families, and supply raw TUN without packet-info or vnet headers. Apple
+kernel families, and supply raw TUN without packet-info headers, or explicitly
+prepare the Linux-only [receive-coalescing descriptor contract](benchmarks/stage3-tun.md).
+Android keeps its raw TUN contract. Apple
 artifacts use deployment floor 26 and ARM64 slices, including simulators. Android
 uses min/NDK API 36 and compile/target SDK 37; no maxSdkVersion cap is imposed.
 
@@ -33,8 +35,9 @@ The Linux backend remains mmsg batching. The experimental io_uring receiver and
 its overflow correction are absent from production. No liburing package is
 required. GSO/GRO capabilities are negotiated once inside the batch adapter;
 unsupported offload retains the same batch backend.
-The removed vnet-header segmentation contract was an unreleased experiment,
-not a Protun v3.0.5 requirement. Original raw-TUN behavior is retained.
+The old removed vnet-header experiment was not a Protun v3.0.5 requirement.
+Stage 3 introduces a separate explicit receive-only contract, preserving original
+raw-TUN behavior and disabling kernel-to-userspace segmentation offloads.
 
 The `unix`, `linux`, `android`, `apple` and `windows` Cargo features remain small
 convenience bundles for existing application build scripts. They do not select
