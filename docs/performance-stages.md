@@ -12,7 +12,7 @@ Research is open-ended; earlier prototypes do not exclude different designs.
 |---|---|---|
 | 1 | Real inner TCP/HTTPS baseline and complete-path profiling | Initial foundation merged in PR #5; PR #6 retains batch-screening evidence and regression checks |
 | 2 | Simple receive-path improvements: framing/copies, scheduling, batching, bounded storage | Merged in PR #7 |
-| 3 | Genuine receive-side TUN coalescing and offload metadata | Reviewed after PR #7; implementation and controlled evaluation in progress |
+| 3 | Genuine receive-side TUN coalescing and offload metadata | Evaluated in PR #8; ready for review |
 | 4 | Multicore receive architectures and asynchronous decryption | Review before starting |
 | 5 | Alternative acceleration: crypto implementations, native WireGuard, advanced I/O/TLS, CPU/NIC coordination and kernel bypass | Review the evidence-backed shortlist before starting |
 | 6 | Client-only PGO, architecture-specific builds and platform tuning | Review before starting |
@@ -86,3 +86,21 @@ counters and helper/headroom screens. Supported LTS kernels and native x64/ARM64
 must establish compatibility independently of cross-platform build checks.
 Reduced TUN calls alone do not establish a speedup; report measured benefits,
 regressions and inconclusive cells before selecting a candidate in one stage PR.
+
+## Stage 3 result
+
+[PR #8](https://github.com/riKirsti/ProtunNext/pull/8) retains explicitly negotiated
+Linux receive-side coalescing with original-checksum validation, bounded groups,
+immutable queue ownership and erased copied-header scratch. All 576 final-code
+timed downloads are valid; all 72 workload cells pass control/timing screens.
+At 200 Mbps, client CPU/byte falls 40.26-50.08% on native x64 and 26.20-38.92%
+on native ARM64 across all three transports. Peak client RSS falls in every cell.
+All unpaced cells remain helper-limited; maximum client throughput is unproven.
+All nine platform jobs and both native release-erasure checks pass.
+
+The [complete Stage 3 evaluation](benchmarks/stage3-tun.md) retains all workload
+results, preliminary/superseded launches, source identities, profiles and gaps.
+Existing raw callers remain compatible; other platforms keep ordinary delivery.
+Stage 4 has not started. After merge, freeze the merged baseline and review the
+crypto/receive evidence, ordered bounded parallelism, session/replay ownership,
+backpressure, validation and completion criteria before implementation.
