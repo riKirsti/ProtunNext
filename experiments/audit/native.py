@@ -45,7 +45,7 @@ def run(download=False):
             if os.environ.get("NEXT_DOWNLOAD_TUN_MODE", "raw") == "compare":
                 smokes += [("erase", "vnet", args) for args in campaign.smoke_arguments(str(bins["main"]))[:6]]
             for build, tun_mode, arguments in smokes:
-                log.write("DOWNLOAD_SMOKE " + " ".join(arguments[2:]) + "\n")
+                log.write(f"DOWNLOAD_SMOKE {build} {tun_mode} " + " ".join(arguments[2:]) + "\n")
                 log.flush()
                 smoke_env = dict(process_env, NEXT_TUN_RECEIVE_MODE=tun_mode, NEXT_DOWNLOAD_START_DELAY_MS="1250" if arguments[2] == "stealth" else "0")
                 process = subprocess.Popen(["unshare", "-n", str(bins[build]), *arguments], env=smoke_env,
