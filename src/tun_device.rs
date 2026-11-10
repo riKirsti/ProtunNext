@@ -34,7 +34,7 @@ impl TunDevice {
         #[cfg(target_os = "linux")]
         if self.coalescing
             && queue.len() > 1
-            && let Some(plan) = crate::tun_coalesce::plan(queue.iter().map(|p| p.data()))
+            && let Some(mut plan) = crate::tun_coalesce::plan(queue.iter().map(|p| p.data()))
         {
             let mut vectors: [libc::iovec; crate::tun_coalesce::MAX_SEGMENTS + 2] =
                 std::array::from_fn(|_| libc::iovec {
@@ -60,6 +60,9 @@ impl TunDevice {
             // initialized vectors remain borrowed until this synchronous call returns.
             let n =
                 unsafe { libc::writev(self.as_raw_fd(), vectors.as_ptr(), (plan.count + 2) as _) };
+            // The scatter write borrows original payloads, but copies IP/TCP
+            // headers. Preserve plaintext-scratch erasure on every return path.
+            crate::packet::erase(&mut plan.header);
             if n >= 0 {
                 if n as usize != plan.len + plan.vnet.len() {
                     return Err(io::ErrorKind::WriteZero.into());
@@ -359,6 +362,48 @@ mod tests {
                 pool.recycle(packet).unwrap();
             }
             assert_eq!(pool.available(), 4);
+        }
+    }
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn aggregate_rejection_disables_once_and_keeps_originals_for_ordinary_retry() {
+        use crate::packet::{PacketPool, PacketQueue};
+        use std::os::fd::FromRawFd;
+        // eventfd rejects these non-eight-byte datagrams with EINVAL, providing
+        // a real failed syscall without a production fault-injection hook.
+        // SAFETY: scalar flags create a new independently owned event counter.
+        let fd = unsafe { libc::eventfd(0, libc::EFD_NONBLOCK | libc::EFD_CLOEXEC) };
+        assert!(fd >= 0);
+        let mut device = TunDevice {
+            // SAFETY: the successful eventfd call returned a new owned fd.
+            file: unsafe { File::from_raw_fd(fd) },
+            vnet: true,
+            coalescing: true,
+            fallbacks: 0,
+        };
+        let originals = [
+            crate::tun_coalesce::test_packet(false, 0, 1000, false),
+            crate::tun_coalesce::test_packet(false, 1000, 1000, false),
+        ];
+        let mut pool = PacketPool::new(2, 2048).unwrap();
+        let mut queue = PacketQueue::new(2).unwrap();
+        for bytes in &originals {
+            let mut packet = pool.take().unwrap();
+            packet.writable()[..bytes.len()].copy_from_slice(bytes);
+            packet.set_len(bytes.len()).unwrap();
+            assert!(queue.push(packet).is_ok());
+        }
+        for _ in 0..2 {
+            assert_eq!(
+                device.write_queued(&queue).unwrap_err().raw_os_error(),
+                Some(libc::EINVAL)
+            );
+            assert_eq!(device.offload_fallbacks(), 1);
+            assert!(!device.coalescing);
+            assert_eq!(queue.len(), 2);
+            for (packet, original) in queue.iter().zip(&originals) {
+                assert_eq!(packet.data(), original);
+            }
         }
     }
     #[cfg(target_os = "linux")]
