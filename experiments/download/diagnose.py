@@ -39,7 +39,7 @@ def main():
         env=dict(os.environ,NEXT_PROFILE_READY=str(ready),NEXT_PROFILE_GO=str(go),
                  NEXT_TUN_RECEIVE_MODE='vnet',NEXT_DOWNLOAD_RATE_BPS='200000000',NEXT_NETWORK_DELAY_MS='5',
                  NEXT_PEER_CPUS=str(cpus[0]),NEXT_LOAD_CPUS=str(cpus[1]),NEXT_CLIENT_CPUS=str(cpus[2]),NEXT_SERVER_CPUS=str(cpus[3]),NEXT_WARM_SECONDS='1',NEXT_PEER_VECTORED='1')
-        setup='set -e; ip link set lo up; tc qdisc add dev lo root netem delay 5ms; echo NEXT_NETEM 5; tc qdisc show dev lo; exec "$@"'
+        setup='set -e; ip link set lo up; tc qdisc add dev lo root netem delay 5ms; echo NEXT_NETEM 5; tc qdisc show dev lo; set +e; "$@"; code=$?; echo NEXT_DIAGNOSTIC_FINAL; tc -s qdisc show dev lo; cat /proc/net/snmp /proc/net/netstat /proc/net/snmp6; exit "$code"'
         command=['unshare','-n','sh','-c',setup,'netem',str(binary),'download-client',str(binary),'tcp','1','2048','v6','https']
         trace=[];peers=[];code=None
         with (folder/'fixture.log').open('w') as log:
@@ -49,7 +49,9 @@ def main():
                 while not ready.exists():
                     assert proc.poll() is None and time.monotonic()<deadline,'fixture failed to warm'
                     time.sleep(.05)
-                pid=int(ready.read_text());assert pid==proc.pid
+                pid=int(ready.read_text())
+                assert os.getpgid(pid)==proc.pid
+                assert str(pid) in pathlib.Path(f'/proc/{proc.pid}/task/{proc.pid}/children').read_text().split()
                 for child in pathlib.Path(f'/proc/{pid}/task/{pid}/children').read_text().split():
                     cmd=pathlib.Path(f'/proc/{child}/cmdline').read_bytes().split(b'\0')
                     if b'download-peer' in cmd:peers.append(int(child))
@@ -69,6 +71,7 @@ def main():
                 proc.wait()
                 (folder/'trace.json').write_text(json.dumps(trace,indent=2))
         text=(folder/'fixture.log').read_text()
+        assert 'NEXT_DIAGNOSTIC_FINAL' in text,'missing final owned-namespace counters'
         metrics=[json.loads(line[10:]) for line in text.splitlines() if line.startswith('NEXT_JSON ')]
         m=next((m for m in metrics if m.get('role')=='download-client'),None)
         row=dict(case=number+1,exit=code,verified=False)
