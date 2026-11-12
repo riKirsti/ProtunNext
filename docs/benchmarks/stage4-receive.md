@@ -249,7 +249,7 @@ The pinned prototype passes all nine [platform regression jobs](https://github.c
 and native analyzer/build checks. The archived patch retains the added
 deferred-commit, stale-key, replay/tamper, ordering/control-barrier, pool-pressure
 and completion-channel shutdown tests. The final ordinary source remains the
-serial production code. [Final production/tooling verification](https://github.com/riKirsti/ProtunNext/actions/runs/43152689848),
+serial production code. [Final production/tooling verification](https://github.com/riKirsti/ProtunNext/pull/9/checks),
 [native checks](https://github.com/riKirsti/ProtunNext/actions/runs/43152689847),
 and [release erasure](https://github.com/riKirsti/ProtunNext/actions/runs/43152689833)
 track the final non-document change. [Archive-only reconstruction checks](https://github.com/riKirsti/ProtunNext/actions/runs/43152487543)
