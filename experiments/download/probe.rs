@@ -9,6 +9,23 @@ const BLOCK: usize = 65536;
 const WARM_BLOCKS: u64 = 64;
 static WIRE_CPU_START: AtomicU64 = AtomicU64::new(0);
 
+// All timing/CPU/RSS values are captured before emit. Hash the actual running
+// executable afterward, so equal source hashes cannot conceal changed helpers
+// in a compiler-only experiment. No extra production dependency is introduced.
+fn emit(mut metric: serde_json::Value) {
+    let output = std::process::Command::new("sha256sum")
+        .arg(format!("/proc/{}/exe", std::process::id()))
+        .env_remove("LLVM_PROFILE_FILE")
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let text = String::from_utf8(output.stdout).unwrap();
+    let digest = text.split_whitespace().next().unwrap();
+    assert!(digest.len() == 64 && digest.bytes().all(|b| b.is_ascii_hexdigit()));
+    metric["binary_sha256"] = digest.into();
+    super::emit(metric);
+}
+
 fn clock_cpu(clock: libc::clockid_t) -> u64 {
     let mut value = libc::timespec {
         tv_sec: 0,

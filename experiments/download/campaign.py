@@ -17,6 +17,8 @@ def plan():
     assert tun_mode in {"raw", "compare", "vnet"}, "invalid TUN comparison mode"
     client_cores = int(os.environ.get("NEXT_DOWNLOAD_CLIENT_CORES", "1"))
     parallel = os.environ.get("NEXT_DOWNLOAD_PARALLEL", "0") == "1"
+    build_mode = os.environ.get("NEXT_BUILD_MODE", "release")
+    assert build_mode in {"release", "pgo", "cpu"}, "unknown build experiment"
     assert client_cores in {1, 2}, "invalid client CPU allowance"
     assert not parallel or client_cores == 2, "parallel comparison needs two allowed client CPUs"
     assert rate >= 0, "invalid offered download rate"
@@ -44,6 +46,8 @@ def plan():
                         rows[-1]["parallel_receive"] = build == "erase"
                         if build == "erase":
                             rows[-1]["thread_placement"] = "split"
+                    if build_mode != "release":
+                        rows[-1]["build_mode"] = build_mode if build == "erase" else "release"
     selected=os.environ.get("NEXT_DOWNLOAD_BLOCK","")
     if selected:
         assert selected in {r["block"] for r in rows}, "unknown download workload block"
@@ -111,6 +115,27 @@ def geometric(values):
 def metrics(row, env):
     assert row["exit"] == 0 and len(row["metrics"]) == 1, "process failed or incomplete metrics"
     m = row["metrics"][0]
+    if "build_mode" in row:
+        cfg = env["sources"][row["build"]]["build_configuration"]
+        assert cfg["mode"] == row["build_mode"], "build configuration mismatch"
+        assert cfg["binary_sha256"] == env["binaries"][row["build"]], "built binary identity mismatch"
+        assert m["binary_sha256"] == env["binaries"][row["build"]], "running client binary mismatch"
+        assert m["peer"]["binary_sha256"] == m["load"]["binary_sha256"] == env["binaries"]["main"], "auxiliary binary changed"
+        assert not any("profile-generate" in flag for flag in cfg["rustflags"]), "instrumented timing is not a speed result"
+        if cfg["mode"] != "release":
+            assert env["binaries"]["main"] != env["binaries"]["erase"], "build experiment reused baseline binary"
+            assert cfg["erasure_checked"] is True, "optimized erasure not checked"
+        if cfg["mode"] == "pgo":
+            profile = cfg["profile"]
+            assert len(profile["sha256"]) == 64 and profile["raw_files"], "missing training profile identity"
+            assert profile["instrumentation_absent"] is True, "final instrumentation not checked"
+            assert "-Cprofile-use="+profile["path"] in cfg["rustflags"], "profile not consumed"
+            cases = profile["training"]["cases"]
+            assert len(cases) == 6 and all(c["verified"] and c["flows"] in {2,4} for c in cases), "invalid/overlapping PGO training"
+            assert {c["name"].split('-')[0] for c in cases} == {"udp","tcp","stealth"}, "incomplete training transports"
+        if cfg["mode"] == "cpu":
+            assert cfg["cpu_identity"]["sha256"] == env["cpu_identity"]["sha256"], "CPU-specific binary evaluated on different CPU"
+            assert "-Ctarget-cpu=native" in cfg["rustflags"], "CPU tuning was not applied"
     if "client_cores" in row:
         assert len(set(m["client_affinity_cpus"])) == row["client_cores"], "client CPU allowance mismatch"
         assert m["client_affinity_cpus"] == env["cpu_layout"]["client"], "client CPU pin identity mismatch"
@@ -235,7 +260,9 @@ def publish(folder):
            "| Workload | Validity | Download Mbps base / candidate | CPU ns/B base / candidate | CPU core % base / candidate | Peak RSS MiB base / candidate | Capacity ranking |",
            "|---|---|---:|---:|---:|---:|---|"]
     if report["same_runtime_sources"]:
-        lines[2:2] = ["Production source fingerprints match: baseline characterization only; no optimization gain is claimed.", ""]
+        tuned = any(r.get("build_mode") in {"pgo","cpu"} for r in json.loads((folder/"plan.json").read_text()))
+        message = "Runtime source fingerprints match; this is a recorded compiler-build comparison, not a runtime-source optimization." if tuned else "Production source fingerprints match: baseline characterization only; no optimization gain is claimed."
+        lines[2:2] = [message, ""]
     for b in report["blocks"]:
         values=b.get("result")
         cells=[f"{values[k]['baseline']:.2f} / {values[k]['candidate']:.2f}" if values else "n/a" for k in ["Mbps","CPU_ns_per_byte","CPU_core_percent","peak_RSS_MiB"]]

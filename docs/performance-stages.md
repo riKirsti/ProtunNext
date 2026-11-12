@@ -15,7 +15,7 @@ Research is open-ended; earlier prototypes do not exclude different designs.
 | 3 | Genuine receive-side TUN coalescing and offload metadata | Merged in PR #8 |
 | 4 | Multicore receive architectures and asynchronous decryption | Evaluated in PR #9; reject tested batch/barrier designs, retain serial production receiver |
 | 5 | Alternative acceleration: crypto implementations, native WireGuard, advanced I/O/TLS, CPU/NIC coordination and kernel bypass | Evaluated in PR #10; retain ring, archive TLS-suite experiment and record deferred architectures |
-| 6 | Client-only PGO, architecture-specific builds and platform tuning | Review before starting |
+| 6 | Client-only PGO, architecture-specific builds and platform tuning | Transition reviewed after PR #10; compare PGO and CPU-specific builds independently |
 | 7 | Combine measured winners and validate real workloads/platforms | Review before starting |
 
 One stage per PR. Before each transition, review the goal, frozen baseline,
@@ -227,3 +227,45 @@ No production helper, backend switch, new dependency, global-provider policy,
 router setting or release ships. No fixed CPU/RAM ceiling was used. Deferred
 native WireGuard/I/O/NIC/bypass designs are not performance-rejected or exhausted.
 After merge, review Stage 6 before starting client-only PGO/build/platform tuning.
+
+## Stage 6 review, November 12
+
+Frozen baseline: merged PR #10, `d6c070a0f9e211f5a5b14b7e8c8bc0f995d7b7a7`.
+Keep the existing serial ring implementation, receive coalescing and production
+dependency graph. Stage 5's TLS-suite experiment did not reproduce a CPU benefit
+in the full matrix and increased RSS; primitive replacements did not justify
+integration. Compiled Rust packet/queue/checksum/control code remains worth
+measuring without changing crypto or introducing another backend/thread.
+
+Compare two build experiments independently: client-only profile-guided
+optimization, and explicit CPU-specific code generation. Keep thin LTO,
+codegen-units=1, panic=abort and the same source/features except each declared
+build difference. Preserve portable release defaults. CPU-specific binaries
+must identify the actual CPU/feature requirements and cannot be presented as
+portable builds or copied to a different device architecture. Do not combine
+PGO and CPU tuning here; Stage 7 combines only measured winners.
+
+PGO training uses fresh instrumented clients through the real kernel TCP/TUN
+fixture, all three transports and separate IPv4/IPv6 HTTP(S) workloads. Peer,
+server and load remain fixed uninstrumented baseline programs. Train on flow
+counts distinct from the held-out one/eight-flow evaluation. Merge only fresh
+counters with the matching compiler's LLVM tools; record source/target/compiler,
+flags, training cases, profile and binary identities. Instrumented observations
+are never speed estimates. The final candidate must consume the recorded profile
+and evaluate as an ordinary optimized release program.
+
+Validate actual downloads with equal CPU allowances and vnet contracts, balanced
+order, A/A/timing/payload/identity/headroom screens. Equal source fingerprints
+are expected for build-only changes; distinct compiler configuration and binary
+identities must prove the comparison rather than imply an A/A speedup. Native
+x64/ARM64 comparisons report absolute CPU %, CPU/byte, RSS MiB and Mbps across
+UDP/TCP/Stealth. Keep supported-LTS compatibility separate from native tuning;
+do not assume a host-native instruction set works in a virtual guest.
+
+Preserve cross-platform behavior and erasure checks. Run guarded temporary Travel
+comparisons of the latest selected code/build for all three transports, with
+owned artifacts, narrow routing, watchdog and independent restoration. Mark
+build-only/unmeasured targets explicitly. Keep only justified build recipes or
+changes in one Stage 6 PR; no persistent router/NIC setting, release or invented
+CPU/RAM ceiling. Record rejected/inconclusive cases and limitations. Review Stage
+7 before starting combined-build and real-workload/platform acceptance.
