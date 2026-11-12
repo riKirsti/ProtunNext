@@ -11,7 +11,7 @@ import campaign
 
 class DownloadValidity(unittest.TestCase):
     def setUp(self):
-        env = mock.patch.dict(campaign.os.environ, {'NEXT_BUILD_MODE':'release'})
+        env = mock.patch.dict(campaign.os.environ, {'NEXT_BUILD_MODE':'release','NEXT_NETWORK_DELAY_MS':'0','NEXT_DOWNLOAD_BLOCKS':'32768'})
         env.start()
         self.addCleanup(env.stop)
 
@@ -89,6 +89,26 @@ class DownloadValidity(unittest.TestCase):
                 elif mutation=='missing_flag':cfg['rustflags']=[]
                 self.assertEqual(bool(self.analyze()['errors']),mutation!='valid')
 
+    def test_combination_requires_both_independent_provenance_contracts(self):
+        for mutation in ['valid','missing_cpu','different_cpu','missing_profile','failed_training']:
+            with self.subTest(mutation=mutation):
+                cfg=self.build_fixture('pgo')
+                cfg.update(mode='pgo-cpu',cpu_identity=self.env['cpu_identity'].copy())
+                cfg['rustflags'].append('-Ctarget-cpu=native')
+                for expected,row in zip(self.expected,self.rows):
+                    if row['build']=='erase':expected['build_mode']=row['build_mode']='pgo-cpu'
+                if mutation=='missing_cpu':cfg['rustflags'].remove('-Ctarget-cpu=native')
+                elif mutation=='different_cpu':cfg['cpu_identity']['sha256']='9'*64
+                elif mutation=='missing_profile':cfg['profile']['raw_files']=[]
+                elif mutation=='failed_training':cfg['profile']['training']['cases'][0]['verified']=False
+                self.assertEqual(bool(self.analyze()['errors']),mutation!='valid')
+
+    def test_single_build_cannot_hide_combined_flags(self):
+        cfg=self.build_fixture('pgo');cfg['rustflags'].append('-Ctarget-cpu=native')
+        self.assertTrue(self.analyze()['errors'])
+        cfg=self.build_fixture('cpu');cfg['rustflags'].append('-Cprofile-use=/unexpected')
+        self.assertTrue(self.analyze()['errors'])
+
     def test_focused_retest_has_explicit_nonempty_plan(self):
         with mock.patch.dict(campaign.os.environ,{"NEXT_DOWNLOAD_BLOCK":"stealth-v6-https-8"}):
             rows=campaign.plan()
@@ -96,6 +116,24 @@ class DownloadValidity(unittest.TestCase):
             self.assertEqual({r["sample"] for r in rows},set(range(89,97)))
         with mock.patch.dict(campaign.os.environ,{"NEXT_DOWNLOAD_BLOCK":"unknown"}):
             with self.assertRaises(AssertionError):campaign.plan()
+
+    def test_network_scenario_requires_actual_setup_and_matching_metric(self):
+        with mock.patch.dict(campaign.os.environ,{'NEXT_NETWORK_DELAY_MS':'5'}):self.fixture()
+        for row in self.rows:
+            row['stdout']='NEXT_NETEM 5\nqdisc netem 8001: root limit 1000 delay 5ms'
+            row['metrics'][0]['network_delay_ms']=5
+        self.assertFalse(self.analyze()['errors'])
+        self.rows[0]['stdout']=''
+        self.assertTrue(self.analyze()['errors'])
+        self.rows[0]['stdout']='NEXT_NETEM 5\nqdisc netem root delay 5ms'
+        self.rows[0]['metrics'][0]['network_delay_ms']=0
+        self.assertTrue(self.analyze()['errors'])
+
+    def test_capacity_payload_is_explicit_and_pacing_stays_fixed(self):
+        with mock.patch.dict(campaign.os.environ,{'NEXT_DOWNLOAD_BLOCKS':'65536','NEXT_DOWNLOAD_RATE_BPS':'0'}):
+            self.assertTrue(all(r['bytes']==4*1024**3 for r in campaign.plan()))
+        with mock.patch.dict(campaign.os.environ,{'NEXT_DOWNLOAD_BLOCKS':'65536','NEXT_DOWNLOAD_RATE_BPS':'200000000'}):
+            self.assertTrue(all(r['bytes']==128*1024**2 for r in campaign.plan()))
 
     def test_valid_aa_and_comparison(self):
         self.fixture()

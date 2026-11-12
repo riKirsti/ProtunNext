@@ -20,16 +20,23 @@ from prepare import prepare
 def main():
     target = sys.argv[1]
     mode = os.environ['NEXT_BUILD_MODE']
-    assert mode in {'pgo', 'cpu'}
+    assert mode in {'pgo', 'cpu', 'pgo-cpu'}
     assert os.environ.get('NEXT_RECEIVE_PROTOTYPE', '0') != '1' and os.environ.get('NEXT_TLS_RECORD_PROTOTYPE', '0') != '1', 'compare build changes independently'
     compiler = subprocess.check_output(['rustc', '-vV'], text=True)
     host = next(line.split(': ', 1)[1] for line in compiler.splitlines() if line.startswith('host:'))
     assert target.split('-')[0] == host.split('-')[0], 'training must run on the target architecture'
-    if mode == 'cpu':
+    if mode in {'cpu', 'pgo-cpu'}:
         assert target == host, 'host-native instructions are not a virtual-guest/cross-device contract'
     flags = shlex.split(os.environ.get('RUSTFLAGS', ''))
     assert not any('profile-' in f or 'target-cpu' in f or 'target-feature' in f for f in flags), 'undeclared inherited tuning flags'
-    state = prepare('HEAD', os.environ['BASELINE'])
+    reuse = os.environ.get('NEXT_BUILD_REUSE') == '1'
+    state = json.loads((OUT/'builds.json').read_text()) if reuse else prepare('HEAD', os.environ['BASELINE'])
+    if reuse:
+        assert state['main']['sha'] == os.environ['BASELINE']
+        assert state['erase']['sha'] == subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip()
+        cfg = state['main']['build_configuration']
+        assert cfg['target'] == target and cfg['compiler'] == compiler and cfg['rustflags'] == flags
+        assert cfg['mode'] == 'release' and sha(OUT/'bin/main') == cfg['binary_sha256'], 'fixed baseline changed'
     assert state['main']['runtime_sources_sha256'] == state['erase']['runtime_sources_sha256'], 'build experiment must retain identical runtime source'
     (OUT/'bin').mkdir(exist_ok=True)
     (OUT/'toolchain.txt').write_text(compiler+f'\ntarget={target}\nprofile=release thin-LTO codegen-units=1 panic=abort\nbase RUSTFLAGS={flags!r}\nmode={mode}\n')
@@ -48,19 +55,22 @@ def main():
         return OUT/f'cargo-{name}'/target/'release'/('examples/erasure_codegen' if example else 'erasure-probe')
 
     build('erase', flags, 'probe-regressions.log', test=True)
-    baseline = build('main', flags, 'build-main.log')
-    shutil.copy2(baseline, OUT/'bin/main')
+    if not reuse:
+        baseline = build('main', flags, 'build-main.log')
+        shutil.copy2(baseline, OUT/'bin/main')
     state['main']['build_configuration'] = dict(mode='release', target=target, compiler=compiler,
                                                rustflags=flags, binary_sha256=sha(OUT/'bin/main'))
     extra = dict()
-    if mode == 'cpu':
+    selected = flags
+    if mode in {'cpu', 'pgo-cpu'}:
         selected = flags+['-Ctarget-cpu=native']
         cfg = subprocess.check_output(['rustc', '--print', 'cfg', '--target', target, '-Ctarget-cpu=native'], text=True)
         extra.update(target_cpu='native', cpu_identity=cpu_identity(), compiler_target_cfg=cfg.splitlines())
-    else:
+    if mode in {'pgo', 'pgo-cpu'}:
         folder = pathlib.Path(tempfile.mkdtemp(prefix='pgo-', dir=OUT))
         (folder/'raw').mkdir()
-        generated = flags+['-Cprofile-generate='+str(folder/'raw')]
+        tuning = selected
+        generated = tuning+['-Cprofile-generate='+str(folder/'raw')]
         instrumented = build('erase', generated, 'pgo-generate.log')
         shutil.copy2(instrumented, folder/'instrumented-client')
         trainer = ['sudo', 'env', 'PATH='+os.environ['PATH'], sys.executable,
@@ -81,7 +91,7 @@ def main():
         assert int(re.search(r'Total functions:\s*(\d+)', summary).group(1)) > 0
         assert int(re.search(r'Maximum function count:\s*(\d+)', summary).group(1)) > 0
         (folder/'profile-summary.txt').write_text(summary)
-        selected = flags+['-Cprofile-use='+str(merged), '-Cllvm-args=-pgo-warn-missing-function']
+        selected = tuning+['-Cprofile-use='+str(merged), '-Cllvm-args=-pgo-warn-missing-function']
         extra.update(profile=dict(path=str(merged), sha256=sha(merged), llvm_tool_sha256=sha(tool),
                                   llvm_version=version, instrumented_binary_sha256=sha(folder/'instrumented-client'),
                                   generation_flags=generated,
@@ -127,7 +137,7 @@ def main():
     extra['negative_control'] = dict(expected_rejection=True, mutation='omit fill and barrier in isolated erase helper', source_packet_sha256=sha(packet), binary_sha256=sha(negative_binary), checker_sha256=sha(ROOT/'experiments/audit/check_codegen.py'))
     extra['gate_version'] = 3
     extra.update(erasure_checked=True, erasure_binary_sha256=sha(erasure))
-    if mode == 'pgo':
+    if mode in {'pgo', 'pgo-cpu'}:
         section_tool = tool.with_name('llvm-objdump')
         generated_sections = subprocess.check_output([str(section_tool), '-h', str(folder/'instrumented-client')], text=True)
         final_sections = subprocess.check_output([str(section_tool), '-h', str(OUT/'bin/erase')], text=True)

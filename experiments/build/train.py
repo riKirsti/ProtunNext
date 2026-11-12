@@ -18,6 +18,7 @@ def main():
                NEXT_LOAD_CPUS=str(cpus[1]), NEXT_SERVER_CPUS=str(cpus[3]),
                NEXT_SHARED_PEER_SERVER_CPU='0', NEXT_TUN_RECEIVE_MODE='vnet',
                NEXT_DOWNLOAD_RATE_BPS='0', NEXT_PEER_VECTORED='1', NEXT_WARM_SECONDS='1',
+               NEXT_NETWORK_DELAY_MS='0',
                LLVM_PROFILE_FILE=str(folder/'raw'/'%m-%p.profraw'))
     # Evaluation uses one/eight flows; training deliberately uses two/four.
     cases = []

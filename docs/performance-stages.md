@@ -16,7 +16,7 @@ Research is open-ended; earlier prototypes do not exclude different designs.
 | 4 | Multicore receive architectures and asynchronous decryption | Evaluated in PR #9; reject tested batch/barrier designs, retain serial production receiver |
 | 5 | Alternative acceleration: crypto implementations, native WireGuard, advanced I/O/TLS, CPU/NIC coordination and kernel bypass | Evaluated in PR #10; retain ring, archive TLS-suite experiment and record deferred architectures |
 | 6 | Client-only PGO, architecture-specific builds and platform tuning | Evaluated in PR #11; retain optional independent build experiments, portable defaults unchanged |
-| 7 | Combine measured winners and validate real workloads/platforms | Review before starting |
+| 7 | Combine measured winners and validate real workloads/platforms | Evaluated in PR #12; optional native combination and device PGO efficiency evidence, maximum capacity unresolved |
 
 One stage per PR. Before each transition, review the goal, frozen baseline,
 evidence, proposed changes, exclusions, validation and completion criteria with
@@ -295,3 +295,72 @@ No PGO/CPU combination, persistent NIC/router change or release ships. After
 merge, review Stage 7's frozen baseline, supported winners, independent component
 and combined comparisons, real workloads/platforms, capacity and completion
 criteria before implementing it. Deferred architectures remain open questions.
+
+## Stage 7 review, November 12
+
+Frozen baseline: merged PR #11, `83582248f3a8e153c6ee75d2846ef7c7064b6323`.
+Stage 6 finds native efficiency candidates, not established maximum-speed gains.
+PGO and native CPU tuning ran on separate allocations; device CPU tuning did not
+win, and device PGO is mixed. Keep portable defaults and the existing ring,
+serial receiver and coalescing. No rejected backend/thread design is reinstated.
+
+Compare portable, PGO, CPU and PGO+CPU on each same native x64/ARM64 machine.
+Build the baseline once and hold its client/helper binaries fixed. Reuse the same
+frozen source archives, train fresh matching profiles separately for portable and
+CPU-specific PGO, and retain all compiler/profile/binary identities. Interleave
+the candidate comparisons by workload, with A/A and balanced sample order.
+Keep matched-load efficiency separate from unpaced sustained-download capacity;
+retain auxiliary saturation, timing and control failures rather than declare a
+maximum-speed winner from an invalid cell. Do not add a fixed gain/CPU/RAM cutoff.
+
+Use held-out IPv4 HTTP/IPv6 HTTPS and one/eight-flow real kernel TCP downloads
+across UDP/TCP/Stealth. Assess realistic network conditions in disposable test
+namespaces if the fixture supports them without altering host networking; label
+emulation separately from physical WAN acceptance. Report the measured platform,
+workload duration, absolute CPU %, peak RSS MiB and verified Mbps for every build.
+Keep Windows/Apple/Android and other unmeasured targets explicit. Preserve API,
+security and tuned erasure checks, including genuine missing-wipe controls.
+
+On Travel, compare portable release with independently device-trained PGO only;
+do not combine the losing Cortex-A53 option. Repeat guarded all-transport tests
+with owned temporary files/routes, watchdog and independent restoration. Retain
+WAN variability and any failures. No saved setting, package, key/account, Direct
+path, persistent NIC configuration or release changes.
+
+One Stage 7 PR selects only justified target-specific recipes or changes, records
+rejected/inconclusive options, and distinguishes observed efficiency from actual
+sustained capacity. Completion requires full source-linked resource tables,
+regression/erasure evidence and physical restoration; unmeasured capacity or
+platforms remain limitations rather than claims that every architecture is
+exhausted or absolute best performance is proven.
+
+## Stage 7 result
+
+[PR #12](https://github.com/riKirsti/ProtunNext/pull/12) compares portable, PGO,
+CPU-specific and combined builds on the same native hosts, with a byte-identical
+fixed baseline/helper and fresh flag-matched profiles. All 1,728 payloads verify;
+211/216 comparison cells are usable, three fail A/A stability and two fail the
+requested rate. Every unpaced 4 GiB cell is auxiliary-limited. Combined tuning
+generally improves CPU/byte beyond its individual components, but no maximum
+client-speed winner is established. The delayed TCP rate misses remain explicit.
+
+Longer physical Travel sessions verify all 128 individual 100 MB parts in 32
+timed sessions. UDP/TCP and a separate passing Stealth repeat observe PGO CPU/byte
+reductions of 6.89% / 6.55% / 6.17%, with observed Mbps increases and small memory
+tradeoffs. The first noisy Stealth cohort is retained separately. Cleanup and
+twelve independent restoration checks pass after each cohort. Device CPU tuning
+is not combined or installed. The measured path is NoLocalAgent, not universal
+account-enabled CLI/SDK or OS performance qualification.
+
+Keep opt-in native combined-build experiments and fresh device PGO as supported
+efficiency candidates. Portable defaults, production source/dependencies, ring,
+serial processing, bounded ownership and prior receive improvements remain.
+No persistent router/NIC change, global compiler policy or release ships.
+The [complete report](benchmarks/stage7-acceptance.md) retains absolute CPU/RSS/Mbps,
+all cells, identities, controls, quality failures and unmeasured platforms.
+
+The seven planned stages are evaluated; absolute best performance is not proven.
+Remaining evidence includes client capacity without a helper bottleneck, delayed
+TCP behavior, NIC/RTT/loss/thermal effects and account-enabled CLI/SDK / unmeasured
+OS targets. Deferred architectures remain open. Review a focused follow-up plan
+before any further implementation; do not turn these gaps into universal claims.
