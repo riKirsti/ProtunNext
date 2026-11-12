@@ -1,0 +1,18 @@
+{
+  "utc": "2026-11-12T14:59:39.577687+00:00",
+  "checks": {
+    "mode_unchanged": true,
+    "identity_unchanged": true,
+    "links_unchanged": true,
+    "rules_unchanged": true,
+    "default_unchanged": true,
+    "packages_unchanged": true,
+    "limits_unchanged": true,
+    "configs_unchanged": true,
+    "stage_absent": true,
+    "interface_absent": true,
+    "table_empty": true,
+    "owned_processes_and_guard_absent": true
+  },
+  "all_passed": true
+}

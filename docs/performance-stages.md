@@ -15,7 +15,7 @@ Research is open-ended; earlier prototypes do not exclude different designs.
 | 3 | Genuine receive-side TUN coalescing and offload metadata | Merged in PR #8 |
 | 4 | Multicore receive architectures and asynchronous decryption | Evaluated in PR #9; reject tested batch/barrier designs, retain serial production receiver |
 | 5 | Alternative acceleration: crypto implementations, native WireGuard, advanced I/O/TLS, CPU/NIC coordination and kernel bypass | Evaluated in PR #10; retain ring, archive TLS-suite experiment and record deferred architectures |
-| 6 | Client-only PGO, architecture-specific builds and platform tuning | Transition reviewed after PR #10; compare PGO and CPU-specific builds independently |
+| 6 | Client-only PGO, architecture-specific builds and platform tuning | Evaluated in PR #11; retain optional independent build experiments, portable defaults unchanged |
 | 7 | Combine measured winners and validate real workloads/platforms | Review before starting |
 
 One stage per PR. Before each transition, review the goal, frozen baseline,
@@ -269,3 +269,29 @@ build-only/unmeasured targets explicitly. Keep only justified build recipes or
 changes in one Stage 6 PR; no persistent router/NIC setting, release or invented
 CPU/RAM ceiling. Record rejected/inconclusive cases and limitations. Review Stage
 7 before starting combined-build and real-workload/platform acceptance.
+
+## Stage 6 result
+
+[PR #11](https://github.com/riKirsti/ProtunNext/pull/11) independently evaluates
+client-only PGO and CPU-specific compilation. All 384 full native downloads
+verify and all 48 workload cells pass A/A/timing checks. Native CPU/byte generally
+falls, with memory tradeoffs and one ARM64 CPU-build regression. Paced 200 Mbps
+measurements establish efficiency at that load, not higher maximum capacity.
+All 48 LTS downloads in three separate cohorts verify, but auxiliary limits and
+one final 6.18 A/A failure prevent a maximum-speed conclusion.
+
+Both physical Travel comparisons verify all 24 downloads each, with cleanup and
+twelve independent restoration checks passing after each. Cortex-A53 compilation
+does not improve CPU/byte there. PGO's Stealth observation is promising, with
+higher RSS; its TCP CPU/byte is higher and UDP/TCP WAN controls are noisy. Keep
+target-specific build experiments available for further acceptance, without
+changing portable defaults, installing a device binary or claiming a universal
+winner. Production source/dependencies, ring and existing serial receiver remain.
+
+The [complete Stage 6 report](benchmarks/stage6-builds.md) retains all 472 timed
+GitHub observations, build/profile/CPU identities, failed/superseded controls,
+unmeasured platforms and [physical-device evidence](benchmarks/stage6-travel.md).
+No PGO/CPU combination, persistent NIC/router change or release ships. After
+merge, review Stage 7's frozen baseline, supported winners, independent component
+and combined comparisons, real workloads/platforms, capacity and completion
+criteria before implementing it. Deferred architectures remain open questions.
