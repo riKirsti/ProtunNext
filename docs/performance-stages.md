@@ -14,7 +14,7 @@ Research is open-ended; earlier prototypes do not exclude different designs.
 | 2 | Simple receive-path improvements: framing/copies, scheduling, batching, bounded storage | Merged in PR #7 |
 | 3 | Genuine receive-side TUN coalescing and offload metadata | Merged in PR #8 |
 | 4 | Multicore receive architectures and asynchronous decryption | Evaluated in PR #9; reject tested batch/barrier designs, retain serial production receiver |
-| 5 | Alternative acceleration: crypto implementations, native WireGuard, advanced I/O/TLS, CPU/NIC coordination and kernel bypass | Transition reviewed after PR #9; compare established AEAD backends first |
+| 5 | Alternative acceleration: crypto implementations, native WireGuard, advanced I/O/TLS, CPU/NIC coordination and kernel bypass | Evaluated in PR #10; retain ring, archive TLS-suite experiment and record deferred architectures |
 | 6 | Client-only PGO, architecture-specific builds and platform tuning | Review before starting |
 | 7 | Combine measured winners and validate real workloads/platforms | Review before starting |
 
@@ -201,3 +201,29 @@ PGO or architecture-specific build tuning (Stage 6), additional helper threads,
 persistent router/NIC changes or a release. One Stage 5 PR records accepted,
 rejected and deferred candidates and keeps only whole-path-justified changes.
 Review the Stage 6 plan before that implementation starts.
+
+## Stage 5 result
+
+[PR #10](https://github.com/riKirsti/ProtunNext/pull/10) retains existing ring
+production code and dependencies. Existing/current RustCrypto are slower on
+packet-sized primitive screens; AWS-LC packet opening is nearly tied. The
+separate AWS-LC TLS-suite prototype does not reproduce its first focused x64
+CPU reduction in the full matrix. All 224 normal-release downloads verify;
+all 24 full native cells pass controls/timing. Full Stealth CPU cost is nearly
+unchanged or higher, with higher RSS on both native architectures. LTS focused
+results remain auxiliary-limited; no maximum-capacity benefit is established.
+
+All twelve balanced Travel downloads verify; one baseline A/A warmup fails and
+WAN control variability remains. Stealth has higher observed CPU/byte and RSS.
+Cleanup and all twelve independent restoration checks pass. The final selected
+production path is the baseline physically tested for all three transports.
+All nine platform jobs and release-erasure checks pass for the tested code.
+
+The [complete evaluation](benchmarks/stage5-acceleration.md) retains primitive
+screens, focused/full cohorts, profiles, absolute CPU/memory/Mbps tables,
+identities, compatibility constraints and unmeasured platforms. The TLS-suite
+patch is archive-only; its dual-provider/Local Agent compatibility is unresolved.
+No production helper, backend switch, new dependency, global-provider policy,
+router setting or release ships. No fixed CPU/RAM ceiling was used. Deferred
+native WireGuard/I/O/NIC/bypass designs are not performance-rejected or exhausted.
+After merge, review Stage 6 before starting client-only PGO/build/platform tuning.

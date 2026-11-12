@@ -29,4 +29,11 @@ prototype is limited to explicit-provider NoLocalAgent comparisons; it cannot
 ship as implemented, even if a speed benefit is measured. Rejection/deferment
 must distinguish this compatibility constraint from measured performance.
 
-Source: [rustls provider selection](https://docs.rs/rustls/0.23.46/rustls/crypto/struct.CryptoProvider.html).
+Source: [rustls provider selection](https://docs.rs/rustls/latest/rustls/crypto/struct.CryptoProvider.html).
+
+The full native Stealth matrix does not reproduce the initial focused x64 CPU
+reduction; CPU/byte is nearly unchanged or higher, and RSS rises on both native
+architectures. Travel's observed Stealth CPU/byte/RSS also rise, with noisy WAN
+controls. The prototype is not promoted. See the [complete evaluation](../../docs/benchmarks/stage5-acceleration.md).
+TLS suite objects also include their hash/HKDF/PRF implementations; the experiment
+does not isolate AES alone or change the suite IDs/ordering or protocol algorithm.
