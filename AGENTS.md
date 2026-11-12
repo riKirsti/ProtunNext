@@ -1,5 +1,10 @@
 # Performance work agreement
 
+- This campaign closes with the final-selection PR after merged PR #13.
+  Follow `docs/performance-policy.md` as the final decision. Do not start another
+  performance stage or expand deferred research unless the user reopens it.
+  Recorded evidence gaps do not block closing now.
+
 - Follow the agreed roadmap in `docs/performance-stages.md`.
 - One stage belongs in one PR. Keep independent experiments and their results
   within that stage PR; include only justified changes in the final proposal.

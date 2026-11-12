@@ -1,5 +1,10 @@
 # Stage 6 build experiments
 
+See the [final selection](../../docs/performance-policy.md) before using these
+historical experiments. Portable product defaults remain selected. These tools
+build injected NoLocalAgent fixtures, not a full-feature product PGO pipeline.
+Stage 7 adds an explicitly separate combined mode.
+
 No production source, dependency, crypto or portable release-default change.
 Frozen baseline: merged PR #10 `d6c070a0f9e211f5a5b14b7e8c8bc0f995d7b7a7`.
 Select `build_mode=pgo` or `cpu` in the native download workflow, with that
@@ -11,7 +16,8 @@ The ordinary build path remains unchanged. Tuned builds first test the candidate
 fixture and build the uninstrumented release baseline once, using it for peer,
 server and load. The candidate has identical runtime source/features; its
 different build flags and binary hashes are recorded in `builds.json` and checked
-by the download analyzer. PGO and CPU tuning are independent; no combined mode.
+by the download analyzer. Stage 6 PGO and CPU tuning are independent; the combined
+Stage 7 mode is described below.
 
 PGO follows the [rustc workflow](https://doc.rust-lang.org/rustc/profile-guided-optimization.html):
 instrument a target build, exercise only the client, merge fresh counters using

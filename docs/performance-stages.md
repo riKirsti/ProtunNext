@@ -1,5 +1,10 @@
 # Agreed performance roadmap
 
+**Campaign closure:** the user requested one final performance PR after PR #13,
+then an end to this work for now. The [final policy](performance-policy.md)
+supersedes prospective next-stage suggestions below; historical findings remain
+unchanged. Deferred work is not automatically scheduled.
+
 The objective is maximum worthwhile sustained download throughput for WireGuard
 UDP, WireGuard TCP and Stealth, preserving existing functions and security.
 Additional CPU and RAM may be justified by measured gains. There are no fixed
@@ -18,6 +23,7 @@ Research is open-ended; earlier prototypes do not exclude different designs.
 | 6 | Client-only PGO, architecture-specific builds and platform tuning | Evaluated in PR #11; retain optional independent build experiments, portable defaults unchanged |
 | 7 | Combine measured winners and validate real workloads/platforms | Evaluated in PR #12; optional native combination and device PGO efficiency evidence, maximum capacity unresolved |
 | 8 (focused follow-up) | Remove the measured peer bottleneck and diagnose delayed TCP before claiming client capacity | Evaluated in PR #13; tested helper prototypes do not establish headroom, maximum capacity remains inconclusive |
+| Final selection | Review all evidence, settle production/build policy and validate the retained configuration | Final performance PR for now; review below |
 
 One stage per PR. Before each transition, review the goal, frozen baseline,
 evidence, proposed changes, exclusions, validation and completion criteria with
@@ -439,3 +445,28 @@ gain. No device installation, persistent setting or release is proposed.
 Further capacity work needs a newly reviewed focused plan and an independently
 justified peer architecture; it is not permission to restart rejected production
 parallel cryptography or claim that the remaining performance gaps are closed.
+
+## Final selection review, November 12
+
+The user closes performance work with one final PR after merged PR #13.
+Frozen baseline: `7c582a28a528701ef3b3874f476903ab10f205a7`.
+Review Stages 1–8, including negative results, controls, compiler/profile scope,
+account-feature compatibility and device failures. Select the existing serial
+ring-based bounded worker, direct receive/framing improvements, negotiated Linux
+coalescing and portable product defaults. Keep target-specific builds optional;
+do not promote NoLocalAgent profiles to full-feature products.
+
+Consolidate the final policy and correct stale guidance. Preserve historical
+reports and security/descriptor/API contracts. Run the existing normal-release
+matched-load matrix on native x64/ARM64 using fixed baseline auxiliaries and
+unchanged controls. Test current portable code temporarily on Travel for all
+three transports with owned routing/artifacts, watchdog and independent
+restoration. Retain absolute CPU/RSS/Mbps, identities, noise and failures.
+An unchanged runtime comparison cannot establish a new optimization gain.
+
+Completion is a reviewable final PR with the all-stage decision, practical build/
+integration guidance, fresh validation and restored Travel. No new architecture,
+mandatory tuning, persistent setting or release. Record unproven maximum capacity,
+TCP impairment, account-enabled and unmeasured OS/device performance as limits;
+they do not extend this campaign. Further performance research requires the user
+to reopen it.
