@@ -92,15 +92,25 @@ router management or account login is implemented by this command.
 
 ## Performance evidence
 
+The [final performance policy](docs/performance-policy.md) consolidates all eight
+stages: retain the serial ring-based worker, compact bounded buffers, direct
+framing/TLS receive and explicitly negotiated Linux TUN coalescing. Portable
+release builds remain the product default. PGO/CPU-native builds remain optional,
+target-qualified experiments. The campaign closes after its final validation PR;
+recorded gaps do not schedule further work automatically.
+
 The allocation integration test measures the real established-session
 encrypt/frame/decode/decrypt path: after warm-up, 1,024 1280-byte packets must
 produce **zero allocator calls** on the observed test thread. The result excludes
 initialization, handshakes/rekey, errors, TLS, kernel I/O and account work.
 
 `cargo bench --bench packet_path` times the actual framing implementation on the
-machine running it. It is **not a VPN throughput benchmark**. There is currently
-no measured router speedup, kernel WireGuard comparison, or claim of production
-performance superiority.
+machine running it. It is **not a VPN throughput benchmark**. The
+[real-download reports](docs/performance-policy.md#review-of-every-stage) retain
+native CPU/memory/throughput and temporary Travel observations, including noisy
+controls and rejected candidates. These establish specific efficiency findings,
+not universal maximum speed or production superiority. Account-enabled acceptance
+and several platform/device measurements remain incomplete.
 
 ## Scope and paid features
 
