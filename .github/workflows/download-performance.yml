@@ -32,8 +32,10 @@ on:
       parallel_receive:
         type: boolean
         default: false
-        description: Require actual candidate parallel authentication (two client CPUs)
+        description: Build archived Stage 4 prototype and require parallel authentication (two client CPUs)
 permissions: {contents: read}
+env:
+  NEXT_RECEIVE_PROTOTYPE: ${{ inputs.parallel_receive && '1' || '0' }}
 concurrency:
   group: download-${{ github.ref }}-${{ inputs.profiles_only }}-${{ inputs.kernel }}-${{ inputs.block }}-${{ inputs.tun_mode }}-${{ inputs.client_cores }}-${{ inputs.parallel_receive }}
   cancel-in-progress: true

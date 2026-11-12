@@ -37,13 +37,14 @@ on:
       parallel_receive:
         type: boolean
         default: false
-        description: Require actual candidate parallel authentication (two client CPUs)
+        description: Build archived Stage 4 prototype and require parallel authentication (two client CPUs)
 permissions: {contents: read}
 defaults:
   run:
     shell: bash
 env:
   BASELINE: ${{ inputs.baseline || 'f3e7502217153bad5decc8ef700f5afee6d0652e' }}
+  NEXT_RECEIVE_PROTOTYPE: ${{ inputs.parallel_receive && '1' || '0' }}
 concurrency:
   group: udp-batch-${{ github.ref }}-${{ inputs.tun_mode }}-${{ inputs.rate_bps }}-${{ inputs.block }}-${{ inputs.client_cores }}-${{ inputs.parallel_receive }}
   cancel-in-progress: true

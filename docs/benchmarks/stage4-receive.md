@@ -1,9 +1,17 @@
 # Stage 4: bounded parallel receive/decryption
 
-Evaluation in progress; no speed or resource improvement is claimed yet.
+**Selection:** preserve the PR #8 serial production receiver. The bounded
+batch/barrier prototype and its placement follow-up pass correctness checks but
+have not justified their scheduling/CPU/memory costs. Final workload tables and
+profiles are being collected; no improvement is claimed. The complete tested
+implementation is retained as an [explicit archive-only experiment](../../experiments/receive/README.md),
+not enabled in normal builds. This rejects this implementation, not multicore
+receive in general or unmeasured architectures.
 Baseline: merged PR #8, `a44d520c337611f59d4c7186971919d57de36df8`.
 
 ## Candidate and safety boundary
+
+The following describes the archived prototype, not the retained production path.
 
 One helper authenticates an owned ciphertext prefix while the connection owner
 authenticates the suffix. Only already available consecutive data messages are

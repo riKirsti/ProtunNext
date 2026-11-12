@@ -25,13 +25,6 @@ pub(crate) struct Batch {
     gso: bool,
 }
 impl Batch {
-    pub(crate) fn receive_reserve(&self) -> usize {
-        if self.ready.is_empty() {
-            BATCH_SIZE + 3
-        } else {
-            3
-        }
-    }
     pub(crate) fn new(socket: &UdpSocket, offload: bool) -> Self {
         let mut counters = IoCounters::default();
         if offload {

@@ -159,32 +159,6 @@ impl Session {
     pub fn decrypt_data_in_place(&mut self, buffer: &mut [u8]) -> Result<Output> {
         Self::output(self.tunnel.decapsulate_data_in_place(buffer))
     }
-    pub(crate) fn prepare_data<P: AsMut<[u8]>>(
-        &self,
-        packet: P,
-    ) -> std::result::Result<proton_boringtun::noise::DataJob<P>, (Error, P)> {
-        self.tunnel
-            .prepare_data(packet)
-            .map_err(|(e, packet)| (Self::data_error(e), packet))
-    }
-    pub(crate) fn finish_data<P: AsMut<[u8]>>(
-        &mut self,
-        data: proton_boringtun::noise::AuthenticatedData<P>,
-    ) -> (Result<Output>, P) {
-        let (result, packet) = self.tunnel.finish_data(data);
-        (
-            result
-                .map(|n| n.map_or(Output::None, Output::Tunnel))
-                .map_err(Self::data_error),
-            packet,
-        )
-    }
-    fn data_error(error: proton_boringtun::noise::errors::WireGuardError) -> Error {
-        match Self::output(TunnResult::Err(error)) {
-            Err(error) => error,
-            _ => unreachable!("protocol errors cannot produce output"),
-        }
-    }
     /// Drain handshake-queued output without allocating a second packet representation.
     pub fn drain(&mut self, output: &mut [u8]) -> Result<Output> {
         self.decrypt(&[], output)
@@ -263,67 +237,6 @@ pub(crate) mod tests {
         p[12..16].copy_from_slice(&[10, 2, 0, 2]);
         p[16..20].copy_from_slice(&[10, 2, 0, 3]);
         p
-    }
-    #[test]
-    fn owned_authentication_defers_replay_and_statistics_until_owner_commit() {
-        let (mut a, mut b) = pair();
-        let ip = ip_packet(1280);
-        let mut wire = vec![0; 2048];
-        let Output::Network(n) = a.encrypt(&ip, &mut wire).unwrap() else {
-            panic!("data")
-        };
-        wire.truncate(n);
-        let before = b.statistics().received_bytes;
-        let first = match b.prepare_data(wire.clone()) {
-            Ok(j) => j,
-            Err(_) => panic!("prepare"),
-        };
-        let duplicate = match b.prepare_data(wire.clone()) {
-            Ok(j) => j,
-            Err(_) => panic!("prepare duplicate before commit"),
-        };
-        let first = std::thread::spawn(move || first.authenticate())
-            .join()
-            .unwrap();
-        let duplicate = duplicate.authenticate();
-        assert_eq!(b.statistics().received_bytes, before);
-        let (result, bytes) = b.finish_data(first);
-        assert_eq!(result.unwrap(), Output::Tunnel(ip.len()));
-        assert_eq!(&bytes[16..16 + ip.len()], ip);
-        assert_eq!(b.statistics().received_bytes, before + ip.len() as u64);
-        assert!(b.finish_data(duplicate).0.is_err());
-        assert!(b.prepare_data(wire).is_err());
-    }
-    #[test]
-    fn failed_authentication_cannot_consume_replay_or_resurrect_cleared_session() {
-        let (mut a, mut b) = pair();
-        let ip = ip_packet(1280);
-        let mut wire = vec![0; 2048];
-        let Output::Network(n) = a.encrypt(&ip, &mut wire).unwrap() else {
-            panic!("data")
-        };
-        wire.truncate(n);
-        let mut bad = wire.clone();
-        bad[n - 1] ^= 1;
-        let job = match b.prepare_data(bad) {
-            Ok(j) => j,
-            Err(_) => panic!("prepare"),
-        };
-        let before = b.statistics().received_bytes;
-        assert!(b.finish_data(job.authenticate()).0.is_err());
-        assert_eq!(b.statistics().received_bytes, before);
-        let job = match b.prepare_data(wire) {
-            Ok(j) => j,
-            Err(_) => panic!("valid after bad tag"),
-        };
-        let authenticated = job.authenticate();
-        b.tunnel.set_static_private(
-            x25519::StaticSecret::from([9; 32]),
-            x25519::PublicKey::from(Session::public_key([9; 32])),
-            None,
-        );
-        assert!(b.finish_data(authenticated).0.is_err());
-        assert_eq!(b.statistics().received_bytes, before);
     }
     #[test]
     fn actual_handshake_packet_roundtrip_replay_and_tamper() {
