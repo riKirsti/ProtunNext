@@ -8,6 +8,10 @@ on:
       - .github/workflows/udp-batch-experiment.yml
   workflow_dispatch:
     inputs:
+      screen_crypto:
+        type: boolean
+        default: false
+        description: Run isolated Stage 5 crypto preselection on native x64 and ARM64
       baseline:
         type: string
         default: f3e7502217153bad5decc8ef700f5afee6d0652e
@@ -49,6 +53,31 @@ concurrency:
   group: udp-batch-${{ github.ref }}-${{ inputs.tun_mode }}-${{ inputs.rate_bps }}-${{ inputs.block }}-${{ inputs.client_cores }}-${{ inputs.parallel_receive }}
   cancel-in-progress: true
 jobs:
+  crypto-screen:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.screen_crypto }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: dtolnay/rust-toolchain@1.99.1
+      - name: Verify independent AEAD implementations
+        run: |
+          cargo test --locked --release --manifest-path experiments/crypto/Cargo.toml
+          cargo build --locked --release --manifest-path experiments/crypto/Cargo.toml
+      - name: Screen balanced synthetic packet operations on one allowed CPU
+        run: python3 experiments/crypto/screen.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: crypto-screen-${{ matrix.os }}
+          path: target/crypto-screen/
   checks:
     strategy:
       fail-fast: false

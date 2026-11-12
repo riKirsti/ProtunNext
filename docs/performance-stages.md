@@ -14,7 +14,7 @@ Research is open-ended; earlier prototypes do not exclude different designs.
 | 2 | Simple receive-path improvements: framing/copies, scheduling, batching, bounded storage | Merged in PR #7 |
 | 3 | Genuine receive-side TUN coalescing and offload metadata | Merged in PR #8 |
 | 4 | Multicore receive architectures and asynchronous decryption | Evaluated in PR #9; reject tested batch/barrier designs, retain serial production receiver |
-| 5 | Alternative acceleration: crypto implementations, native WireGuard, advanced I/O/TLS, CPU/NIC coordination and kernel bypass | Review the evidence-backed shortlist before starting |
+| 5 | Alternative acceleration: crypto implementations, native WireGuard, advanced I/O/TLS, CPU/NIC coordination and kernel bypass | Transition reviewed after PR #9; compare established AEAD backends first |
 | 6 | Client-only PGO, architecture-specific builds and platform tuning | Review before starting |
 | 7 | Combine measured winners and validate real workloads/platforms | Review before starting |
 
@@ -167,3 +167,37 @@ failures, build-only platform labels and coverage gaps. This rejects these
 batch/barrier implementations, not all asynchronous/multicore receive designs.
 After this stage merges, review Stage 5's evidence-backed acceleration shortlist
 before implementation. No Stage 5 code is included in this stage PR.
+
+## Stage 5 review, November 11
+
+Frozen baseline: merged PR #9, `4c7cc53a0932fa31579729b603d80a9b9e9ecabf`.
+Production remains the serial PR #8 receiver, including negotiated vnet
+coalescing. Stage 4's added thread increased whole-process CPU cost; its profiles
+still put roughly 44–49% of native UDP/TCP client samples in AEAD opening.
+
+Start with independent comparisons of established packet-crypto implementations:
+current ring 0.17.14, the existing RustCrypto ChaCha20Poly1305 0.10.1 dependency,
+and AWS-LC's compatible AEAD API. Keep the IETF ChaCha20-Poly1305 construction,
+WireGuard nonce/tag/wire format, session/replay/timer ownership and in-place
+buffer contract. Do not write a cipher or change algorithms. Screen representative
+packet sizes and cross-implementation interoperability first; primitive results
+only decide which candidates merit complete-download integration. A faster
+primitive alone is never a production speedup.
+
+For competitive candidates, compare actual UDP/TCP/Stealth downloads with fixed
+baseline auxiliaries, equal CPU allowances and vnet mode, balanced order, A/A
+screens, exact payload verification and source/binary identities. Report absolute
+CPU %, CPU/byte, RSS MiB and Mbps by measured platform, all control failures and
+unmeasured targets. Separate instrumentation from normal-release measurements.
+Include supported-LTS compatibility, native x64/ARM64 resource comparisons,
+cross-platform regression/erasure checks, and guarded temporary latest-selected-
+code Travel comparisons for all three transports with independent restoration.
+
+Keep native WireGuard, advanced I/O/TLS, CPU/NIC coordination and kernel bypass
+on the shortlist, assessing profile relevance, privilege requirements and
+UDP/TCP/Stealth/API coverage before adding implementation complexity. A TLS
+provider comparison must remain separate from a packet-AEAD change. Do not bundle
+PGO or architecture-specific build tuning (Stage 6), additional helper threads,
+persistent router/NIC changes or a release. One Stage 5 PR records accepted,
+rejected and deferred candidates and keeps only whole-path-justified changes.
+Review the Stage 6 plan before that implementation starts.
