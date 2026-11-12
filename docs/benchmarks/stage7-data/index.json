@@ -1,0 +1,102 @@
+[
+  {
+    "scenario": "paced",
+    "arch": "x64",
+    "run": 43259997502,
+    "file": "paced-x64.json",
+    "observed": 288,
+    "payload_verified": 288,
+    "errors": 0,
+    "validity": {
+      "usable": 35,
+      "inconclusive-control/timing": 1
+    },
+    "capacity_rank": 0,
+    "failures": []
+  },
+  {
+    "scenario": "paced",
+    "arch": "arm",
+    "run": 43259997502,
+    "file": "paced-arm.json",
+    "observed": 288,
+    "payload_verified": 288,
+    "errors": 0,
+    "validity": {
+      "usable": 36
+    },
+    "capacity_rank": 0,
+    "failures": []
+  },
+  {
+    "scenario": "capacity",
+    "arch": "x64",
+    "run": 43260002426,
+    "file": "capacity-x64.json",
+    "observed": 288,
+    "payload_verified": 288,
+    "errors": 0,
+    "validity": {
+      "usable": 36
+    },
+    "capacity_rank": 0,
+    "failures": []
+  },
+  {
+    "scenario": "capacity",
+    "arch": "arm",
+    "run": 43260002426,
+    "file": "capacity-arm.json",
+    "observed": 288,
+    "payload_verified": 288,
+    "errors": 0,
+    "validity": {
+      "usable": 36
+    },
+    "capacity_rank": 0,
+    "failures": []
+  },
+  {
+    "scenario": "delay",
+    "arch": "x64",
+    "run": 43260006760,
+    "file": "delay-x64.json",
+    "observed": 288,
+    "payload_verified": 288,
+    "errors": 2,
+    "validity": {
+      "usable": 33,
+      "invalid/incomplete": 1,
+      "inconclusive-control/timing": 2
+    },
+    "capacity_rank": 0,
+    "failures": [
+      {
+        "block": "tcp-v6-https-1",
+        "mode": "pgo",
+        "error": "AssertionError: [{'sample': 54, 'error': 'offered rate was not sustained'}, {'error': 'missing/invalid planned samples', 'samples': [54]}]"
+      }
+    ]
+  },
+  {
+    "scenario": "delay",
+    "arch": "arm",
+    "run": 43260006760,
+    "file": "delay-arm.json",
+    "observed": 288,
+    "payload_verified": 288,
+    "errors": 2,
+    "validity": {
+      "usable": 35,
+      "invalid/incomplete": 1
+    },
+    "capacity_rank": 0,
+    "failures": [
+      {
+        "block": "tcp-v6-https-1",
+        "mode": "pgo-cpu",
+        "error": "AssertionError: [{'sample': 56, 'error': 'offered rate was not sustained'}, {'error': 'missing/invalid planned samples', 'samples': [56]}]"
+      }
+    ]
+  }
+]
