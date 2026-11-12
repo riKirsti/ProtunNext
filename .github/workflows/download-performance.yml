@@ -102,7 +102,10 @@ jobs:
             target/erasure-audit/results/
             target/erasure-audit/builds.json
             target/erasure-audit/toolchain.txt
+            target/erasure-audit/pgo-*/
+            target/erasure-audit/*disassembly.txt
             target/erasure-audit/*.log
+            target/erasure-audit/bin/
   native:
     if: ${{ (inputs.build_mode == 'release' || inputs.build_mode == '') && (inputs.kernel == 'both' || inputs.kernel == '') }}
     strategy:
