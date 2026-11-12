@@ -2,6 +2,10 @@ name: download-performance
 on:
   workflow_dispatch:
     inputs:
+      tls_records:
+        type: boolean
+        default: false
+        description: Build archive-only Stage 5 TLS record prototype (NoLocalAgent experiment)
       baseline:
         type: string
         default: f7bf03f5b4dc3981eaadedbf3a7841c5ed5ee5c1
@@ -36,8 +40,9 @@ on:
 permissions: {contents: read}
 env:
   NEXT_RECEIVE_PROTOTYPE: ${{ inputs.parallel_receive && '1' || '0' }}
+  NEXT_TLS_RECORD_PROTOTYPE: ${{ inputs.tls_records && '1' || '0' }}
 concurrency:
-  group: download-${{ github.ref }}-${{ inputs.profiles_only }}-${{ inputs.kernel }}-${{ inputs.block }}-${{ inputs.tun_mode }}-${{ inputs.client_cores }}-${{ inputs.parallel_receive }}
+  group: download-${{ github.ref }}-${{ inputs.profiles_only }}-${{ inputs.kernel }}-${{ inputs.block }}-${{ inputs.tun_mode }}-${{ inputs.client_cores }}-${{ inputs.parallel_receive }}-${{ inputs.tls_records }}
   cancel-in-progress: true
 jobs:
   lts:
