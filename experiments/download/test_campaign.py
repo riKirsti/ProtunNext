@@ -135,6 +135,37 @@ class DownloadValidity(unittest.TestCase):
         with mock.patch.dict(campaign.os.environ,{'NEXT_DOWNLOAD_BLOCKS':'65536','NEXT_DOWNLOAD_RATE_BPS':'200000000'}):
             self.assertTrue(all(r['bytes']==128*1024**2 for r in campaign.plan()))
 
+    def helper_fixture(self):
+        with mock.patch.dict(campaign.os.environ,{'NEXT_PEER_HELPER_FIXED':'reader'}):self.fixture()
+        self.env['helper_cpu_layouts']={'reader':dict(client=[2],wire=[0],reader=[3],server=[1],load=[1],shared_load_server_cpu=True,auxiliary=[0,1,3])}
+        for row in self.rows:
+            m=row['metrics'][0]
+            m.update(helper_mode='reader',client_affinity_cpus=[2],shared_load_server_cpu=True,cpu_ticks_before={f'cpu{n}':[0]*8 for n in [0,1,3]},cpu_ticks_after={f'cpu{n}':[20,0,0,80,0,0,0,0] for n in [0,1,3]})
+            m['load']['helper_mode']='reader'
+            m['peer'].update(helper_mode='reader',wire_cpu_seconds=2,reader_cpu_seconds=2,server_cpu_seconds=1,cpu_seconds=5,reader_frames=100,inplace_packets=100,reader_cpu_index=3,wire_affinity_cpus=[0],server_affinity_cpus=[1])
+
+    def test_shared_helper_core_and_asynchronous_kernel_work_cannot_hide_a_bottleneck(self):
+        self.helper_fixture();self.assertFalse(self.analyze()['errors']);self.assertTrue(self.analyze()['blocks'][0]['capacity_ranking'])
+        for row in self.rows:
+            row['metrics'][0]['load']['cpu_seconds']=5
+            row['metrics'][0]['peer'].update(server_cpu_seconds=5,cpu_seconds=9)
+        self.assertTrue(self.analyze()['blocks'][0]['auxiliary_limited'])
+        self.helper_fixture()
+        self.rows[0]['metrics'][0]['cpu_ticks_after']['cpu3']=[90,0,0,10,0,0,0,0]
+        self.assertTrue(self.analyze()['blocks'][0]['auxiliary_limited'])
+
+    def test_helper_claim_requires_actual_strategy_placement_and_accounting(self):
+        for mutation in ['wrong_strategy','wrong_cpu','missing_reader','nan_reader','missing_ticks','short_ticks','changed_client']:
+            self.helper_fixture();m=self.rows[0]['metrics'][0]
+            if mutation=='wrong_strategy':m['peer']['helper_mode']='legacy'
+            elif mutation=='wrong_cpu':m['peer']['reader_cpu_index']=2
+            elif mutation=='missing_reader':m['peer']['reader_cpu_seconds']=0
+            elif mutation=='nan_reader':m['peer']['reader_cpu_seconds']=float('nan')
+            elif mutation=='missing_ticks':del m['cpu_ticks_before']
+            elif mutation=='short_ticks':m['cpu_ticks_after']['cpu0'].pop()
+            elif mutation=='changed_client':m['client_affinity_cpus']=[2,3]
+            self.assertTrue(self.analyze()['errors'])
+
     def test_valid_aa_and_comparison(self):
         self.fixture()
         result=self.analyze()

@@ -1,0 +1,1505 @@
+{
+  "samples": [
+    {
+      "build": "main",
+      "protocol": "tcp",
+      "role": "aa",
+      "slot": 0,
+      "size": 400000000,
+      "warmups": [
+        {
+          "requested_bytes": 12000000,
+          "valid": true,
+          "tls": "TLSv1.2",
+          "status": 206,
+          "content_range": "bytes 0-11999999/148648524",
+          "bytes": 12000000,
+          "sha256": "389a4dfd673664cfc1391c678a627e9f26822a6fc51dcb3108ead489f4497f67",
+          "seconds": 0.6002337000099942,
+          "Mbps": 159.93770426152605
+        },
+        {
+          "requested_bytes": 12000000,
+          "valid": true,
+          "tls": "TLSv1.2",
+          "status": 206,
+          "content_range": "bytes 0-11999999/148648524",
+          "bytes": 12000000,
+          "sha256": "389a4dfd673664cfc1391c678a627e9f26822a6fc51dcb3108ead489f4497f67",
+          "seconds": 0.5422041999991052,
+          "Mbps": 177.05506523217346
+        }
+      ],
+      "system_before": "cpu  462130 0 108292 3344026 73 8124 10647 0 0 0\n",
+      "download": {
+        "requested_bytes": 400000000,
+        "bytes": 400000000,
+        "valid": true,
+        "parts": [
+          {
+            "requested_bytes": 100000000,
+            "valid": true,
+            "tls": "TLSv1.2",
+            "status": 206,
+            "content_range": "bytes 0-99999999/148648524",
+            "bytes": 100000000,
+            "sha256": "2aa720bbba4fe59c980d62a1763575f43ebf214f28a5af2beadb970865d001b0",
+            "seconds": 2.6925391999975545,
+            "Mbps": 297.1173084502267
+          },
+          {
+            "requested_bytes": 100000000,
+            "valid": true,
+            "tls": "TLSv1.2",
+            "status": 206,
+            "content_range": "bytes 0-99999999/148648524",
+            "bytes": 100000000,
+            "sha256": "2aa720bbba4fe59c980d62a1763575f43ebf214f28a5af2beadb970865d001b0",
+            "seconds": 2.6869824000023073,
+            "Mbps": 297.73176035664136
+          },
+          {
+            "requested_bytes": 100000000,
+            "valid": true,
+            "tls": "TLSv1.2",
+            "status": 206,
+            "content_range": "bytes 0-99999999/148648524",
+            "bytes": 100000000,
+            "sha256": "2aa720bbba4fe59c980d62a1763575f43ebf214f28a5af2beadb970865d001b0",
+            "seconds": 2.824960199999623,
+            "Mbps": 283.1898304266753
+          },
+          {
+            "requested_bytes": 100000000,
+            "valid": true,
+            "tls": "TLSv1.2",
+            "status": 206,
+            "content_range": "bytes 0-99999999/148648524",
+            "bytes": 100000000,
+            "sha256": "2aa720bbba4fe59c980d62a1763575f43ebf214f28a5af2beadb970865d001b0",
+            "seconds": 2.8327138000022387,
+            "Mbps": 282.4146936409064
+          }
+        ],
+        "seconds": 11.037685199989937,
+        "verification": "four independently SHA256-verified 100 MB ranged fetches; one continuously running tunnel worker",
+        "Mbps": 289.9158602569058
+      },
+      "worker": {
+        "cpu_core_percent": 66.4109811477784,
+        "process_cpu_ns": 7330588883,
+        "rss_kib": 2660,
+        "seconds": 11.038218012,
+        "snapshot": {
+          "counters": {
+            "decrypted_packets": 314094,
+            "in_place_decryptions": 314094,
+            "in_place_encryptions": 43338,
+            "inbound_filtered": 0,
+            "invalid_packets": 0,
+            "io": {
+              "enobufs": 0,
+              "gro_datagrams": 0,
+              "gso_datagrams": 0,
+              "kernel_fallbacks": 0,
+              "max_receive_batch": 0,
+              "max_send_batch": 0,
+              "receive_calls": 29713,
+              "receive_interrupted": 0,
+              "receive_would_block": 1373,
+              "received_bytes": 447399594,
+              "received_datagrams": 0,
+              "send_calls": 5358,
+              "send_interrupted": 0,
+              "send_would_block": 0,
+              "sent_bytes": 2636476,
+              "sent_datagrams": 0,
+              "truncated_datagrams": 0
+            },
+            "network_backpressure": 2,
+            "network_reads": 314095,
+            "outbound_filtered": 0,
+            "outer_eof": 0,
+            "outer_io_errors": 0,
+            "polls": 6946,
+            "pool_pressure": 0,
+            "pool_recycle_wipe_bytes": 0,
+            "pool_reserved_bytes": 405758,
+            "successful_crypto_copy_bytes": 0,
+            "to_network_bytes_high_water": 0,
+            "to_network_high_water": 63,
+            "to_tun_bytes_high_water": 0,
+            "to_tun_high_water": 63,
+            "tun_backpressure": 0,
+            "tun_coalesced_packets": 312532,
+            "tun_max_write_batch": 32,
+            "tun_offload_fallbacks": 0,
+            "tun_reads": 43338,
+            "tun_write_calls": 18171,
+            "tun_written_packets": 314094
+          },
+          "elapsed": {
+            "nanos": 429520915,
+            "secs": 12
+          },
+          "interface_error": null,
+          "mono_timestamp": {
+            "nanos": 839250163,
+            "secs": 19742
+          },
+          "sequence": 17,
+          "state": "TunnelEstablished",
+          "statistics": {
+            "estimated_loss": 0.004863321781158447,
+            "handshake_age": {
+              "nanos": 375904498,
+              "secs": 12
+            },
+            "handshake_rtt": {
+              "nanos": 52000000,
+              "secs": 0
+            },
+            "received_bytes": 437375846,
+            "sent_bytes": 1856208
+          },
+          "stats_generation": 2,
+          "tun_present": true
+        },
+        "tun_mode": "vnet"
+      },
+      "system_after": "cpu  462670 0 108870 3344893 73 8172 10812 0 0 0\n",
+      "forwarded_bytes": {
+        "in": 401423960,
+        "out": 1731616
+      },
+      "valid": true,
+      "cpu_ns_per_byte": 18.3264722075
+    },
+    {
+      "build": "main",
+      "protocol": "tcp",
+      "role": "aa",
+      "slot": 1,
+      "size": 400000000,
+      "warmups": [
+        {
+          "requested_bytes": 12000000,
+          "valid": true,
+          "tls": "TLSv1.2",
+          "status": 206,
+          "content_range": "bytes 0-11999999/148648524",
+          "bytes": 12000000,
+          "sha256": "389a4dfd673664cfc1391c678a627e9f26822a6fc51dcb3108ead489f4497f67",
+          "seconds": 0.7335045999934664,
+          "Mbps": 130.8785248256863
+        },
+        {
+          "requested_bytes": 12000000,
+          "valid": true,
+          "tls": "TLSv1.2",
+          "status": 206,
+          "content_range": "bytes 0-11999999/148648524",
+          "bytes": 12000000,
+          "sha256": "389a4dfd673664cfc1391c678a627e9f26822a6fc51dcb3108ead489f4497f67",
+          "seconds": 0.7662800999969477,
+          "Mbps": 125.28055994196168
+        }
+      ],
+      "system_before": "cpu  462820 0 109022 3345262 73 8178 10830 0 0 0\n",
+      "download": {
+        "requested_bytes": 400000000,
+        "bytes": 400000000,
+        "valid": true,
+        "parts": [
+          {
+            "requested_bytes": 100000000,
+            "valid": true,
+            "tls": "TLSv1.2",
+            "status": 206,
+            "content_range": "bytes 0-99999999/148648524",
+            "bytes": 100000000,
+            "sha256": "2aa720bbba4fe59c980d62a1763575f43ebf214f28a5af2beadb970865d001b0",
+            "seconds": 3.2764798999996856,
+            "Mbps": 244.16447663850363
+          },
+          {
+            "requested_bytes": 100000000,
+            "valid": true,
+            "tls": "TLSv1.2",
+            "status": 206,
+            "content_range": "bytes 0-99999999/148648524",
+            "bytes": 100000000,
+            "sha256": "2aa720bbba4fe59c980d62a1763575f43ebf214f28a5af2beadb970865d001b0",
+            "seconds": 3.9525951000105124,
+            "Mbps": 202.39867220345243
+          },
+          {
+            "requested_bytes": 100000000,
+            "valid": true,
+            "tls": "TLSv1.2",
+            "status": 206,
+            "content_range": "bytes 0-99999999/148648524",
+            "bytes": 100000000,
+            "sha256": "2aa720bbba4fe59c980d62a1763575f43ebf214f28a5af2beadb970865d001b0",
+            "seconds": 3.826338599988958,
+            "Mbps": 209.0771579917963
+          },
+          {
+            "requested_bytes": 100000000,
+            "valid": true,
+            "tls": "TLSv1.2",
+            "status": 206,
+            "content_range": "bytes 0-99999999/148648524",
+            "bytes": 100000000,
+            "sha256": "2aa720bbba4fe59c980d62a1763575f43ebf214f28a5af2beadb970865d001b0",
+            "seconds": 3.1559328000003006,
+            "Mbps": 253.4908221112705
+          }
+        ],
+        "seconds": 14.211881399998674,
+        "verification": "four independently SHA256-verified 100 MB ranged fetches; one continuously running tunnel worker",
+        "Mbps": 225.16371407379592
+      },
+      "worker": {
+        "cpu_core_percent": 55.52782639102113,
+        "process_cpu_ns": 7891847918,
+        "rss_kib": 2608,
+        "seconds": 14.212420026,
+        "snapshot": {
+          "counters": {
+            "decrypted_packets": 314259,
+            "in_place_decryptions": 314259,
+            "in_place_encryptions": 42786,
+            "inbound_filtered": 0,
+            "invalid_packets": 0,
+            "io": {
+              "enobufs": 0,
+              "gro_datagrams": 0,
+              "gso_datagrams": 0,
+              "kernel_fallbacks": 0,
+              "max_receive_batch": 0,
+              "max_send_batch": 0,
+              "receive_calls": 33831,
+              "receive_interrupted": 0,
+              "receive_would_block": 3812,
+              "received_bytes": 447500228,
+              "received_datagrams": 0,
+              "send_calls": 7129,
+              "send_interrupted": 0,
+              "send_would_block": 0,
+              "sent_bytes": 2523008,
+              "sent_datagrams": 0,
+              "truncated_datagrams": 0
+            },
+            "network_backpressure": 2,
+            "network_reads": 314260,
+            "outbound_filtered": 0,
+            "outer_eof": 0,
+            "outer_io_errors": 0,
+            "polls": 9897,
+            "pool_pressure": 0,
+            "pool_recycle_wipe_bytes": 0,
+            "pool_reserved_bytes": 405758,
+            "successful_crypto_copy_bytes": 0,
+            "to_network_bytes_high_water": 0,
+            "to_network_high_water": 63,
+            "to_tun_bytes_high_water": 0,
+            "to_tun_high_water": 63,
+            "tun_backpressure": 0,
+            "tun_coalesced_packets": 312855,
+            "tun_max_write_batch": 32,
+            "tun_offload_fallbacks": 0,
+            "tun_reads": 42786,
+            "tun_write_calls": 20380,
+            "tun_written_packets": 314259
+          },
+          "elapsed": {
+            "nanos": 954097788,
+            "secs": 15
+          },
+          "interface_error": null,
+          "mono_timestamp": {
+            "nanos": 683628285,
+            "secs": 19760
+          },
+          "sequence": 20,
+          "state": "TunnelEstablished",
+          "statistics": {
+            "estimated_loss": 0.002488553524017334,
+            "handshake_age": {
+              "nanos": 881676081,
+              "secs": 15
+            },
+            "handshake_rtt": {
+              "nanos": 71000000,
+              "secs": 0
+            },
+            "received_bytes": 437473332,
+            "sent_bytes": 1752676
+          },
+          "stats_generation": 2,
+          "tun_present": true
+        },
+        "tun_mode": "vnet"
+      },
+      "system_after": "cpu  463820 0 109852 3345956 73 8241 11032 0 0 0\n",
+      "forwarded_bytes": {
+        "in": 401593563,
+        "out": 1621428
+      },
+      "valid": true,
+      "cpu_ns_per_byte": 19.729619795
+    },
+    {
+      "build": "main",
+      "protocol": "tcp",
+      "role": "aa",
+      "slot": 2,
+      "size": 400000000,
+      "warmups": [
+        {
+          "requested_bytes": 12000000,
+          "valid": true,
+          "tls": "TLSv1.2",
+          "status": 206,
+          "content_range": "bytes 0-11999999/148648524",
+          "bytes": 12000000,
+          "sha256": "389a4dfd673664cfc1391c678a627e9f26822a6fc51dcb3108ead489f4497f67",
+          "seconds": 0.5840000000025611,
+          "Mbps": 164.38356164311472
+        },
+        {
+          "requested_bytes": 12000000,
+          "valid": true,
+          "tls": "TLSv1.2",
+          "status": 206,
+          "content_range": "bytes 0-11999999/148648524",
+          "bytes": 12000000,
+          "sha256": "389a4dfd673664cfc1391c678a627e9f26822a6fc51dcb3108ead489f4497f67",
+          "seconds": 0.5694663999893237,
+          "Mbps": 168.57886611361056
+        }
+      ],
+      "system_before": "cpu  463954 0 109999 3346297 73 8247 11047 0 0 0\n",
+      "download": {
+        "requested_bytes": 400000000,
+        "bytes": 400000000,
+        "valid": true,
+        "parts": [
+          {
+            "requested_bytes": 100000000,
+            "valid": true,
+            "tls": "TLSv1.2",
+            "status": 206,
+            "content_range": "bytes 0-99999999/148648524",
+            "bytes": 100000000,
+            "sha256": "2aa720bbba4fe59c980d62a1763575f43ebf214f28a5af2beadb970865d001b0",
+            "seconds": 2.7734412999998312,
+            "Mbps": 288.45030900781956
+          },
+          {
+            "requested_bytes": 100000000,
+            "valid": true,
+            "tls": "TLSv1.2",
+            "status": 206,
+            "content_range": "bytes 0-99999999/148648524",
+            "bytes": 100000000,
+            "sha256": "2aa720bbba4fe59c980d62a1763575f43ebf214f28a5af2beadb970865d001b0",
+            "seconds": 2.799184100003913,
+            "Mbps": 285.79756508294025
+          },
+          {
+            "requested_bytes": 100000000,
+            "valid": true,
+            "tls": "TLSv1.2",
+            "status": 206,
+            "content_range": "bytes 0-99999999/148648524",
+            "bytes": 100000000,
+            "sha256": "2aa720bbba4fe59c980d62a1763575f43ebf214f28a5af2beadb970865d001b0",
+            "seconds": 2.7521313000033842,
+            "Mbps": 290.68380567417563
+          },
+          {
+            "requested_bytes": 100000000,
+            "valid": true,
+            "tls": "TLSv1.2",
+            "status": 206,
+            "content_range": "bytes 0-99999999/148648524",
+            "bytes": 100000000,
+            "sha256": "2aa720bbba4fe59c980d62a1763575f43ebf214f28a5af2beadb970865d001b0",
+            "seconds": 2.8384726000076625,
+            "Mbps": 281.8417200848937
+          }
+        ],
+        "seconds": 11.163730600004783,
+        "verification": "four independently SHA256-verified 100 MB ranged fetches; one continuously running tunnel worker",
+        "Mbps": 286.6425314848272
+      },
+      "worker": {
+        "cpu_core_percent": 65.91184435294306,
+        "process_cpu_ns": 7358629113,
+        "rss_kib": 2640,
+        "seconds": 11.164350179,
+        "snapshot": {
+          "counters": {
+            "decrypted_packets": 314171,
+            "in_place_decryptions": 314171,
+            "in_place_encryptions": 42935,
+            "inbound_filtered": 0,
+            "invalid_packets": 0,
+            "io": {
+              "enobufs": 0,
+              "gro_datagrams": 0,
+              "gso_datagrams": 0,
+              "kernel_fallbacks": 0,
+              "max_receive_batch": 0,
+              "max_send_batch": 0,
+              "receive_calls": 29876,
+              "receive_interrupted": 0,
+              "receive_would_block": 1461,
+              "received_bytes": 447457540,
+              "received_datagrams": 0,
+              "send_calls": 5254,
+              "send_interrupted": 0,
+              "send_would_block": 0,
+              "sent_bytes": 2590374,
+              "sent_datagrams": 0,
+              "truncated_datagrams": 0
+            },
+            "network_backpressure": 2,
+            "network_reads": 314172,
+            "outbound_filtered": 0,
+            "outer_eof": 0,
+            "outer_io_errors": 0,
+            "polls": 7047,
+            "pool_pressure": 0,
+            "pool_recycle_wipe_bytes": 0,
+            "pool_reserved_bytes": 405758,
+            "successful_crypto_copy_bytes": 0,
+            "to_network_bytes_high_water": 0,
+            "to_network_high_water": 63,
+            "to_tun_bytes_high_water": 0,
+            "to_tun_high_water": 63,
+            "tun_backpressure": 0,
+            "tun_coalesced_packets": 312265,
+            "tun_max_write_batch": 32,
+            "tun_offload_fallbacks": 0,
+            "tun_reads": 42935,
+            "tun_write_calls": 18332,
+            "tun_written_packets": 314171
+          },
+          "elapsed": {
+            "nanos": 589142416,
+            "secs": 12
+          },
+          "interface_error": null,
+          "mono_timestamp": {
+            "nanos": 165905823,
+            "secs": 19775
+          },
+          "sequence": 17,
+          "state": "TunnelEstablished",
+          "statistics": {
+            "estimated_loss": 0.006221950054168701,
+            "handshake_age": {
+              "nanos": 536400445,
+              "secs": 12
+            },
+            "handshake_rtt": {
+              "nanos": 52000000,
+              "secs": 0
+            },
+            "received_bytes": 437431422,
+            "sent_bytes": 1817360
+          },
+          "stats_generation": 2,
+          "tun_present": true
+        },
+        "tun_mode": "vnet"
+      },
+      "system_after": "cpu  464483 0 110601 3347166 73 8297 11218 0 0 0\n",
+      "forwarded_bytes": {
+        "in": 401485924,
+        "out": 1702160
+      },
+      "valid": true,
+      "cpu_ns_per_byte": 18.3965727825
+    },
+    {
+      "build": "main",
+      "protocol": "tcp",
+      "role": "aa",
+      "slot": 3,
+      "size": 400000000,
+      "warmups": [
+        {
+          "requested_bytes": 12000000,
+          "valid": true,
+          "tls": "TLSv1.2",
+          "status": 206,
+          "content_range": "bytes 0-11999999/148648524",
+          "bytes": 12000000,
+          "sha256": "389a4dfd673664cfc1391c678a627e9f26822a6fc51dcb3108ead489f4497f67",
+          "seconds": 0.5759386999998242,
+          "Mbps": 166.68440582310117
+        },
+        {
+          "requested_bytes": 12000000,
+          "valid": true,
+          "tls": "TLSv1.2",
+          "status": 206,
+          "content_range": "bytes 0-11999999/148648524",
+          "bytes": 12000000,
+          "sha256": "389a4dfd673664cfc1391c678a627e9f26822a6fc51dcb3108ead489f4497f67",
+          "seconds": 0.5755319999880157,
+          "Mbps": 166.80219345231714
+        }
+      ],
+      "system_before": "cpu  464570 0 110724 3347558 73 8303 11234 0 0 0\n",
+      "download": {
+        "requested_bytes": 400000000,
+        "bytes": 400000000,
+        "valid": true,
+        "parts": [
+          {
+            "requested_bytes": 100000000,
+            "valid": true,
+            "tls": "TLSv1.2",
+            "status": 206,
+            "content_range": "bytes 0-99999999/148648524",
+            "bytes": 100000000,
+            "sha256": "2aa720bbba4fe59c980d62a1763575f43ebf214f28a5af2beadb970865d001b0",
+            "seconds": 3.417806199999177,
+            "Mbps": 234.06827455582257
+          },
+          {
+            "requested_bytes": 100000000,
+            "valid": true,
+            "tls": "TLSv1.2",
+            "status": 206,
+            "content_range": "bytes 0-99999999/148648524",
+            "bytes": 100000000,
+            "sha256": "2aa720bbba4fe59c980d62a1763575f43ebf214f28a5af2beadb970865d001b0",
+            "seconds": 3.0100273999996716,
+            "Mbps": 265.77831151971816
+          },
+          {
+            "requested_bytes": 100000000,
+            "valid": true,
+            "tls": "TLSv1.2",
+            "status": 206,
+            "content_range": "bytes 0-99999999/148648524",
+            "bytes": 100000000,
+            "sha256": "2aa720bbba4fe59c980d62a1763575f43ebf214f28a5af2beadb970865d001b0",
+            "seconds": 3.0654122000123607,
+            "Mbps": 260.97632155204906
+          },
+          {
+            "requested_bytes": 100000000,
+            "valid": true,
+            "tls": "TLSv1.2",
+            "status": 206,
+            "content_range": "bytes 0-99999999/148648524",
+            "bytes": 100000000,
+            "sha256": "2aa720bbba4fe59c980d62a1763575f43ebf214f28a5af2beadb970865d001b0",
+            "seconds": 2.8819715999998152,
+            "Mbps": 277.5877458334605
+          }
+        ],
+        "seconds": 12.37570789999154,
+        "verification": "four independently SHA256-verified 100 MB ranged fetches; one continuously running tunnel worker",
+        "Mbps": 258.5710672762556
+      },
+      "worker": {
+        "cpu_core_percent": 60.81850945646767,
+        "process_cpu_ns": 7527013535,
+        "rss_kib": 2660,
+        "seconds": 12.376188766,
+        "snapshot": {
+          "counters": {
+            "decrypted_packets": 314173,
+            "in_place_decryptions": 314173,
+            "in_place_encryptions": 40717,
+            "inbound_filtered": 0,
+            "invalid_packets": 0,
+            "io": {
+              "enobufs": 0,
+              "gro_datagrams": 0,
+              "gso_datagrams": 0,
+              "kernel_fallbacks": 0,
+              "max_receive_batch": 0,
+              "max_send_batch": 0,
+              "receive_calls": 29431,
+              "receive_interrupted": 0,
+              "receive_would_block": 1202,
+              "received_bytes": 447406360,
+              "received_datagrams": 0,
+              "send_calls": 5010,
+              "send_interrupted": 0,
+              "send_would_block": 0,
+              "sent_bytes": 2401806,
+              "sent_datagrams": 0,
+              "truncated_datagrams": 0
+            },
+            "network_backpressure": 2,
+            "network_reads": 314174,
+            "outbound_filtered": 0,
+            "outer_eof": 0,
+            "outer_io_errors": 0,
+            "polls": 6685,
+            "pool_pressure": 0,
+            "pool_recycle_wipe_bytes": 0,
+            "pool_reserved_bytes": 405758,
+            "successful_crypto_copy_bytes": 0,
+            "to_network_bytes_high_water": 0,
+            "to_network_high_water": 63,
+            "to_tun_bytes_high_water": 0,
+            "to_tun_high_water": 63,
+            "tun_backpressure": 0,
+            "tun_coalesced_packets": 312851,
+            "tun_max_write_batch": 32,
+            "tun_offload_fallbacks": 0,
+            "tun_reads": 40717,
+            "tun_write_calls": 17993,
+            "tun_written_packets": 314173
+          },
+          "elapsed": {
+            "nanos": 777272632,
+            "secs": 13
+          },
+          "interface_error": null,
+          "mono_timestamp": {
+            "nanos": 787397568,
+            "secs": 19790
+          },
+          "sequence": 18,
+          "state": "TunnelEstablished",
+          "statistics": {
+            "estimated_loss": 0.0008237361907958984,
+            "handshake_age": {
+              "nanos": 724689393,
+              "secs": 13
+            },
+            "handshake_rtt": {
+              "nanos": 50000000,
+              "secs": 0
+            },
+            "received_bytes": 437378647,
+            "sent_bytes": 1668716
+          },
+          "stats_generation": 2,
+          "tun_present": true
+        },
+        "tun_mode": "vnet"
+      },
+      "system_after": "cpu  465533 0 111438 3348100 73 8360 11413 0 0 0\n",
+      "forwarded_bytes": {
+        "in": 401419389,
+        "out": 1546896
+      },
+      "valid": true,
+      "cpu_ns_per_byte": 18.8175338375
+    },
+    {
+      "build": "main",
+      "protocol": "tcp",
+      "role": "compare",
+      "slot": 0,
+      "size": 400000000,
+      "warmups": [
+        {
+          "requested_bytes": 12000000,
+          "valid": true,
+          "tls": "TLSv1.2",
+          "status": 206,
+          "content_range": "bytes 0-11999999/148648524",
+          "bytes": 12000000,
+          "sha256": "389a4dfd673664cfc1391c678a627e9f26822a6fc51dcb3108ead489f4497f67",
+          "seconds": 0.7546109999966575,
+          "Mbps": 127.21786456919556
+        },
+        {
+          "requested_bytes": 12000000,
+          "valid": true,
+          "tls": "TLSv1.2",
+          "status": 206,
+          "content_range": "bytes 0-11999999/148648524",
+          "bytes": 12000000,
+          "sha256": "389a4dfd673664cfc1391c678a627e9f26822a6fc51dcb3108ead489f4497f67",
+          "seconds": 0.7456765999959316,
+          "Mbps": 128.74213834861357
+        }
+      ],
+      "system_before": "cpu  465669 0 111587 3348496 73 8366 11430 0 0 0\n",
+      "download": {
+        "requested_bytes": 400000000,
+        "bytes": 400000000,
+        "valid": true,
+        "parts": [
+          {
+            "requested_bytes": 100000000,
+            "valid": true,
+            "tls": "TLSv1.2",
+            "status": 206,
+            "content_range": "bytes 0-99999999/148648524",
+            "bytes": 100000000,
+            "sha256": "2aa720bbba4fe59c980d62a1763575f43ebf214f28a5af2beadb970865d001b0",
+            "seconds": 3.2972988999972586,
+            "Mbps": 242.62283288926739
+          },
+          {
+            "requested_bytes": 100000000,
+            "valid": true,
+            "tls": "TLSv1.2",
+            "status": 206,
+            "content_range": "bytes 0-99999999/148648524",
+            "bytes": 100000000,
+            "sha256": "2aa720bbba4fe59c980d62a1763575f43ebf214f28a5af2beadb970865d001b0",
+            "seconds": 3.21895829999994,
+            "Mbps": 248.52760596495298
+          },
+          {
+            "requested_bytes": 100000000,
+            "valid": true,
+            "tls": "TLSv1.2",
+            "status": 206,
+            "content_range": "bytes 0-99999999/148648524",
+            "bytes": 100000000,
+            "sha256": "2aa720bbba4fe59c980d62a1763575f43ebf214f28a5af2beadb970865d001b0",
+            "seconds": 3.180717299997923,
+            "Mbps": 251.5155936682969
+          },
+          {
+            "requested_bytes": 100000000,
+            "valid": true,
+            "tls": "TLSv1.2",
+            "status": 206,
+            "content_range": "bytes 0-99999999/148648524",
+            "bytes": 100000000,
+            "sha256": "2aa720bbba4fe59c980d62a1763575f43ebf214f28a5af2beadb970865d001b0",
+            "seconds": 3.2355594000109704,
+            "Mbps": 247.25245346980418
+          }
+        ],
+        "seconds": 12.933012000008603,
+        "verification": "four independently SHA256-verified 100 MB ranged fetches; one continuously running tunnel worker",
+        "Mbps": 247.42882787071343
+      },
+      "worker": {
+        "cpu_core_percent": 60.02295852169832,
+        "process_cpu_ns": 7763053121,
+        "rss_kib": 2584,
+        "seconds": 12.933472978,
+        "snapshot": {
+          "counters": {
+            "decrypted_packets": 314313,
+            "in_place_decryptions": 314313,
+            "in_place_encryptions": 41805,
+            "inbound_filtered": 0,
+            "invalid_packets": 0,
+            "io": {
+              "enobufs": 0,
+              "gro_datagrams": 0,
+              "gso_datagrams": 0,
+              "kernel_fallbacks": 0,
+              "max_receive_batch": 0,
+              "max_send_batch": 0,
+              "receive_calls": 36645,
+              "receive_interrupted": 0,
+              "receive_would_block": 5490,
+              "received_bytes": 447513728,
+              "received_datagrams": 0,
+              "send_calls": 8445,
+              "send_interrupted": 0,
+              "send_would_block": 0,
+              "sent_bytes": 2543058,
+              "sent_datagrams": 0,
+              "truncated_datagrams": 0
+            },
+            "network_backpressure": 2,
+            "network_reads": 314314,
+            "outbound_filtered": 0,
+            "outer_eof": 0,
+            "outer_io_errors": 0,
+            "polls": 12041,
+            "pool_pressure": 0,
+            "pool_recycle_wipe_bytes": 0,
+            "pool_reserved_bytes": 405758,
+            "successful_crypto_copy_bytes": 0,
+            "to_network_bytes_high_water": 0,
+            "to_network_high_water": 63,
+            "to_tun_bytes_high_water": 0,
+            "to_tun_high_water": 63,
+            "tun_backpressure": 0,
+            "tun_coalesced_packets": 312726,
+            "tun_max_write_batch": 32,
+            "tun_offload_fallbacks": 0,
+            "tun_reads": 41805,
+            "tun_write_calls": 20768,
+            "tun_written_packets": 314313
+          },
+          "elapsed": {
+            "nanos": 681061108,
+            "secs": 14
+          },
+          "interface_error": null,
+          "mono_timestamp": {
+            "nanos": 364890805,
+            "secs": 19807
+          },
+          "sequence": 18,
+          "state": "TunnelEstablished",
+          "statistics": {
+            "estimated_loss": 0.003143012523651123,
+            "handshake_age": {
+              "nanos": 607467582,
+              "secs": 14
+            },
+            "handshake_rtt": {
+              "nanos": 72000000,
+              "secs": 0
+            },
+            "received_bytes": 437482525,
+            "sent_bytes": 1790384
+          },
+          "stats_generation": 2,
+          "tun_present": true
+        },
+        "tun_mode": "vnet"
+      },
+      "system_after": "cpu  466179 0 112235 3349615 73 8423 11625 0 0 0\n",
+      "forwarded_bytes": {
+        "in": 401616403,
+        "out": 1690376
+      },
+      "valid": true,
+      "cpu_ns_per_byte": 19.4076328025
+    },
+    {
+      "build": "erase",
+      "protocol": "tcp",
+      "role": "compare",
+      "slot": 1,
+      "size": 400000000,
+      "warmups": [
+        {
+          "requested_bytes": 12000000,
+          "valid": true,
+          "tls": "TLSv1.2",
+          "status": 206,
+          "content_range": "bytes 0-11999999/148648524",
+          "bytes": 12000000,
+          "sha256": "389a4dfd673664cfc1391c678a627e9f26822a6fc51dcb3108ead489f4497f67",
+          "seconds": 0.9391632000042591,
+          "Mbps": 102.21865592642966
+        },
+        {
+          "requested_bytes": 12000000,
+          "valid": true,
+          "tls": "TLSv1.2",
+          "status": 206,
+          "content_range": "bytes 0-11999999/148648524",
+          "bytes": 12000000,
+          "sha256": "389a4dfd673664cfc1391c678a627e9f26822a6fc51dcb3108ead489f4497f67",
+          "seconds": 0.793857399999979,
+          "Mbps": 120.92851940411785
+        }
+      ],
+      "system_before": "cpu  466458 0 112415 3349873 73 8431 11644 0 0 0\n",
+      "download": {
+        "requested_bytes": 400000000,
+        "bytes": 400000000,
+        "valid": true,
+        "parts": [
+          {
+            "requested_bytes": 100000000,
+            "valid": true,
+            "tls": "TLSv1.2",
+            "status": 206,
+            "content_range": "bytes 0-99999999/148648524",
+            "bytes": 100000000,
+            "sha256": "2aa720bbba4fe59c980d62a1763575f43ebf214f28a5af2beadb970865d001b0",
+            "seconds": 3.510753800001112,
+            "Mbps": 227.8712907751454
+          },
+          {
+            "requested_bytes": 100000000,
+            "valid": true,
+            "tls": "TLSv1.2",
+            "status": 206,
+            "content_range": "bytes 0-99999999/148648524",
+            "bytes": 100000000,
+            "sha256": "2aa720bbba4fe59c980d62a1763575f43ebf214f28a5af2beadb970865d001b0",
+            "seconds": 3.324347100002342,
+            "Mbps": 240.64875776643072
+          },
+          {
+            "requested_bytes": 100000000,
+            "valid": true,
+            "tls": "TLSv1.2",
+            "status": 206,
+            "content_range": "bytes 0-99999999/148648524",
+            "bytes": 100000000,
+            "sha256": "2aa720bbba4fe59c980d62a1763575f43ebf214f28a5af2beadb970865d001b0",
+            "seconds": 3.1245102000102634,
+            "Mbps": 256.0401307050853
+          },
+          {
+            "requested_bytes": 100000000,
+            "valid": true,
+            "tls": "TLSv1.2",
+            "status": 206,
+            "content_range": "bytes 0-99999999/148648524",
+            "bytes": 100000000,
+            "sha256": "2aa720bbba4fe59c980d62a1763575f43ebf214f28a5af2beadb970865d001b0",
+            "seconds": 3.4281837999878917,
+            "Mbps": 233.3597165947828
+          }
+        ],
+        "seconds": 13.388286800007336,
+        "verification": "four independently SHA256-verified 100 MB ranged fetches; one continuously running tunnel worker",
+        "Mbps": 239.01489770881264
+      },
+      "worker": {
+        "cpu_core_percent": 55.710515295957926,
+        "process_cpu_ns": 7459172778,
+        "rss_kib": 2716,
+        "seconds": 13.389164933,
+        "snapshot": {
+          "counters": {
+            "decrypted_packets": 314231,
+            "in_place_decryptions": 314231,
+            "in_place_encryptions": 39171,
+            "inbound_filtered": 0,
+            "invalid_packets": 0,
+            "io": {
+              "enobufs": 0,
+              "gro_datagrams": 0,
+              "gso_datagrams": 0,
+              "kernel_fallbacks": 0,
+              "max_receive_batch": 0,
+              "max_send_batch": 0,
+              "receive_calls": 36317,
+              "receive_interrupted": 0,
+              "receive_would_block": 5308,
+              "received_bytes": 447451212,
+              "received_datagrams": 0,
+              "send_calls": 8254,
+              "send_interrupted": 0,
+              "send_would_block": 0,
+              "sent_bytes": 2322766,
+              "sent_datagrams": 0,
+              "truncated_datagrams": 0
+            },
+            "network_backpressure": 2,
+            "network_reads": 314232,
+            "outbound_filtered": 0,
+            "outer_eof": 0,
+            "outer_io_errors": 0,
+            "polls": 11729,
+            "pool_pressure": 0,
+            "pool_recycle_wipe_bytes": 0,
+            "pool_reserved_bytes": 405758,
+            "successful_crypto_copy_bytes": 0,
+            "to_network_bytes_high_water": 0,
+            "to_network_high_water": 63,
+            "to_tun_bytes_high_water": 0,
+            "to_tun_high_water": 63,
+            "tun_backpressure": 0,
+            "tun_coalesced_packets": 312819,
+            "tun_max_write_batch": 32,
+            "tun_offload_fallbacks": 0,
+            "tun_reads": 39171,
+            "tun_write_calls": 20851,
+            "tun_written_packets": 314231
+          },
+          "elapsed": {
+            "nanos": 404156126,
+            "secs": 15
+          },
+          "interface_error": null,
+          "mono_timestamp": {
+            "nanos": 599398161,
+            "secs": 19824
+          },
+          "sequence": 19,
+          "state": "TunnelEstablished",
+          "statistics": {
+            "estimated_loss": 0.0006583333015441895,
+            "handshake_age": {
+              "nanos": 331017559,
+              "secs": 15
+            },
+            "handshake_rtt": {
+              "nanos": 72000000,
+              "secs": 0
+            },
+            "received_bytes": 437420885,
+            "sent_bytes": 1617504
+          },
+          "stats_generation": 2,
+          "tun_present": true
+        },
+        "tun_mode": "vnet"
+      },
+      "system_after": "cpu  467221 0 113160 3350731 73 8492 11843 0 0 0\n",
+      "forwarded_bytes": {
+        "in": 401565438,
+        "out": 1500604
+      },
+      "valid": true,
+      "cpu_ns_per_byte": 18.647931945
+    },
+    {
+      "build": "erase",
+      "protocol": "tcp",
+      "role": "compare",
+      "slot": 2,
+      "size": 400000000,
+      "warmups": [
+        {
+          "requested_bytes": 12000000,
+          "valid": true,
+          "tls": "TLSv1.2",
+          "status": 206,
+          "content_range": "bytes 0-11999999/148648524",
+          "bytes": 12000000,
+          "sha256": "389a4dfd673664cfc1391c678a627e9f26822a6fc51dcb3108ead489f4497f67",
+          "seconds": 0.5787271000008332,
+          "Mbps": 165.88129361811775
+        },
+        {
+          "requested_bytes": 12000000,
+          "valid": true,
+          "tls": "TLSv1.2",
+          "status": 206,
+          "content_range": "bytes 0-11999999/148648524",
+          "bytes": 12000000,
+          "sha256": "389a4dfd673664cfc1391c678a627e9f26822a6fc51dcb3108ead489f4497f67",
+          "seconds": 0.5932463999924948,
+          "Mbps": 161.82146238260273
+        }
+      ],
+      "system_before": "cpu  467347 0 113315 3351071 73 8499 11859 0 0 0\n",
+      "download": {
+        "requested_bytes": 400000000,
+        "bytes": 400000000,
+        "valid": true,
+        "parts": [
+          {
+            "requested_bytes": 100000000,
+            "valid": true,
+            "tls": "TLSv1.2",
+            "status": 206,
+            "content_range": "bytes 0-99999999/148648524",
+            "bytes": 100000000,
+            "sha256": "2aa720bbba4fe59c980d62a1763575f43ebf214f28a5af2beadb970865d001b0",
+            "seconds": 2.6446067999931984,
+            "Mbps": 302.5024362797742
+          },
+          {
+            "requested_bytes": 100000000,
+            "valid": true,
+            "tls": "TLSv1.2",
+            "status": 206,
+            "content_range": "bytes 0-99999999/148648524",
+            "bytes": 100000000,
+            "sha256": "2aa720bbba4fe59c980d62a1763575f43ebf214f28a5af2beadb970865d001b0",
+            "seconds": 2.6479204000061145,
+            "Mbps": 302.1238855964676
+          },
+          {
+            "requested_bytes": 100000000,
+            "valid": true,
+            "tls": "TLSv1.2",
+            "status": 206,
+            "content_range": "bytes 0-99999999/148648524",
+            "bytes": 100000000,
+            "sha256": "2aa720bbba4fe59c980d62a1763575f43ebf214f28a5af2beadb970865d001b0",
+            "seconds": 2.6693878999940353,
+            "Mbps": 299.69417333531317
+          },
+          {
+            "requested_bytes": 100000000,
+            "valid": true,
+            "tls": "TLSv1.2",
+            "status": 206,
+            "content_range": "bytes 0-99999999/148648524",
+            "bytes": 100000000,
+            "sha256": "2aa720bbba4fe59c980d62a1763575f43ebf214f28a5af2beadb970865d001b0",
+            "seconds": 2.8686438000004273,
+            "Mbps": 278.87742632943167
+          }
+        ],
+        "seconds": 10.831027399995946,
+        "verification": "four independently SHA256-verified 100 MB ranged fetches; one continuously running tunnel worker",
+        "Mbps": 295.4475029766057
+      },
+      "worker": {
+        "cpu_core_percent": 64.10196317466483,
+        "process_cpu_ns": 6944542430,
+        "rss_kib": 2776,
+        "seconds": 10.83358775,
+        "snapshot": {
+          "counters": {
+            "decrypted_packets": 314166,
+            "in_place_decryptions": 314166,
+            "in_place_encryptions": 39736,
+            "inbound_filtered": 0,
+            "invalid_packets": 0,
+            "io": {
+              "enobufs": 0,
+              "gro_datagrams": 0,
+              "gso_datagrams": 0,
+              "kernel_fallbacks": 0,
+              "max_receive_batch": 0,
+              "max_send_batch": 0,
+              "receive_calls": 29779,
+              "receive_interrupted": 0,
+              "receive_would_block": 1392,
+              "received_bytes": 447406874,
+              "received_datagrams": 0,
+              "send_calls": 5326,
+              "send_interrupted": 0,
+              "send_would_block": 0,
+              "sent_bytes": 2390028,
+              "sent_datagrams": 0,
+              "truncated_datagrams": 0
+            },
+            "network_backpressure": 2,
+            "network_reads": 314167,
+            "outbound_filtered": 0,
+            "outer_eof": 0,
+            "outer_io_errors": 0,
+            "polls": 6908,
+            "pool_pressure": 0,
+            "pool_recycle_wipe_bytes": 0,
+            "pool_reserved_bytes": 405758,
+            "successful_crypto_copy_bytes": 0,
+            "to_network_bytes_high_water": 0,
+            "to_network_high_water": 63,
+            "to_tun_bytes_high_water": 0,
+            "to_tun_high_water": 63,
+            "tun_backpressure": 0,
+            "tun_coalesced_packets": 312072,
+            "tun_max_write_batch": 32,
+            "tun_offload_fallbacks": 0,
+            "tun_reads": 39736,
+            "tun_write_calls": 19297,
+            "tun_written_packets": 314166
+          },
+          "elapsed": {
+            "nanos": 286650189,
+            "secs": 12
+          },
+          "interface_error": null,
+          "mono_timestamp": {
+            "nanos": 745007360,
+            "secs": 19838
+          },
+          "sequence": 16,
+          "state": "TunnelEstablished",
+          "statistics": {
+            "estimated_loss": 0.0022009611129760742,
+            "handshake_age": {
+              "nanos": 231655905,
+              "secs": 12
+            },
+            "handshake_rtt": {
+              "nanos": 51000000,
+              "secs": 0
+            },
+            "received_bytes": 437380872,
+            "sent_bytes": 1674596
+          },
+          "stats_generation": 2,
+          "tun_present": true
+        },
+        "tun_mode": "vnet"
+      },
+      "system_after": "cpu  467804 0 113890 3351986 73 8549 12022 0 0 0\n",
+      "forwarded_bytes": {
+        "in": 401471406,
+        "out": 1560208
+      },
+      "valid": true,
+      "cpu_ns_per_byte": 17.361356075
+    },
+    {
+      "build": "main",
+      "protocol": "tcp",
+      "role": "compare",
+      "slot": 3,
+      "size": 400000000,
+      "warmups": [
+        {
+          "requested_bytes": 12000000,
+          "valid": true,
+          "tls": "TLSv1.2",
+          "status": 206,
+          "content_range": "bytes 0-11999999/148648524",
+          "bytes": 12000000,
+          "sha256": "389a4dfd673664cfc1391c678a627e9f26822a6fc51dcb3108ead489f4497f67",
+          "seconds": 0.7319125999929383,
+          "Mbps": 131.16320172781045
+        },
+        {
+          "requested_bytes": 12000000,
+          "valid": true,
+          "tls": "TLSv1.2",
+          "status": 206,
+          "content_range": "bytes 0-11999999/148648524",
+          "bytes": 12000000,
+          "sha256": "389a4dfd673664cfc1391c678a627e9f26822a6fc51dcb3108ead489f4497f67",
+          "seconds": 0.7429859999974724,
+          "Mbps": 129.20835655089945
+        }
+      ],
+      "system_before": "cpu  467929 0 114033 3352393 73 8555 12038 0 0 0\n",
+      "download": {
+        "requested_bytes": 400000000,
+        "bytes": 400000000,
+        "valid": true,
+        "parts": [
+          {
+            "requested_bytes": 100000000,
+            "valid": true,
+            "tls": "TLSv1.2",
+            "status": 206,
+            "content_range": "bytes 0-99999999/148648524",
+            "bytes": 100000000,
+            "sha256": "2aa720bbba4fe59c980d62a1763575f43ebf214f28a5af2beadb970865d001b0",
+            "seconds": 3.8258282000024337,
+            "Mbps": 209.10505077031192
+          },
+          {
+            "requested_bytes": 100000000,
+            "valid": true,
+            "tls": "TLSv1.2",
+            "status": 206,
+            "content_range": "bytes 0-99999999/148648524",
+            "bytes": 100000000,
+            "sha256": "2aa720bbba4fe59c980d62a1763575f43ebf214f28a5af2beadb970865d001b0",
+            "seconds": 3.5208501999877626,
+            "Mbps": 227.21784641754442
+          },
+          {
+            "requested_bytes": 100000000,
+            "valid": true,
+            "tls": "TLSv1.2",
+            "status": 206,
+            "content_range": "bytes 0-99999999/148648524",
+            "bytes": 100000000,
+            "sha256": "2aa720bbba4fe59c980d62a1763575f43ebf214f28a5af2beadb970865d001b0",
+            "seconds": 3.573716600003536,
+            "Mbps": 223.85658672520606
+          },
+          {
+            "requested_bytes": 100000000,
+            "valid": true,
+            "tls": "TLSv1.2",
+            "status": 206,
+            "content_range": "bytes 0-99999999/148648524",
+            "bytes": 100000000,
+            "sha256": "2aa720bbba4fe59c980d62a1763575f43ebf214f28a5af2beadb970865d001b0",
+            "seconds": 3.128384099996765,
+            "Mbps": 255.72307441430456
+          }
+        ],
+        "seconds": 14.049201999994693,
+        "verification": "four independently SHA256-verified 100 MB ranged fetches; one continuously running tunnel worker",
+        "Mbps": 227.77094385867673
+      },
+      "worker": {
+        "cpu_core_percent": 55.89569545038605,
+        "process_cpu_ns": 7853076419,
+        "rss_kib": 2664,
+        "seconds": 14.049519119,
+        "snapshot": {
+          "counters": {
+            "decrypted_packets": 314294,
+            "in_place_decryptions": 314294,
+            "in_place_encryptions": 39529,
+            "inbound_filtered": 0,
+            "invalid_packets": 0,
+            "io": {
+              "enobufs": 0,
+              "gro_datagrams": 0,
+              "gso_datagrams": 0,
+              "kernel_fallbacks": 0,
+              "max_receive_batch": 0,
+              "max_send_batch": 0,
+              "receive_calls": 34830,
+              "receive_interrupted": 0,
+              "receive_would_block": 4412,
+              "received_bytes": 447477802,
+              "received_datagrams": 0,
+              "send_calls": 7531,
+              "send_interrupted": 0,
+              "send_would_block": 0,
+              "sent_bytes": 2333298,
+              "sent_datagrams": 0,
+              "truncated_datagrams": 0
+            },
+            "network_backpressure": 2,
+            "network_reads": 314295,
+            "outbound_filtered": 0,
+            "outer_eof": 0,
+            "outer_io_errors": 0,
+            "polls": 10457,
+            "pool_pressure": 0,
+            "pool_recycle_wipe_bytes": 0,
+            "pool_reserved_bytes": 405758,
+            "successful_crypto_copy_bytes": 0,
+            "to_network_bytes_high_water": 0,
+            "to_network_high_water": 63,
+            "to_tun_bytes_high_water": 0,
+            "to_tun_high_water": 63,
+            "tun_backpressure": 0,
+            "tun_coalesced_packets": 312905,
+            "tun_max_write_batch": 32,
+            "tun_offload_fallbacks": 0,
+            "tun_reads": 39529,
+            "tun_write_calls": 20128,
+            "tun_written_packets": 314294
+          },
+          "elapsed": {
+            "nanos": 777252859,
+            "secs": 15
+          },
+          "interface_error": null,
+          "mono_timestamp": {
+            "nanos": 450582282,
+            "secs": 19856
+          },
+          "sequence": 20,
+          "state": "TunnelEstablished",
+          "statistics": {
+            "estimated_loss": 0.00018131732940673828,
+            "handshake_age": {
+              "nanos": 701107409,
+              "secs": 15
+            },
+            "handshake_rtt": {
+              "nanos": 75000000,
+              "secs": 0
+            },
+            "received_bytes": 437449610,
+            "sent_bytes": 1621592
+          },
+          "stats_generation": 2,
+          "tun_present": true
+        },
+        "tun_mode": "vnet"
+      },
+      "system_after": "cpu  468877 0 114796 3353193 73 8616 12233 0 0 0\n",
+      "forwarded_bytes": {
+        "in": 401559776,
+        "out": 1525724
+      },
+      "valid": true,
+      "cpu_ns_per_byte": 19.6326910475
+    }
+  ],
+  "started_utc": "2026-11-12T23:16:59.650745+00:00",
+  "kernel": "6.12.112",
+  "server": "US-NY#544",
+  "mtu": 1280,
+  "method": "laptop HTTPS; socket-bound interface; owned router policy/NAT only",
+  "binaries": {
+    "main": "25c4f9b2f6733dd34022810161e1cdac1aace27eb85c2610448afe636722e178",
+    "erase": "67cd7c5bf268a579116642c0dfd10b0c7142d4419b012a9da2c48cd8612a8d24"
+  },
+  "kernel_already_available": true,
+  "hardware": "CPUS 2\nMEMORY 496724\nMODEL Cudy TR3000 v1 (OpenWrt U-Boot layout)\n",
+  "direct_before": {
+    "requested_bytes": 100000000,
+    "valid": true,
+    "tls": "TLSv1.2",
+    "status": 206,
+    "content_range": "bytes 0-99999999/148648524",
+    "bytes": 100000000,
+    "sha256": "2aa720bbba4fe59c980d62a1763575f43ebf214f28a5af2beadb970865d001b0",
+    "seconds": 1.6556342999974731,
+    "Mbps": 483.19849377439266
+  },
+  "shutdowns": [
+    "{\"tun_reads\":43338,\"network_reads\":314095,\"decrypted_packets\":314094,\"invalid_packets\":0,\"outbound_filtered\":0,\"inbound_filtered\":0,\"pool_pressure\":0,\"polls\":6947,\"tun_backpressure\":0,\"tun_write_calls\":18171,\"tun_written_packets\":314094,\"tun_coalesced_packets\":312532,\"tun_max_write_batch\":32,\"tun_offload_fallbacks\":0,\"network_backpressure\":2,\"io\":{\"receive_calls\":29713,\"send_calls\":5358,\"received_datagrams\":0,\"sent_datagrams\":0,\"max_receive_batch\":0,\"max_send_batch\":0,\"truncated_datagrams\":0,\"gso_datagrams\":0,\"gro_datagrams\":0,\"kernel_fallbacks\":0,\"enobufs\":0,\"received_bytes\":447399594,\"sent_bytes\":2636476,\"receive_would_block\":1373,\"send_would_block\":0,\"receive_interrupted\":0,\"send_interrupted\":0},\"to_network_high_water\":63,\"to_tun_high_water\":63,\"pool_reserved_bytes\":405758,\"outer_eof\":0,\"outer_io_errors\":0,\"in_place_encryptions\":43338,\"in_place_decryptions\":314094,\"successful_crypto_copy_bytes\":0,\"pool_recycle_wipe_bytes\":0,\"to_network_bytes_high_water\":0,\"to_tun_bytes_high_water\":0}",
+    "{\"tun_reads\":42786,\"network_reads\":314260,\"decrypted_packets\":314259,\"invalid_packets\":0,\"outbound_filtered\":0,\"inbound_filtered\":0,\"pool_pressure\":0,\"polls\":9898,\"tun_backpressure\":0,\"tun_write_calls\":20380,\"tun_written_packets\":314259,\"tun_coalesced_packets\":312855,\"tun_max_write_batch\":32,\"tun_offload_fallbacks\":0,\"network_backpressure\":2,\"io\":{\"receive_calls\":33831,\"send_calls\":7129,\"received_datagrams\":0,\"sent_datagrams\":0,\"max_receive_batch\":0,\"max_send_batch\":0,\"truncated_datagrams\":0,\"gso_datagrams\":0,\"gro_datagrams\":0,\"kernel_fallbacks\":0,\"enobufs\":0,\"received_bytes\":447500228,\"sent_bytes\":2523008,\"receive_would_block\":3812,\"send_would_block\":0,\"receive_interrupted\":0,\"send_interrupted\":0},\"to_network_high_water\":63,\"to_tun_high_water\":63,\"pool_reserved_bytes\":405758,\"outer_eof\":0,\"outer_io_errors\":0,\"in_place_encryptions\":42786,\"in_place_decryptions\":314259,\"successful_crypto_copy_bytes\":0,\"pool_recycle_wipe_bytes\":0,\"to_network_bytes_high_water\":0,\"to_tun_bytes_high_water\":0}",
+    "{\"tun_reads\":42935,\"network_reads\":314172,\"decrypted_packets\":314171,\"invalid_packets\":0,\"outbound_filtered\":0,\"inbound_filtered\":0,\"pool_pressure\":0,\"polls\":7048,\"tun_backpressure\":0,\"tun_write_calls\":18332,\"tun_written_packets\":314171,\"tun_coalesced_packets\":312265,\"tun_max_write_batch\":32,\"tun_offload_fallbacks\":0,\"network_backpressure\":2,\"io\":{\"receive_calls\":29876,\"send_calls\":5254,\"received_datagrams\":0,\"sent_datagrams\":0,\"max_receive_batch\":0,\"max_send_batch\":0,\"truncated_datagrams\":0,\"gso_datagrams\":0,\"gro_datagrams\":0,\"kernel_fallbacks\":0,\"enobufs\":0,\"received_bytes\":447457540,\"sent_bytes\":2590374,\"receive_would_block\":1461,\"send_would_block\":0,\"receive_interrupted\":0,\"send_interrupted\":0},\"to_network_high_water\":63,\"to_tun_high_water\":63,\"pool_reserved_bytes\":405758,\"outer_eof\":0,\"outer_io_errors\":0,\"in_place_encryptions\":42935,\"in_place_decryptions\":314171,\"successful_crypto_copy_bytes\":0,\"pool_recycle_wipe_bytes\":0,\"to_network_bytes_high_water\":0,\"to_tun_bytes_high_water\":0}",
+    "{\"tun_reads\":40717,\"network_reads\":314174,\"decrypted_packets\":314173,\"invalid_packets\":0,\"outbound_filtered\":0,\"inbound_filtered\":0,\"pool_pressure\":0,\"polls\":6686,\"tun_backpressure\":0,\"tun_write_calls\":17993,\"tun_written_packets\":314173,\"tun_coalesced_packets\":312851,\"tun_max_write_batch\":32,\"tun_offload_fallbacks\":0,\"network_backpressure\":2,\"io\":{\"receive_calls\":29431,\"send_calls\":5010,\"received_datagrams\":0,\"sent_datagrams\":0,\"max_receive_batch\":0,\"max_send_batch\":0,\"truncated_datagrams\":0,\"gso_datagrams\":0,\"gro_datagrams\":0,\"kernel_fallbacks\":0,\"enobufs\":0,\"received_bytes\":447406360,\"sent_bytes\":2401806,\"receive_would_block\":1202,\"send_would_block\":0,\"receive_interrupted\":0,\"send_interrupted\":0},\"to_network_high_water\":63,\"to_tun_high_water\":63,\"pool_reserved_bytes\":405758,\"outer_eof\":0,\"outer_io_errors\":0,\"in_place_encryptions\":40717,\"in_place_decryptions\":314173,\"successful_crypto_copy_bytes\":0,\"pool_recycle_wipe_bytes\":0,\"to_network_bytes_high_water\":0,\"to_tun_bytes_high_water\":0}",
+    "{\"tun_reads\":41805,\"network_reads\":314314,\"decrypted_packets\":314313,\"invalid_packets\":0,\"outbound_filtered\":0,\"inbound_filtered\":0,\"pool_pressure\":0,\"polls\":12042,\"tun_backpressure\":0,\"tun_write_calls\":20768,\"tun_written_packets\":314313,\"tun_coalesced_packets\":312726,\"tun_max_write_batch\":32,\"tun_offload_fallbacks\":0,\"network_backpressure\":2,\"io\":{\"receive_calls\":36645,\"send_calls\":8445,\"received_datagrams\":0,\"sent_datagrams\":0,\"max_receive_batch\":0,\"max_send_batch\":0,\"truncated_datagrams\":0,\"gso_datagrams\":0,\"gro_datagrams\":0,\"kernel_fallbacks\":0,\"enobufs\":0,\"received_bytes\":447513728,\"sent_bytes\":2543058,\"receive_would_block\":5490,\"send_would_block\":0,\"receive_interrupted\":0,\"send_interrupted\":0},\"to_network_high_water\":63,\"to_tun_high_water\":63,\"pool_reserved_bytes\":405758,\"outer_eof\":0,\"outer_io_errors\":0,\"in_place_encryptions\":41805,\"in_place_decryptions\":314313,\"successful_crypto_copy_bytes\":0,\"pool_recycle_wipe_bytes\":0,\"to_network_bytes_high_water\":0,\"to_tun_bytes_high_water\":0}",
+    "{\"tun_reads\":39171,\"network_reads\":314232,\"decrypted_packets\":314231,\"invalid_packets\":0,\"outbound_filtered\":0,\"inbound_filtered\":0,\"pool_pressure\":0,\"polls\":11730,\"tun_backpressure\":0,\"tun_write_calls\":20851,\"tun_written_packets\":314231,\"tun_coalesced_packets\":312819,\"tun_max_write_batch\":32,\"tun_offload_fallbacks\":0,\"network_backpressure\":2,\"io\":{\"receive_calls\":36317,\"send_calls\":8254,\"received_datagrams\":0,\"sent_datagrams\":0,\"max_receive_batch\":0,\"max_send_batch\":0,\"truncated_datagrams\":0,\"gso_datagrams\":0,\"gro_datagrams\":0,\"kernel_fallbacks\":0,\"enobufs\":0,\"received_bytes\":447451212,\"sent_bytes\":2322766,\"receive_would_block\":5308,\"send_would_block\":0,\"receive_interrupted\":0,\"send_interrupted\":0},\"to_network_high_water\":63,\"to_tun_high_water\":63,\"pool_reserved_bytes\":405758,\"outer_eof\":0,\"outer_io_errors\":0,\"in_place_encryptions\":39171,\"in_place_decryptions\":314231,\"successful_crypto_copy_bytes\":0,\"pool_recycle_wipe_bytes\":0,\"to_network_bytes_high_water\":0,\"to_tun_bytes_high_water\":0}",
+    "{\"tun_reads\":39736,\"network_reads\":314167,\"decrypted_packets\":314166,\"invalid_packets\":0,\"outbound_filtered\":0,\"inbound_filtered\":0,\"pool_pressure\":0,\"polls\":6909,\"tun_backpressure\":0,\"tun_write_calls\":19297,\"tun_written_packets\":314166,\"tun_coalesced_packets\":312072,\"tun_max_write_batch\":32,\"tun_offload_fallbacks\":0,\"network_backpressure\":2,\"io\":{\"receive_calls\":29779,\"send_calls\":5326,\"received_datagrams\":0,\"sent_datagrams\":0,\"max_receive_batch\":0,\"max_send_batch\":0,\"truncated_datagrams\":0,\"gso_datagrams\":0,\"gro_datagrams\":0,\"kernel_fallbacks\":0,\"enobufs\":0,\"received_bytes\":447406874,\"sent_bytes\":2390028,\"receive_would_block\":1392,\"send_would_block\":0,\"receive_interrupted\":0,\"send_interrupted\":0},\"to_network_high_water\":63,\"to_tun_high_water\":63,\"pool_reserved_bytes\":405758,\"outer_eof\":0,\"outer_io_errors\":0,\"in_place_encryptions\":39736,\"in_place_decryptions\":314166,\"successful_crypto_copy_bytes\":0,\"pool_recycle_wipe_bytes\":0,\"to_network_bytes_high_water\":0,\"to_tun_bytes_high_water\":0}",
+    "{\"tun_reads\":39529,\"network_reads\":314295,\"decrypted_packets\":314294,\"invalid_packets\":0,\"outbound_filtered\":0,\"inbound_filtered\":0,\"pool_pressure\":0,\"polls\":10458,\"tun_backpressure\":0,\"tun_write_calls\":20128,\"tun_written_packets\":314294,\"tun_coalesced_packets\":312905,\"tun_max_write_batch\":32,\"tun_offload_fallbacks\":0,\"network_backpressure\":2,\"io\":{\"receive_calls\":34830,\"send_calls\":7531,\"received_datagrams\":0,\"sent_datagrams\":0,\"max_receive_batch\":0,\"max_send_batch\":0,\"truncated_datagrams\":0,\"gso_datagrams\":0,\"gro_datagrams\":0,\"kernel_fallbacks\":0,\"enobufs\":0,\"received_bytes\":447477802,\"sent_bytes\":2333298,\"receive_would_block\":4412,\"send_would_block\":0,\"receive_interrupted\":0,\"send_interrupted\":0},\"to_network_high_water\":63,\"to_tun_high_water\":63,\"pool_reserved_bytes\":405758,\"outer_eof\":0,\"outer_io_errors\":0,\"in_place_encryptions\":39529,\"in_place_decryptions\":314294,\"successful_crypto_copy_bytes\":0,\"pool_recycle_wipe_bytes\":0,\"to_network_bytes_high_water\":0,\"to_tun_bytes_high_water\":0}"
+  ],
+  "direct_after": {
+    "requested_bytes": 100000000,
+    "valid": true,
+    "tls": "TLSv1.2",
+    "status": 206,
+    "content_range": "bytes 0-99999999/148648524",
+    "bytes": 100000000,
+    "sha256": "2aa720bbba4fe59c980d62a1763575f43ebf214f28a5af2beadb970865d001b0",
+    "seconds": 1.6220024999929592,
+    "Mbps": 493.21748887777466
+  },
+  "cleanup": {
+    "mode": true,
+    "identity": true,
+    "links": true,
+    "rules": true,
+    "default": true,
+    "packages": true,
+    "limits": true,
+    "configs": true,
+    "stage_absent": true,
+    "firewall_owned_rules_absent": true
+  },
+  "elapsed_seconds": 134.75,
+  "sources": {
+    "main": {
+      "sha": "64caaa24004db4f9cc901cc76d62d51bbc61d983",
+      "archive_sha256": "bd0df974cc4b633db477fa6a076f4d469dc0106dc6d06d0024f5a00bc1b5d18d",
+      "runtime_sources_sha256": "5d448b4aabf1041e3a13920294314097f88a30eeb9a2d4c799724c2c04112fc7",
+      "effective_sources_sha256": "eeb8987103c54e795897c4a99a41561952ad1b210d8391d808857f551f74504d",
+      "build_mode": "release",
+      "target": "aarch64-unknown-linux-musl",
+      "features": "unix; NoLocalAgent",
+      "build_configuration": {
+        "variant": "main",
+        "target": "aarch64-unknown-linux-musl",
+        "binary_sha256": "25c4f9b2f6733dd34022810161e1cdac1aace27eb85c2610448afe636722e178",
+        "flags": [],
+        "features": "unix",
+        "bytes": 2457672
+      }
+    },
+    "erase": {
+      "sha": "aa43d3dab035092e0f9ff21c3f811435ef225017",
+      "archive_sha256": "a0b4b7ca1b4e1784cb5bbf05eea5177a97d5686950995fc121c888adbc8525bb",
+      "runtime_sources_sha256": "5d448b4aabf1041e3a13920294314097f88a30eeb9a2d4c799724c2c04112fc7",
+      "effective_sources_sha256": "9983b2291201851a14a22092c6bd3de8750b100b9f0acb79825db7f87a4f9e1a",
+      "build_mode": "pgo",
+      "target": "aarch64-unknown-linux-musl",
+      "features": "unix; NoLocalAgent",
+      "build_configuration": {
+        "variant": "pgo-use",
+        "target": "aarch64-unknown-linux-musl",
+        "features": "unix",
+        "binary_sha256": "67cd7c5bf268a579116642c0dfd10b0c7142d4419b012a9da2c48cd8612a8d24",
+        "flags": [
+          "-Cprofile-use=<local-work>/stage8-travel-private/training/client.profdata",
+          "-Cllvm-args=-pgo-warn-missing-function"
+        ],
+        "bytes": 2450440,
+        "compiler": "rustc 1.99.1 (58cf8f9c3 2026-10-13)\nbinary: rustc\ncommit-hash: 58cf8f9c35b355199727627d07ae34a4e2846d67\ncommit-date: 2026-10-13\nhost: x86_64-pc-windows-msvc\nrelease: 1.99.1\nLLVM version: 23.1.1\n",
+        "validation": {
+          "instrumentation_absent": true,
+          "erasure_checked": true,
+          "missing_wipe_rejected": true
+        }
+      }
+    }
+  }
+}

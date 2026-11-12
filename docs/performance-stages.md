@@ -17,6 +17,7 @@ Research is open-ended; earlier prototypes do not exclude different designs.
 | 5 | Alternative acceleration: crypto implementations, native WireGuard, advanced I/O/TLS, CPU/NIC coordination and kernel bypass | Evaluated in PR #10; retain ring, archive TLS-suite experiment and record deferred architectures |
 | 6 | Client-only PGO, architecture-specific builds and platform tuning | Evaluated in PR #11; retain optional independent build experiments, portable defaults unchanged |
 | 7 | Combine measured winners and validate real workloads/platforms | Evaluated in PR #12; optional native combination and device PGO efficiency evidence, maximum capacity unresolved |
+| 8 (focused follow-up) | Remove the measured peer bottleneck and diagnose delayed TCP before claiming client capacity | Evaluated in PR #13; tested helper prototypes do not establish headroom, maximum capacity remains inconclusive |
 
 One stage per PR. Before each transition, review the goal, frozen baseline,
 evidence, proposed changes, exclusions, validation and completion criteria with
@@ -364,3 +365,77 @@ Remaining evidence includes client capacity without a helper bottleneck, delayed
 TCP behavior, NIC/RTT/loss/thermal effects and account-enabled CLI/SDK / unmeasured
 OS targets. Deferred architectures remain open. Review a focused follow-up plan
 before any further implementation; do not turn these gaps into universal claims.
+
+## Stage 8 focused follow-up review, November 12
+
+Frozen baseline: merged PR #12 `64caaa24004db4f9cc901cc76d62d51bbc61d983`.
+This extends the evaluated seven-stage roadmap to resolve its explicit capacity
+and delayed-TCP gaps; it is not a retrospective change to earlier results.
+Stage 7 raw baseline observations show the peer wire thread near 0.998–0.999
+core, with client roughly 0.71–0.88 core, HTTP server 0.10–0.13 and load
+0.16–0.32. Profiling the saturated peer is the next action, not another blind
+client optimization or a claim from speeding up a test helper.
+
+Capture separate frame-pointer/system profiles of the frozen peer/client paths.
+Then screen benchmark-only peer improvements using existing in-place APIs and,
+only if profiling supports it, a bounded TUN-read handoff on an auxiliary CPU.
+Keep the production client serial, ring-based and otherwise unchanged. Do not
+revive rejected production parallel-crypto designs or weaken protocol/payload,
+ownership, erasure, framing, routing or handshake checks. Verify bounded helper
+ownership and all-transport correctness before using a new helper for comparisons.
+
+Hold each selected helper binary/configuration fixed across baseline and tuned
+clients. Keep the client CPU allowance identical. Record each auxiliary thread
+and any shared load/server allowance so extra helper CPU cannot be hidden or
+misclassified as client capacity. Compare portable and fresh matching PGO/native
+builds only after measuring headroom. If helpers still saturate, report the
+remaining bottleneck rather than accept a maximum-speed ranking.
+
+For the delayed TCP misses, collect qdisc/drop/backlog and inner/outer TCP state
+in separately labeled diagnostic runs, alongside actual timing and payload
+evidence. Do not erase old failures, manufacture a passing rate, or mix sampled
+diagnostics into normal-release speed values. Temporary network emulation stays
+inside disposable namespaces; no host/persistent NIC change.
+
+One follow-up PR must retain absolute CPU %, peak RSS MiB and verified Mbps for
+UDP/TCP/Stealth by measured platform, all identities/control failures, standard
+platform/API and tuned erasure checks, and guarded temporary latest-code Travel
+tests with watchdog and independent restoration. Device CPU tuning remains
+excluded; preserve packages/settings/account/key/Direct mode and create no release.
+Completion requires a justified helper choice, an explicit client-capacity
+accept/reject/inconclusive result, delayed-TCP diagnosis and restored physical
+tests. No fixed client CPU/RAM ceiling or minimum gain threshold is added.
+
+## Stage 8 result
+
+[PR #13](https://github.com/riKirsti/ProtunNext/pull/13) retains separate frozen
+profiles, all 96 verified normal-release helper-screen payloads and 24 verified
+sampled delayed-TCP cases. All twelve helper-screen cells pass A/A/timing, but
+neither prototype creates sufficient auxiliary headroom. The bounded reader
+raises x64 fixture throughput approximately 36–41% while regressing ARM64
+12–14%; in-place processing alone gives small, inconsistent changes. These are
+changes to the test system with byte-identical clients, not production speedups.
+
+Reject both prototypes as default helpers; keep the existing legacy fixture.
+Retain their opt-in experiment and bounded ownership tests for reproducibility.
+Maximum client capacity remains **inconclusive**. As reviewed, do not repeat
+tuned-client comparisons before establishing helper headroom. Production
+runtime/dependencies, portable defaults and Stage 7's efficiency evidence remain.
+
+The diagnostic TCP run does not reproduce the previous severe misses: all
+cases sustain approximately 199.68–199.70 Mbps, with zero final client netem
+drops. Peer socket retransmissions and receive-window pressure are still
+observed. Sampling changes timing; no causal fix or universal TCP qualification
+is claimed. Preserve the original failures and the unresolved status.
+
+The [complete capacity/resource report](benchmarks/stage8-capacity.md),
+[diagnostic evidence](benchmarks/stage8-diagnostics.md) and
+[fresh temporary Travel validation](benchmarks/stage8-travel.md) retain separate
+scopes, source/build/profile identities, controls, failures and restoration
+checks. All 24 timed Travel sessions / 96 individual payload parts verify, with
+cleanup and twelve independent checks passing after training and every cohort.
+All three WAN A/A screens fail, so none supplies a new accepted speed/efficiency
+gain. No device installation, persistent setting or release is proposed.
+Further capacity work needs a newly reviewed focused plan and an independently
+justified peer architecture; it is not permission to restart rejected production
+parallel cryptography or claim that the remaining performance gaps are closed.

@@ -53,6 +53,7 @@ def prepare(candidate="HEAD", baseline=BASELINE):
             runtime.update(file.read_bytes().replace(b"\r\n", b"\n") + b"\0")
         shutil.copyfile(ROOT / "experiments/audit/worker_probe.rs", dest / "src/worker_probe.rs")
         shutil.copyfile(ROOT / "experiments/download/probe.rs", dest / "src/download_probe.rs")
+        shutil.copyfile(ROOT / "experiments/download/peer_reader.rs", dest / "src/peer_reader.rs")
         # Diagnostic-only overlay, identical on both variants. Never log keys or
         # packet bodies. Rejected packets invalidate a sample; classify them
         # before interpreting performance. Included in effective source identity.
@@ -79,6 +80,7 @@ def prepare(candidate="HEAD", baseline=BASELINE):
         },'''), encoding="utf-8")
         with (dest / "src/lib.rs").open("a", encoding="utf-8") as f:
             f.write('\n#[cfg(target_os="linux")] pub mod worker_probe;\n')
+            f.write('\n#[cfg(target_os="linux")] mod peer_reader;\n')
         (dest / "src/bin/erasure-probe.rs").write_text("fn main(){protun_next::worker_probe::run();}\n", encoding="utf-8")
         with (dest / "Cargo.toml").open("a", encoding="utf-8") as f:
             f.write('\n[[bin]]\nname="erasure-probe"\npath="src/bin/erasure-probe.rs"\n')

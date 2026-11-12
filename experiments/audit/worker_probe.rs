@@ -320,6 +320,9 @@ impl Peer {
         let mut p = pool.take().unwrap();
         p.writable()[..data.len()].copy_from_slice(data);
         p.set_len(data.len()).unwrap();
+        self.queue_owned(p, q);
+    }
+    fn queue_owned(&mut self, p: Packet, q: &mut PacketQueue) {
         match self {
             Self::Udp { .. } => q.push(p).ok().unwrap(),
             Self::Stream(s) => s.queue(p).ok().unwrap(),

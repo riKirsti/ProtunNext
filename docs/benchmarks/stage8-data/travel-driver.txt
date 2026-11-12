@@ -1,0 +1,123 @@
+//! Temporary router driver. No saved configuration or routing changes here.
+//! The external owner creates/removes only its temporary interface/rules.
+use crate::{config, connection::Connection, linux};
+use std::{
+    fs::File,
+    io::{BufRead, Write},
+    os::fd::{AsFd, AsRawFd},
+    time::Duration,
+};
+fn cpu_ns() -> u64 {
+    let mut t: libc::timespec = unsafe { std::mem::zeroed() };
+    assert_eq!(
+        unsafe { libc::clock_gettime(libc::CLOCK_PROCESS_CPUTIME_ID, &mut t) },
+        0
+    );
+    t.tv_sec as u64 * 1_000_000_000 + t.tv_nsec as u64
+}
+pub fn run() {
+    let args: Vec<_> = std::env::args().collect();
+    assert_eq!(args.len(), 6);
+    let mut cfg = config::load(std::path::Path::new(&args[1])).unwrap();
+    cfg.endpoint.set_port(args[5].parse().unwrap());
+    assert!(args[3].starts_with("pna") && args[3].len() < libc::IFNAMSIZ);
+    let tun = File::options()
+        .read(true)
+        .write(true)
+        .open("/dev/net/tun")
+        .unwrap();
+    let mut request = [0u8; 40];
+    request[..args[3].len()].copy_from_slice(args[3].as_bytes());
+    let mode=std::env::var("NEXT_TUN_RECEIVE_MODE").unwrap_or_else(|_|"raw".into());
+    assert!(matches!(mode.as_str(),"raw"|"vnet"));
+    let flags=libc::IFF_TUN|libc::IFF_NO_PI|if mode=="vnet"{libc::IFF_VNET_HDR}else{0};
+    request[16..18].copy_from_slice(&(flags as i16).to_ne_bytes());
+    assert_eq!(
+        unsafe { libc::ioctl(tun.as_raw_fd(), libc::TUNSETIFF, request.as_mut_ptr()) },
+        0
+    );
+    if mode=="vnet" {
+        let size=10i32;let little=1i32;
+        assert_eq!(unsafe{libc::ioctl(tun.as_raw_fd(),libc::TUNSETVNETHDRSZ,&size)},0);
+        assert_eq!(unsafe{libc::ioctl(tun.as_raw_fd(),libc::TUNSETVNETLE,&little)},0);
+        assert_eq!(unsafe{libc::ioctl(tun.as_raw_fd(),libc::TUNSETOFFLOAD,0)},0);
+    }
+    // Bring up only this owned, temporary interface before the worker reads it.
+    // Reading a down TUN can return EIO and terminate an otherwise healthy worker.
+    for address in &cfg.addresses {
+        assert!(
+            std::process::Command::new("ip")
+                .args(["address", "add", address, "dev", &args[3]])
+                .status()
+                .unwrap()
+                .success()
+        );
+    }
+    assert!(
+        std::process::Command::new("ip")
+            .args([
+                "link",
+                "set",
+                "dev",
+                &args[3],
+                "mtu",
+                &cfg.mtu.to_string(),
+                "up"
+            ])
+            .status()
+            .unwrap()
+            .success()
+    );
+    let transport = match args[2].as_str() {
+        "udp" => linux::Transport::Udp,
+        "tcp" => linux::Transport::Tcp,
+        "stealth" => linux::Transport::Stealth(Default::default()),
+        _ => panic!("protocol"),
+    };
+    let mut con = Connection::start(tun.as_fd(), cfg, args[4].clone(), transport).unwrap();
+    println!(
+        "LIVE_READY {{\"effective_sources_sha256\":\"{}\"}}",
+        option_env!("NEXT_BUILD_ID").unwrap_or("unstamped")
+    );
+    std::io::stdout().flush().unwrap();
+    println!("LIVE_MODE {}",mode);
+    std::io::stdout().flush().unwrap();
+    let mut start = None;
+    for line in std::io::stdin().lock().lines() {
+        match line.unwrap().as_str() {
+            "start" => {
+                let _=con.wait_for_stats(con.request_stats(),Duration::from_secs(2));
+                start = Some((cpu_ns(), std::time::Instant::now()));
+                println!("LIVE_START");
+            }
+            "stop" => {
+                let end = cpu_ns();
+                let (c, t) = start.take().expect("start required");
+                let elapsed=t.elapsed().as_secs_f64();
+                let snapshot=con.wait_for_stats(con.request_stats(),Duration::from_secs(2));
+                println!(
+                    "LIVE_METRICS {}",
+                    serde_json::json!({"process_cpu_ns":end-c,"seconds":elapsed,"cpu_core_percent":(end-c) as f64/elapsed/1e7,"rss_kib":peak_rss(),"tun_mode":mode,"snapshot":snapshot})
+                );
+            }
+            "state" => println!(
+                "LIVE_STATE {}",
+                serde_json::to_string(&con.snapshot()).unwrap()
+            ),
+            "quit" => break,
+            _ => panic!("unknown command"),
+        }
+        std::io::stdout().flush().unwrap();
+    }
+    con.disconnect();
+    let counters = con.disconnect_and_wait().unwrap();
+    println!("LIVE_FINAL {}", serde_json::to_string(&counters).unwrap());
+    // Keep no detached workers or TUN ownership after normal exit.
+    drop(tun);
+    std::thread::sleep(Duration::from_millis(1));
+}
+
+fn peak_rss()->u64 {
+ std::fs::read_to_string("/proc/self/status").unwrap().lines()
+ .find(|l|l.starts_with("VmHWM:")).unwrap().split_whitespace().nth(1).unwrap().parse().unwrap()
+}

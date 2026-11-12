@@ -38,6 +38,8 @@ def run(download=False, output_override=None, bins_override=None, sources_overri
                binaries={n: sha(p) for n, p in bins.items()}, host_cpus=cpus,
                compiler=compiler_override or (ROOT / "target/erasure-audit/toolchain.txt").read_text(),
                scope="native diagnostic: actual host kernel; not supported-LTS kernel acceptance")
+    if download and any('helper_mode' in row for row in expected):
+        env['helper_cpu_layouts']={mode:dict(client=[cpus[2]],wire=[cpus[0]],reader=[cpus[3]] if mode=='reader' else [],load=[cpus[1]],server=[cpus[1] if mode=='reader' else cpus[3]],shared_load_server_cpu=mode=='reader',auxiliary=[cpus[0],cpus[1],cpus[3]]) for mode in ['legacy','inplace','reader']}
     (output / "environment.json").write_text(json.dumps(env, indent=2))
     if build_cpu:
         env["cpu_identity"] = build_cpu
@@ -61,6 +63,10 @@ def run(download=False, output_override=None, bins_override=None, sources_overri
                 log.write(f"DOWNLOAD_SMOKE {build} {tun_mode} " + " ".join(arguments[2:]) + "\n")
                 log.flush()
                 smoke_env = dict(process_env, NEXT_TUN_RECEIVE_MODE=tun_mode, NEXT_DOWNLOAD_START_DELAY_MS="1250" if arguments[2] == "stealth" else "0")
+                if 'helper_cpu_layouts' in env:
+                    mode=os.environ.get('NEXT_PEER_HELPER_FIXED') or (os.environ['NEXT_PEER_HELPER_SCREEN'] if build=='erase' else 'legacy')
+                    layout=env['helper_cpu_layouts'][mode]
+                    smoke_env.update(NEXT_PEER_HELPER=mode,NEXT_PEER_READ_CPUS=str(cpus[3]),NEXT_SERVER_CPUS=str(layout['server'][0]),NEXT_SHARED_LOAD_SERVER_CPU='1' if layout['shared_load_server_cpu'] else '0')
                 process = subprocess.Popen(["unshare", "-n", str(bins[build]), *arguments], env=smoke_env,
                                            stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
                 try:
@@ -75,6 +81,9 @@ def run(download=False, output_override=None, bins_override=None, sources_overri
         for row in expected:
             if download:
                 process_env["NEXT_TUN_RECEIVE_MODE"] = row.get("tun_mode", "raw")
+                if 'helper_mode' in row:
+                    layout=env['helper_cpu_layouts'][row['helper_mode']]
+                    process_env.update(NEXT_PEER_HELPER=row['helper_mode'],NEXT_PEER_READ_CPUS=str(cpus[3]),NEXT_SERVER_CPUS=str(layout['server'][0]),NEXT_SHARED_LOAD_SERVER_CPU='1' if layout['shared_load_server_cpu'] else '0')
             log.write("ERASURE_CASE " + json.dumps(row) + "\n")
             log.flush()
             process_env["NEXT_LOAD_SHAPE"] = row.get("shape", "download")
