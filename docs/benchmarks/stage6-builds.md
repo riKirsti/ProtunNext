@@ -16,6 +16,10 @@ reductions. Memory tradeoffs remain visible below. Paced 200 Mbps results establ
 resource behavior at that load, **not higher maximum download speed**. The two
 experiments ran on separate VM allocations; compare each with its own baseline,
 not against the other experiment's absolute numbers.
+Each paced native observation verifies 128 MiB (134,217,728 bytes) after separate
+warmup, roughly five seconds at the offered load. The unpaced LTS observations
+verify 2 GiB each. These are controlled fixture binaries using the production
+worker; they do not establish long-duration thermal or production-CLI capacity.
 
 ## Native resource summary
 
@@ -85,11 +89,18 @@ zero-initialization is explicitly excluded from erasure evidence. Device builds
 also pass linked inspection and reject their own missing-wipe controls; they are
 cross-compiled, with functional execution supplied by the actual router tests.
 
-[Nine platform regression jobs](https://github.com/riKirsti/ProtunNext/actions/runs/43241169614),
-[release erasure verification](https://github.com/riKirsti/ProtunNext/actions/runs/43241169078)
-and [native fixture/analyzer checks](https://github.com/riKirsti/ProtunNext/actions/runs/43241168602)
-are the validation runs for the final experiment logic. Their actual terminal
-statuses must be checked before this PR is ready. Windows, Apple and Android
+[All nine platform jobs pass on the tested implementation commit](https://github.com/riKirsti/ProtunNext/actions/runs/43238246660)
+`b7d6673`. The later retention/report-only commits change no runtime, compiler
+logic or platform test. The [final verification rerun](https://github.com/riKirsti/ProtunNext/actions/runs/43244241544)
+has eight passing jobs, including Windows and all Apple SDK checks on Xcode 27.
+Its macOS 26 job never obtains a hosted runner, both initially and on the targeted
+retry; GitHub annotations identify macOS ARM capacity constraints. Neither
+attempt executes tests. This final infrastructure gap is explicit; it is not
+reported as a ninth passing final job. The earlier nine-job pass is retained
+under its actual source identity rather than relabeled as the latest run.
+[Final release erasure verification](https://github.com/riKirsti/ProtunNext/actions/runs/43244241383)
+and [native fixture/analyzer checks](https://github.com/riKirsti/ProtunNext/actions/runs/43244242037)
+pass. Windows, Apple and Android
 have build/API-contract coverage, **no measured download performance** here.
 No claim is extrapolated from Linux. Analyzer suites contain 18 download and 12
 audit tests; retained workflow logs also cover injected runtime/socket tests.
