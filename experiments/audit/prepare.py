@@ -37,7 +37,7 @@ def prepare(candidate="HEAD", baseline=BASELINE):
             subprocess.run(["git", "init", "--quiet", str(dest)], check=True)
             subprocess.run(["git", "-c", "core.autocrlf=false", "apply", "--whitespace=nowarn", str(patch)], cwd=dest, check=True)
         runtime = hashlib.sha256()
-        for file in sorted([*dest.joinpath("src").rglob("*.rs"), *dest.joinpath("vendor").rglob("*.rs"), dest / "Cargo.toml", dest / "Cargo.lock"]):
+        for file in sorted([*dest.joinpath("src").rglob("*.rs"), *dest.joinpath("vendor").rglob("*.rs"), dest / "Cargo.toml", dest / "Cargo.lock"], key=lambda p: p.relative_to(dest).as_posix()):
             runtime.update(file.relative_to(dest).as_posix().encode() + b"\0")
             runtime.update(file.read_bytes().replace(b"\r\n", b"\n") + b"\0")
         shutil.copyfile(ROOT / "experiments/audit/worker_probe.rs", dest / "src/worker_probe.rs")
@@ -72,7 +72,7 @@ def prepare(candidate="HEAD", baseline=BASELINE):
         with (dest / "Cargo.toml").open("a", encoding="utf-8") as f:
             f.write('\n[[bin]]\nname="erasure-probe"\npath="src/bin/erasure-probe.rs"\n')
         digest = hashlib.sha256()
-        for file in sorted([*dest.rglob("*.rs"), *dest.rglob("Cargo.toml"), *dest.rglob("Cargo.lock")]):
+        for file in sorted([*dest.rglob("*.rs"), *dest.rglob("Cargo.toml"), *dest.rglob("Cargo.lock")], key=lambda p: p.relative_to(dest).as_posix()):
             digest.update(file.relative_to(dest).as_posix().encode() + b"\0")
             digest.update(file.read_bytes().replace(b"\r\n", b"\n") + b"\0")
         state[name] = dict(sha=sha, path=str(dest), archive_sha256=hashlib.sha256(archive).hexdigest(), effective_sources_sha256=digest.hexdigest(), runtime_sources_sha256=runtime.hexdigest())
