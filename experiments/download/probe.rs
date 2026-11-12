@@ -121,6 +121,22 @@ fn tun(family: &str, peer: bool) -> File {
     tun
 }
 
+fn client_affinity_cpus() -> Vec<usize> {
+    // SAFETY: a zeroed cpu_set_t is a valid empty Linux CPU mask.
+    let mut set: libc::cpu_set_t = unsafe { std::mem::zeroed() };
+    assert_eq!(
+        // SAFETY: current thread, correctly sized writable CPU mask.
+        unsafe { libc::sched_getaffinity(0, std::mem::size_of_val(&set), &mut set) },
+        0
+    );
+    (0..libc::CPU_SETSIZE as usize)
+        .filter(|&cpu| {
+            // SAFETY: index is strictly inside the initialized mask bounds.
+            unsafe { libc::CPU_ISSET(cpu, &set) }
+        })
+        .collect()
+}
+
 fn descriptor_mode(fd: i32) -> &'static str {
     let mut info = [0u8; 40];
     assert_eq!(
@@ -816,7 +832,7 @@ fn client(binary: &str, proto: &str, flows: usize, blocks: u64, family: &str, ap
         .unwrap()
     };
     emit(
-        serde_json::json!({"role":"download-client","tun_mode":descriptor_mode(device.as_raw_fd()),"offered_rate_bps":offered_rate(),"effective_sources_sha256":option_env!("NEXT_BUILD_ID").unwrap_or("unstamped-local-build"),"protocol":proto,"flows":flows,"blocks_per_flow":blocks,"family":family,"application":application,"seconds":seconds,"client_cpu_seconds":used,"client_rss_kib":rss(),"load":metric(&load_text),"peer":metric(&peer_text),"before":before,"after":after,"counters":counters,"namespace":namespace(),"kernel":std::fs::read_to_string("/proc/sys/kernel/osrelease").unwrap().trim(),"arch":std::env::consts::ARCH,"scope":"Kernel TCP HTTP/HTTPS, two inner network stacks, production Connection/TUN worker; outer sockets on loopback. No physical NIC, RTT/loss or Proton WAN acceptance. CPU excludes asynchronous kernel work; RSS excludes kernel/auxiliary memory."}),
+        serde_json::json!({"role":"download-client","client_affinity_cpus":client_affinity_cpus(),"shared_peer_server_cpu":std::env::var("NEXT_SHARED_PEER_SERVER_CPU").as_deref()==Ok("1"),"tun_mode":descriptor_mode(device.as_raw_fd()),"offered_rate_bps":offered_rate(),"effective_sources_sha256":option_env!("NEXT_BUILD_ID").unwrap_or("unstamped-local-build"),"protocol":proto,"flows":flows,"blocks_per_flow":blocks,"family":family,"application":application,"seconds":seconds,"client_cpu_seconds":used,"client_rss_kib":rss(),"load":metric(&load_text),"peer":metric(&peer_text),"before":before,"after":after,"counters":counters,"namespace":namespace(),"kernel":std::fs::read_to_string("/proc/sys/kernel/osrelease").unwrap().trim(),"arch":std::env::consts::ARCH,"scope":"Kernel TCP HTTP/HTTPS, two inner network stacks, production Connection/TUN worker; outer sockets on loopback. No physical NIC, RTT/loss or Proton WAN acceptance. CPU excludes asynchronous kernel work; RSS excludes kernel/auxiliary memory."}),
     );
     assert_eq!(
         counters.invalid_packets, 0,

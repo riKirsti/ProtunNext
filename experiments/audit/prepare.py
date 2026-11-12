@@ -2,6 +2,7 @@
 import argparse
 import hashlib
 import json
+import os
 import pathlib
 import shutil
 import subprocess
@@ -20,8 +21,23 @@ def prepare(candidate="HEAD", baseline=BASELINE):
         dest = pathlib.Path(tempfile.mkdtemp(prefix=name + "-", dir=OUT))
         archive = subprocess.check_output(["git", "archive", sha], cwd=ROOT)
         subprocess.run(["tar", "-x", "-C", str(dest)], input=archive, check=True)
+        prototype = None
+        if name == "erase" and os.environ.get("NEXT_RECEIVE_PROTOTYPE", "0") == "1":
+            patch = ROOT / "experiments/receive/stage4-pinned.patch"
+            prototype = hashlib.sha256(patch.read_bytes()).hexdigest()
+            assert prototype == "dd5f493c21ac34fe2dddff41d117affcd0a96968ffb748fbfaba59de8a3f0d38", "prototype identity changed"
+            # Windows archive export can apply working-tree CRLF filters.
+            # The patch uses stored LF for ordinary sources; vendor bytes retain
+            # their declared CRLF contract. Fingerprints already normalize EOLs.
+            for file in (dest / "src").rglob("*.rs"):
+                file.write_bytes(file.read_bytes().replace(b"\r\n", b"\n"))
+            # Give only this disposable archive its own working-tree boundary.
+            # The checked patch modifies src/ and the declared vendor surface;
+            # the user's checkout and production build are never patched.
+            subprocess.run(["git", "init", "--quiet", str(dest)], check=True)
+            subprocess.run(["git", "-c", "core.autocrlf=false", "apply", "--whitespace=nowarn", str(patch)], cwd=dest, check=True)
         runtime = hashlib.sha256()
-        for file in sorted([*dest.joinpath("src").rglob("*.rs"), *dest.joinpath("vendor").rglob("*.rs"), dest / "Cargo.toml", dest / "Cargo.lock"]):
+        for file in sorted([*dest.joinpath("src").rglob("*.rs"), *dest.joinpath("vendor").rglob("*.rs"), dest / "Cargo.toml", dest / "Cargo.lock"], key=lambda p: p.relative_to(dest).as_posix()):
             runtime.update(file.relative_to(dest).as_posix().encode() + b"\0")
             runtime.update(file.read_bytes().replace(b"\r\n", b"\n") + b"\0")
         shutil.copyfile(ROOT / "experiments/audit/worker_probe.rs", dest / "src/worker_probe.rs")
@@ -56,10 +72,12 @@ def prepare(candidate="HEAD", baseline=BASELINE):
         with (dest / "Cargo.toml").open("a", encoding="utf-8") as f:
             f.write('\n[[bin]]\nname="erasure-probe"\npath="src/bin/erasure-probe.rs"\n')
         digest = hashlib.sha256()
-        for file in sorted([*dest.rglob("*.rs"), *dest.rglob("Cargo.toml"), *dest.rglob("Cargo.lock")]):
+        for file in sorted([*dest.rglob("*.rs"), *dest.rglob("Cargo.toml"), *dest.rglob("Cargo.lock")], key=lambda p: p.relative_to(dest).as_posix()):
             digest.update(file.relative_to(dest).as_posix().encode() + b"\0")
             digest.update(file.read_bytes().replace(b"\r\n", b"\n") + b"\0")
         state[name] = dict(sha=sha, path=str(dest), archive_sha256=hashlib.sha256(archive).hexdigest(), effective_sources_sha256=digest.hexdigest(), runtime_sources_sha256=runtime.hexdigest())
+        if prototype:
+            state[name].update(prototype_patch_sha256=prototype, prototype_source_commit="543675241b948a6d3b8c656bb39feb7450b9470a")
     # Equal packet sources are a legitimate A/A characterization, not a speedup.
     (OUT / "builds.json").write_text(json.dumps(state, indent=2), encoding="utf-8")
     return state

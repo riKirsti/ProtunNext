@@ -39,10 +39,15 @@ def run(download=False):
                        NEXT_CLIENT_CPUS=",".join(map(str, cpus[2:4])), NEXT_WARM_SECONDS="1", NEXT_PEER_VECTORED="1")
     if download:
         process_env.update(NEXT_CLIENT_CPUS=str(cpus[2]), NEXT_SERVER_CPUS=str(cpus[3]))
+        if int(os.environ.get("NEXT_DOWNLOAD_CLIENT_CORES", "1")) == 2:
+            process_env.update(NEXT_CLIENT_CPUS=",".join(map(str, cpus[2:4])), NEXT_SERVER_CPUS=str(cpus[0]), NEXT_SHARED_PEER_SERVER_CPU="1")
+            env["cpu_layout"] = dict(client=cpus[2:4], peer=cpus[0], server=cpus[0], load=cpus[1])
+            (output / "environment.json").write_text(json.dumps(env, indent=2))
     with (output / "guest.log").open("w") as log:
         if download:
-            smokes = [("main", "raw", args) for args in campaign.smoke_arguments(str(bins["main"]))]
-            if os.environ.get("NEXT_DOWNLOAD_TUN_MODE", "raw") == "compare":
+            baseline_mode = "vnet" if os.environ.get("NEXT_DOWNLOAD_TUN_MODE") == "vnet" else "raw"
+            smokes = [("main", baseline_mode, args) for args in campaign.smoke_arguments(str(bins["main"]))]
+            if os.environ.get("NEXT_DOWNLOAD_TUN_MODE", "raw") in {"compare", "vnet"}:
                 smokes += [("erase", "vnet", args) for args in campaign.smoke_arguments(str(bins["main"]))[:6]]
             for build, tun_mode, arguments in smokes:
                 log.write(f"DOWNLOAD_SMOKE {build} {tun_mode} " + " ".join(arguments[2:]) + "\n")
