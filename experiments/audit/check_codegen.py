@@ -33,6 +33,11 @@ def check(text, roots=("audit_drop_packet", "audit_recycle_packet")):
         def visit(name, depth):
             if name in visited or depth > 5:
                 return
+            # Some CPU targets lower zero-initialized allocation to malloc plus
+            # memset rather than calloc. Initialization before live bytes exist
+            # is not erasure and must never satisfy this tripwire.
+            if "alloc_zeroed" in name or name in {"calloc", "__libc_calloc"}:
+                return
             visited.add(name)
             lines = functions.get(name, [])
             for i, line in enumerate(lines):

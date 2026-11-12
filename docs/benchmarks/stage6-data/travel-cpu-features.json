@@ -1,0 +1,18 @@
+{
+  "actual_cpu": [
+    "CPU architecture: 8",
+    "CPU implementer\t: 0x41",
+    "CPU part\t: 0xd03",
+    "CPU revision\t: 4",
+    "CPU variant\t: 0x0",
+    "Features\t: fp asimd evtstrm aes pmull sha1 sha2 crc32 cpuid"
+  ],
+  "compiler_target_features": [
+    "target_feature=\"aes\"",
+    "target_feature=\"crc\"",
+    "target_feature=\"crt-static\"",
+    "target_feature=\"neon\"",
+    "target_feature=\"pmuv3\"",
+    "target_feature=\"sha2\""
+  ]
+}

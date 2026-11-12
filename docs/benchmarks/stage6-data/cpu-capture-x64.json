@@ -1,0 +1,236 @@
+{
+  "environment": {
+    "kernel": "7.0.0-1017-azure",
+    "machine": "x86_64",
+    "sources": {
+      "main": {
+        "sha": "d6c070a0f9e211f5a5b14b7e8c8bc0f995d7b7a7",
+        "path": "/home/runner/work/ProtunNext/ProtunNext/target/erasure-audit/main-2f3toqnh",
+        "archive_sha256": "6e74d82d310d2ef204dd31e63fad04fe46542458ff8fdee5a34fcc12066aa0d7",
+        "effective_sources_sha256": "8398296afb44ff00da483842c46a46f06539a54a94083ed7c7f4f89f648ca75d",
+        "runtime_sources_sha256": "5d448b4aabf1041e3a13920294314097f88a30eeb9a2d4c799724c2c04112fc7",
+        "build_configuration": {
+          "mode": "release",
+          "target": "x86_64-unknown-linux-gnu",
+          "compiler": "rustc 1.99.1 (58cf8f9c3 2026-10-13)\nbinary: rustc\ncommit-hash: 58cf8f9c35b355199727627d07ae34a4e2846d67\ncommit-date: 2026-10-13\nhost: x86_64-unknown-linux-gnu\nrelease: 1.99.1\nLLVM version: 23.1.1\n",
+          "rustflags": [],
+          "binary_sha256": "0f1b3c322589e553aaa31c36346b5da42b9bf42e09b1892688cc1e6f0ba49c69"
+        }
+      },
+      "erase": {
+        "sha": "3a4e735e4eebd577f1376e0660e8ce6d6e6e9da6",
+        "path": "/home/runner/work/ProtunNext/ProtunNext/target/erasure-audit/erase-ci5t00v1",
+        "archive_sha256": "a3f2bfe093ed08661fdb2f798e91dc8d3e3d9ca7bf42b79383e6560a6f1099e3",
+        "effective_sources_sha256": "773abac228c28cfb3f78fe85014f8bfaa13887240ee696ff0e0a1ca950a43621",
+        "runtime_sources_sha256": "5d448b4aabf1041e3a13920294314097f88a30eeb9a2d4c799724c2c04112fc7",
+        "build_configuration": {
+          "mode": "cpu",
+          "target": "x86_64-unknown-linux-gnu",
+          "compiler": "rustc 1.99.1 (58cf8f9c3 2026-10-13)\nbinary: rustc\ncommit-hash: 58cf8f9c35b355199727627d07ae34a4e2846d67\ncommit-date: 2026-10-13\nhost: x86_64-unknown-linux-gnu\nrelease: 1.99.1\nLLVM version: 23.1.1\n",
+          "rustflags": [
+            "-Ctarget-cpu=native"
+          ],
+          "binary_sha256": "4f7a279d66638ff435f2068ede345baaa92c0e3c3955c7b2b032c875a88c5768",
+          "target_cpu": "native",
+          "cpu_identity": {
+            "sha256": "403035ba72d6ddb02504c9e01e3c5b3fba5d025f1d554aadba453086c2ae03f4",
+            "details": [
+              [
+                "cpu family",
+                "25"
+              ],
+              [
+                "flags",
+                "fpu vme de pse tsc msr pae mce cx8 apic sep mtrr pge mca cmov pat pse36 clflush mmx fxsr sse sse2 ht syscall nx mmxext fxsr_opt pdpe1gb rdtscp lm constant_tsc rep_good nopl xtopology tsc_reliable nonstop_tsc cpuid extd_apicid aperfmperf tsc_known_freq pni pclmulqdq ssse3 fma cx16 pcid sse4_1 sse4_2 movbe popcnt aes xsave avx f16c rdrand hypervisor lahf_lm cmp_legacy svm cr8_legacy abm sse4a misalignsse 3dnowprefetch osvw topoext vmmcall fsgsbase bmi1 avx2 smep bmi2 erms invpcid avx512f avx512dq rdseed adx smap avx512ifma clflushopt clwb avx512cd sha_ni avx512bw avx512vl xsaveopt xsavec xgetbv1 xsaves user_shstk avx512_bf16 clzero xsaveerptr rdpru arat npt nrip_save tsc_scale vmcb_clean flushbyasid decodeassists pausefilter pfthreshold v_vmsave_vmload avx512vbmi umip avx512_vbmi2 gfni vaes vpclmulqdq avx512_vnni avx512_bitalg avx512_vpopcntdq rdpid fsrm"
+              ],
+              [
+                "model",
+                "17"
+              ],
+              [
+                "model name",
+                "AMD EPYC 9V74 80-Core Processor"
+              ],
+              [
+                "stepping",
+                "1"
+              ],
+              [
+                "vendor_id",
+                "AuthenticAMD"
+              ]
+            ]
+          },
+          "compiler_target_cfg": [
+            "debug_assertions",
+            "panic=\"unwind\"",
+            "target_abi=\"\"",
+            "target_arch=\"x86_64\"",
+            "target_endian=\"little\"",
+            "target_env=\"gnu\"",
+            "target_family=\"unix\"",
+            "target_feature=\"adx\"",
+            "target_feature=\"aes\"",
+            "target_feature=\"avx\"",
+            "target_feature=\"avx2\"",
+            "target_feature=\"avx512bf16\"",
+            "target_feature=\"avx512bitalg\"",
+            "target_feature=\"avx512bw\"",
+            "target_feature=\"avx512cd\"",
+            "target_feature=\"avx512dq\"",
+            "target_feature=\"avx512f\"",
+            "target_feature=\"avx512ifma\"",
+            "target_feature=\"avx512vbmi\"",
+            "target_feature=\"avx512vbmi2\"",
+            "target_feature=\"avx512vl\"",
+            "target_feature=\"avx512vnni\"",
+            "target_feature=\"avx512vpopcntdq\"",
+            "target_feature=\"bmi1\"",
+            "target_feature=\"bmi2\"",
+            "target_feature=\"cmpxchg16b\"",
+            "target_feature=\"f16c\"",
+            "target_feature=\"fma\"",
+            "target_feature=\"fxsr\"",
+            "target_feature=\"gfni\"",
+            "target_feature=\"lzcnt\"",
+            "target_feature=\"movbe\"",
+            "target_feature=\"pclmulqdq\"",
+            "target_feature=\"popcnt\"",
+            "target_feature=\"rdrand\"",
+            "target_feature=\"rdseed\"",
+            "target_feature=\"sha\"",
+            "target_feature=\"sse\"",
+            "target_feature=\"sse2\"",
+            "target_feature=\"sse3\"",
+            "target_feature=\"sse4.1\"",
+            "target_feature=\"sse4.2\"",
+            "target_feature=\"sse4a\"",
+            "target_feature=\"ssse3\"",
+            "target_feature=\"vaes\"",
+            "target_feature=\"vpclmulqdq\"",
+            "target_feature=\"xsave\"",
+            "target_feature=\"xsavec\"",
+            "target_feature=\"xsaveopt\"",
+            "target_feature=\"xsaves\"",
+            "target_has_atomic=\"16\"",
+            "target_has_atomic=\"32\"",
+            "target_has_atomic=\"64\"",
+            "target_has_atomic=\"8\"",
+            "target_has_atomic=\"ptr\"",
+            "target_has_atomic_primitive_alignment=\"16\"",
+            "target_has_atomic_primitive_alignment=\"32\"",
+            "target_has_atomic_primitive_alignment=\"64\"",
+            "target_has_atomic_primitive_alignment=\"8\"",
+            "target_has_atomic_primitive_alignment=\"ptr\"",
+            "target_os=\"linux\"",
+            "target_pointer_width=\"64\"",
+            "target_vendor=\"unknown\"",
+            "unix"
+          ],
+          "erasure_checked": true,
+          "erasure_binary_sha256": "64bea0c0d61ec8412536ae7ce38bc92fbbf42316718c551b74fd1d03836310ec"
+        }
+      }
+    },
+    "binaries": {
+      "main": "0f1b3c322589e553aaa31c36346b5da42b9bf42e09b1892688cc1e6f0ba49c69",
+      "erase": "4f7a279d66638ff435f2068ede345baaa92c0e3c3955c7b2b032c875a88c5768"
+    },
+    "host_cpus": [
+      0,
+      1,
+      2,
+      3
+    ],
+    "compiler": "rustc 1.99.1 (58cf8f9c3 2026-10-13)\nbinary: rustc\ncommit-hash: 58cf8f9c35b355199727627d07ae34a4e2846d67\ncommit-date: 2026-10-13\nhost: x86_64-unknown-linux-gnu\nrelease: 1.99.1\nLLVM version: 23.1.1\n\ntarget=x86_64-unknown-linux-gnu\nprofile=release thin-LTO codegen-units=1 panic=abort\nbase RUSTFLAGS=[]\nmode=cpu\n",
+    "scope": "native diagnostic: actual host kernel; not supported-LTS kernel acceptance",
+    "cpu_identity": {
+      "sha256": "403035ba72d6ddb02504c9e01e3c5b3fba5d025f1d554aadba453086c2ae03f4",
+      "details": [
+        [
+          "cpu family",
+          "25"
+        ],
+        [
+          "flags",
+          "fpu vme de pse tsc msr pae mce cx8 apic sep mtrr pge mca cmov pat pse36 clflush mmx fxsr sse sse2 ht syscall nx mmxext fxsr_opt pdpe1gb rdtscp lm constant_tsc rep_good nopl xtopology tsc_reliable nonstop_tsc cpuid extd_apicid aperfmperf tsc_known_freq pni pclmulqdq ssse3 fma cx16 pcid sse4_1 sse4_2 movbe popcnt aes xsave avx f16c rdrand hypervisor lahf_lm cmp_legacy svm cr8_legacy abm sse4a misalignsse 3dnowprefetch osvw topoext vmmcall fsgsbase bmi1 avx2 smep bmi2 erms invpcid avx512f avx512dq rdseed adx smap avx512ifma clflushopt clwb avx512cd sha_ni avx512bw avx512vl xsaveopt xsavec xgetbv1 xsaves user_shstk avx512_bf16 clzero xsaveerptr rdpru arat npt nrip_save tsc_scale vmcb_clean flushbyasid decodeassists pausefilter pfthreshold v_vmsave_vmload avx512vbmi umip avx512_vbmi2 gfni vaes vpclmulqdq avx512_vnni avx512_bitalg avx512_vpopcntdq rdpid fsrm"
+        ],
+        [
+          "model",
+          "17"
+        ],
+        [
+          "model name",
+          "AMD EPYC 9V74 80-Core Processor"
+        ],
+        [
+          "stepping",
+          "1"
+        ],
+        [
+          "vendor_id",
+          "AuthenticAMD"
+        ]
+      ]
+    }
+  },
+  "same_runtime_sources": true,
+  "observed_samples": 8,
+  "expected_samples": 8,
+  "errors": [],
+  "blocks": [
+    {
+      "block": "udp-v4-http-1",
+      "capacity_ranking": false,
+      "rate_controlled": true,
+      "control": {
+        "Mbps": {
+          "baseline": 200.078872410445,
+          "candidate": 200.07822651452577,
+          "change_percent": -0.00032282065139943583
+        },
+        "CPU_ns_per_byte": {
+          "baseline": 1.816099339031651,
+          "candidate": 1.8102075350419458,
+          "change_percent": -0.3244207991863979
+        },
+        "CPU_core_percent": {
+          "baseline": 4.542003740194798,
+          "candidate": 4.527253570001213,
+          "change_percent": -0.3247502872587238
+        },
+        "peak_RSS_MiB": {
+          "baseline": 7.310525741770817,
+          "candidate": 8.224598011524447,
+          "change_percent": 12.503509351329022
+        }
+      },
+      "result": {
+        "Mbps": {
+          "baseline": 200.07894818672384,
+          "candidate": 200.0799156294069,
+          "change_percent": 0.000483530472261684
+        },
+        "CPU_ns_per_byte": {
+          "baseline": 1.8194775452276493,
+          "candidate": 1.729617533913976,
+          "change_percent": -4.938781000588277
+        },
+        "CPU_core_percent": {
+          "baseline": 4.55045356093834,
+          "candidate": 4.325740317851392,
+          "change_percent": -4.938260331144018
+        },
+        "peak_RSS_MiB": {
+          "baseline": 7.857314823795363,
+          "candidate": 8.115683510811412,
+          "change_percent": 3.2882567748665936
+        }
+      },
+      "AA_pass": true,
+      "timing_pass": true,
+      "auxiliary_limited": false,
+      "validity": "usable"
+    }
+  ]
+}

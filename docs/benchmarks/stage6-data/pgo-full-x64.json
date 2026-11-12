@@ -1,0 +1,836 @@
+{
+  "environment": {
+    "kernel": "7.0.0-1017-azure",
+    "machine": "x86_64",
+    "sources": {
+      "main": {
+        "sha": "d6c070a0f9e211f5a5b14b7e8c8bc0f995d7b7a7",
+        "path": "/home/runner/work/ProtunNext/ProtunNext/target/erasure-audit/main-rx6zxi89",
+        "archive_sha256": "6e74d82d310d2ef204dd31e63fad04fe46542458ff8fdee5a34fcc12066aa0d7",
+        "effective_sources_sha256": "729983ab4591c144f429f3aa6d40d2727f9177335262266bcd111c8925b745c1",
+        "runtime_sources_sha256": "5d448b4aabf1041e3a13920294314097f88a30eeb9a2d4c799724c2c04112fc7",
+        "build_configuration": {
+          "mode": "release",
+          "target": "x86_64-unknown-linux-gnu",
+          "compiler": "rustc 1.99.1 (58cf8f9c3 2026-10-13)\nbinary: rustc\ncommit-hash: 58cf8f9c35b355199727627d07ae34a4e2846d67\ncommit-date: 2026-10-13\nhost: x86_64-unknown-linux-gnu\nrelease: 1.99.1\nLLVM version: 23.1.1\n",
+          "rustflags": [],
+          "binary_sha256": "6524028964f7343a6d5d0c209cdb30c15e76d12436e34e73735af4e93628da62"
+        }
+      },
+      "erase": {
+        "sha": "b7d667325b3110d492af009b7270f569735bfe46",
+        "path": "/home/runner/work/ProtunNext/ProtunNext/target/erasure-audit/erase-90kzpa5_",
+        "archive_sha256": "56574223a3a33792f63ea585e706e30e549bb4313c4372cbc5fca4ab94da2deb",
+        "effective_sources_sha256": "91868a1b0124daf7bcc0f9b0e91111805c52af98767d95e2cef53743414d2ae7",
+        "runtime_sources_sha256": "5d448b4aabf1041e3a13920294314097f88a30eeb9a2d4c799724c2c04112fc7",
+        "build_configuration": {
+          "mode": "pgo",
+          "target": "x86_64-unknown-linux-gnu",
+          "compiler": "rustc 1.99.1 (58cf8f9c3 2026-10-13)\nbinary: rustc\ncommit-hash: 58cf8f9c35b355199727627d07ae34a4e2846d67\ncommit-date: 2026-10-13\nhost: x86_64-unknown-linux-gnu\nrelease: 1.99.1\nLLVM version: 23.1.1\n",
+          "rustflags": [
+            "-Cprofile-use=/home/runner/work/ProtunNext/ProtunNext/target/erasure-audit/pgo-y2manjky/client.profdata",
+            "-Cllvm-args=-pgo-warn-missing-function"
+          ],
+          "binary_sha256": "c24534e65ff6f5ca8b63b2ce31de19e346d0bfcfae3f136a7c251794b1db8a22",
+          "profile": {
+            "path": "/home/runner/work/ProtunNext/ProtunNext/target/erasure-audit/pgo-y2manjky/client.profdata",
+            "sha256": "e9d270663aca175bd271ee544652e499b62b231f7120f1368b0985aaf2cb9987",
+            "llvm_tool_sha256": "a5a595c1a396827579c7e15ae74feddd22cabad6d0392b2ef44d8797e61efbb9",
+            "llvm_version": "LLVM (http://llvm.org/):\n  LLVM version 23.1.1-rust-1.99.1-stable\n  Optimized build.\n",
+            "instrumented_binary_sha256": "610d081a504da7a7df621b3fba0fbecbaed198b06359b7af189912d5f80f3260",
+            "generation_flags": [
+              "-Cprofile-generate=/home/runner/work/ProtunNext/ProtunNext/target/erasure-audit/pgo-y2manjky/raw"
+            ],
+            "raw_files": [
+              {
+                "name": "13744906544739359072_0-7981.profraw",
+                "bytes": 1143104,
+                "sha256": "09f2081b51b11781dce321ce29126cf31bc1813055ff2acfd75e8c1b87220acd"
+              },
+              {
+                "name": "13744906544739359072_0-8002.profraw",
+                "bytes": 1143152,
+                "sha256": "6c11f9a78940aa2eacdaa51aca650c0ecf77ca8bd620035b681703ec8cf49b8b"
+              },
+              {
+                "name": "13744906544739359072_0-8027.profraw",
+                "bytes": 1143504,
+                "sha256": "60989044ab869dbee7e5bbea08210a35d1e3f99d89846ee1152b7283d9af6c4f"
+              },
+              {
+                "name": "13744906544739359072_0-8048.profraw",
+                "bytes": 1143664,
+                "sha256": "4d40384328abc4b3bdc563c1fa34f9b35064492cf64ecac8ac4d52feae6aff1a"
+              },
+              {
+                "name": "13744906544739359072_0-8073.profraw",
+                "bytes": 1146640,
+                "sha256": "27ad8e4c994008ec5c646584acc56f8054b9ab5a64a159f479b027ccedd32702"
+              },
+              {
+                "name": "13744906544739359072_0-8095.profraw",
+                "bytes": 1146944,
+                "sha256": "fe0af1587dbe57530b749767037ec6df613975660a1e6b19585e203288d94f6f"
+              }
+            ],
+            "training": {
+              "scope": "instrumented training only; no performance estimate",
+              "kernel": "7.0.0-1017-azure",
+              "machine": "x86_64",
+              "cpu_identity": {
+                "sha256": "7426fb97a244adb7f30a6301b6890ee6269a398c4b9dc561703e8adb16befc10",
+                "details": [
+                  [
+                    "cpu family",
+                    "25"
+                  ],
+                  [
+                    "flags",
+                    "fpu vme de pse tsc msr pae mce cx8 apic sep mtrr pge mca cmov pat pse36 clflush mmx fxsr sse sse2 ht syscall nx mmxext fxsr_opt pdpe1gb rdtscp lm constant_tsc rep_good nopl tsc_reliable nonstop_tsc cpuid extd_apicid aperfmperf tsc_known_freq pni pclmulqdq ssse3 fma cx16 pcid sse4_1 sse4_2 movbe popcnt aes xsave avx f16c rdrand hypervisor lahf_lm cmp_legacy svm cr8_legacy abm sse4a misalignsse 3dnowprefetch osvw topoext vmmcall fsgsbase bmi1 avx2 smep bmi2 erms invpcid rdseed adx smap clflushopt clwb sha_ni xsaveopt xsavec xgetbv1 xsaves user_shstk clzero xsaveerptr rdpru arat npt nrip_save tsc_scale vmcb_clean flushbyasid decodeassists pausefilter pfthreshold v_vmsave_vmload umip vaes vpclmulqdq rdpid fsrm"
+                  ],
+                  [
+                    "model",
+                    "1"
+                  ],
+                  [
+                    "model name",
+                    "AMD EPYC 7763 64-Core Processor"
+                  ],
+                  [
+                    "stepping",
+                    "1"
+                  ],
+                  [
+                    "vendor_id",
+                    "AuthenticAMD"
+                  ]
+                ]
+              },
+              "cpu_layout": [
+                0,
+                1,
+                2,
+                3
+              ],
+              "cases": [
+                {
+                  "name": "udp-v4-http-2",
+                  "flows": 2,
+                  "bytes": 16777216,
+                  "verified": true,
+                  "client_source": "91868a1b0124daf7bcc0f9b0e91111805c52af98767d95e2cef53743414d2ae7",
+                  "helper_source": "729983ab4591c144f429f3aa6d40d2727f9177335262266bcd111c8925b745c1"
+                },
+                {
+                  "name": "udp-v6-https-4",
+                  "flows": 4,
+                  "bytes": 33554432,
+                  "verified": true,
+                  "client_source": "91868a1b0124daf7bcc0f9b0e91111805c52af98767d95e2cef53743414d2ae7",
+                  "helper_source": "729983ab4591c144f429f3aa6d40d2727f9177335262266bcd111c8925b745c1"
+                },
+                {
+                  "name": "tcp-v4-http-2",
+                  "flows": 2,
+                  "bytes": 16777216,
+                  "verified": true,
+                  "client_source": "91868a1b0124daf7bcc0f9b0e91111805c52af98767d95e2cef53743414d2ae7",
+                  "helper_source": "729983ab4591c144f429f3aa6d40d2727f9177335262266bcd111c8925b745c1"
+                },
+                {
+                  "name": "tcp-v6-https-4",
+                  "flows": 4,
+                  "bytes": 33554432,
+                  "verified": true,
+                  "client_source": "91868a1b0124daf7bcc0f9b0e91111805c52af98767d95e2cef53743414d2ae7",
+                  "helper_source": "729983ab4591c144f429f3aa6d40d2727f9177335262266bcd111c8925b745c1"
+                },
+                {
+                  "name": "stealth-v4-http-2",
+                  "flows": 2,
+                  "bytes": 16777216,
+                  "verified": true,
+                  "client_source": "91868a1b0124daf7bcc0f9b0e91111805c52af98767d95e2cef53743414d2ae7",
+                  "helper_source": "729983ab4591c144f429f3aa6d40d2727f9177335262266bcd111c8925b745c1"
+                },
+                {
+                  "name": "stealth-v6-https-4",
+                  "flows": 4,
+                  "bytes": 33554432,
+                  "verified": true,
+                  "client_source": "91868a1b0124daf7bcc0f9b0e91111805c52af98767d95e2cef53743414d2ae7",
+                  "helper_source": "729983ab4591c144f429f3aa6d40d2727f9177335262266bcd111c8925b745c1"
+                }
+              ]
+            },
+            "instrumentation_absent": true
+          },
+          "negative_control": {
+            "expected_rejection": true,
+            "mutation": "omit fill and barrier in isolated erase helper",
+            "source_packet_sha256": "d7b9b43177f11148017ed5fb842c6ae3ad52c196e1807d3c5b93ddbcc8b7d02b",
+            "binary_sha256": "957e54484aaedb5fc2031b1f93ae31f057e6aedec0a0a0185b542eb8d114d857",
+            "checker_sha256": "319dd8f793f54ef20fd14070d0edfbba444d6258d4981e94369444f6c3431f77"
+          },
+          "gate_version": 3,
+          "erasure_checked": true,
+          "erasure_binary_sha256": "c5cf3e88102ef881a71d1173dba3dd40a500f519a6b0bcfecff3b3e6f0fba746"
+        }
+      }
+    },
+    "binaries": {
+      "main": "6524028964f7343a6d5d0c209cdb30c15e76d12436e34e73735af4e93628da62",
+      "erase": "c24534e65ff6f5ca8b63b2ce31de19e346d0bfcfae3f136a7c251794b1db8a22"
+    },
+    "host_cpus": [
+      0,
+      1,
+      2,
+      3
+    ],
+    "compiler": "rustc 1.99.1 (58cf8f9c3 2026-10-13)\nbinary: rustc\ncommit-hash: 58cf8f9c35b355199727627d07ae34a4e2846d67\ncommit-date: 2026-10-13\nhost: x86_64-unknown-linux-gnu\nrelease: 1.99.1\nLLVM version: 23.1.1\n\ntarget=x86_64-unknown-linux-gnu\nprofile=release thin-LTO codegen-units=1 panic=abort\nbase RUSTFLAGS=[]\nmode=pgo\n",
+    "scope": "native diagnostic: actual host kernel; not supported-LTS kernel acceptance"
+  },
+  "same_runtime_sources": true,
+  "observed_samples": 96,
+  "expected_samples": 96,
+  "errors": [],
+  "blocks": [
+    {
+      "block": "udp-v4-http-1",
+      "capacity_ranking": false,
+      "rate_controlled": true,
+      "control": {
+        "Mbps": {
+          "baseline": 200.07498381185948,
+          "candidate": 200.07281080950642,
+          "change_percent": -0.0010860939791967894
+        },
+        "CPU_ns_per_byte": {
+          "baseline": 2.550275725938667,
+          "candidate": 2.5826151341555486,
+          "change_percent": 1.2680749727552953
+        },
+        "CPU_core_percent": {
+          "baseline": 6.378018107222672,
+          "candidate": 6.458811010115192,
+          "change_percent": 1.2667399423188952
+        },
+        "peak_RSS_MiB": {
+          "baseline": 7.68805773192769,
+          "candidate": 7.669812206769434,
+          "change_percent": -0.2373229467630522
+        }
+      },
+      "result": {
+        "Mbps": {
+          "baseline": 200.07440736615354,
+          "candidate": 200.07476049978416,
+          "change_percent": 0.00017650115038403413
+        },
+        "CPU_ns_per_byte": {
+          "baseline": 2.5454807869981417,
+          "candidate": 2.4242593369025762,
+          "change_percent": -4.762222159159202
+        },
+        "CPU_core_percent": {
+          "baseline": 6.366011290236466,
+          "candidate": 6.062861611052392,
+          "change_percent": -4.762003480091437
+        },
+        "peak_RSS_MiB": {
+          "baseline": 7.782036308790144,
+          "candidate": 7.748814645993845,
+          "change_percent": -0.42690192486989353
+        }
+      },
+      "AA_pass": true,
+      "timing_pass": true,
+      "auxiliary_limited": false,
+      "validity": "usable"
+    },
+    {
+      "block": "udp-v4-http-8",
+      "capacity_ranking": false,
+      "rate_controlled": true,
+      "control": {
+        "Mbps": {
+          "baseline": 200.7005213129179,
+          "candidate": 200.69877147641077,
+          "change_percent": -0.0008718644554095434
+        },
+        "CPU_ns_per_byte": {
+          "baseline": 2.8671514658821318,
+          "candidate": 2.876920198460471,
+          "change_percent": 0.34071212123192307
+        },
+        "CPU_core_percent": {
+          "baseline": 7.192921122679475,
+          "candidate": 7.217370156418209,
+          "change_percent": 0.3399040990682556
+        },
+        "peak_RSS_MiB": {
+          "baseline": 8.460786009724142,
+          "candidate": 8.60499973897806,
+          "change_percent": 1.7044956471913064
+        }
+      },
+      "result": {
+        "Mbps": {
+          "baseline": 200.6943042669684,
+          "candidate": 200.69864844615782,
+          "change_percent": 0.0021645752256382877
+        },
+        "CPU_ns_per_byte": {
+          "baseline": 2.9444782670508505,
+          "candidate": 2.79989639393711,
+          "change_percent": -4.9102713622183325
+        },
+        "CPU_core_percent": {
+          "baseline": 7.3866848441840895,
+          "candidate": 7.0241386676682716,
+          "change_percent": -4.90810402993257
+        },
+        "peak_RSS_MiB": {
+          "baseline": 9.163942614305336,
+          "candidate": 8.597145103501745,
+          "change_percent": -6.18508358966362
+        }
+      },
+      "AA_pass": true,
+      "timing_pass": true,
+      "auxiliary_limited": false,
+      "validity": "usable"
+    },
+    {
+      "block": "udp-v6-https-1",
+      "capacity_ranking": false,
+      "rate_controlled": true,
+      "control": {
+        "Mbps": {
+          "baseline": 200.07290963900266,
+          "candidate": 200.06950774234775,
+          "change_percent": -0.0017003284757732828
+        },
+        "CPU_ns_per_byte": {
+          "baseline": 2.6720809801371024,
+          "candidate": 2.679821960527443,
+          "change_percent": 0.2896985700614252
+        },
+        "CPU_core_percent": {
+          "baseline": 6.682576603826742,
+          "candidate": 6.701825575166193,
+          "change_percent": 0.288047148287518
+        },
+        "peak_RSS_MiB": {
+          "baseline": 7.738067300487571,
+          "candidate": 7.340830120990022,
+          "change_percent": -5.133545161496844
+        }
+      },
+      "result": {
+        "Mbps": {
+          "baseline": 200.0725159062492,
+          "candidate": 200.03502045739944,
+          "change_percent": -0.01874092934750493
+        },
+        "CPU_ns_per_byte": {
+          "baseline": 2.6831174163797167,
+          "candidate": 2.54998349749601,
+          "change_percent": -4.961911769904659
+        },
+        "CPU_core_percent": {
+          "baseline": 6.710166882086371,
+          "candidate": 6.3760177758920955,
+          "change_percent": -4.979743604981401
+        },
+        "peak_RSS_MiB": {
+          "baseline": 7.73011246178702,
+          "candidate": 7.669766449039533,
+          "change_percent": -0.7806615110168336
+        }
+      },
+      "AA_pass": true,
+      "timing_pass": true,
+      "auxiliary_limited": false,
+      "validity": "usable"
+    },
+    {
+      "block": "udp-v6-https-8",
+      "capacity_ranking": false,
+      "rate_controlled": true,
+      "control": {
+        "Mbps": {
+          "baseline": 200.68213692582134,
+          "candidate": 200.68382309683892,
+          "change_percent": 0.0008402197840817749
+        },
+        "CPU_ns_per_byte": {
+          "baseline": 3.1626841358979814,
+          "candidate": 3.1107749560854208,
+          "change_percent": -1.6413014256898562
+        },
+        "CPU_core_percent": {
+          "baseline": 7.933616467115325,
+          "candidate": 7.803073754883739,
+          "change_percent": -1.6454376484253186
+        },
+        "peak_RSS_MiB": {
+          "baseline": 8.647534110450577,
+          "candidate": 7.7637404183294985,
+          "change_percent": -10.220181624412561
+        }
+      },
+      "result": {
+        "Mbps": {
+          "baseline": 200.68809034081735,
+          "candidate": 200.68764846447243,
+          "change_percent": -0.00022018065156670374
+        },
+        "CPU_ns_per_byte": {
+          "baseline": 3.118864142354476,
+          "candidate": 2.9929406181581446,
+          "change_percent": -4.037480263608728
+        },
+        "CPU_core_percent": {
+          "baseline": 7.823923045551644,
+          "candidate": 7.5080235906573565,
+          "change_percent": -4.037609432698785
+        },
+        "peak_RSS_MiB": {
+          "baseline": 8.3727222590591,
+          "candidate": 8.220650920851705,
+          "change_percent": -1.8162711421946143
+        }
+      },
+      "AA_pass": true,
+      "timing_pass": true,
+      "auxiliary_limited": false,
+      "validity": "usable"
+    },
+    {
+      "block": "tcp-v4-http-1",
+      "capacity_ranking": false,
+      "rate_controlled": true,
+      "control": {
+        "Mbps": {
+          "baseline": 200.07480015788857,
+          "candidate": 200.0741682638417,
+          "change_percent": -0.00031582890317460866
+        },
+        "CPU_ns_per_byte": {
+          "baseline": 2.5336670315471874,
+          "candidate": 2.519654761861338,
+          "change_percent": -0.5530430601724645
+        },
+        "CPU_core_percent": {
+          "baseline": 6.336483929172058,
+          "candidate": 6.301420778323444,
+          "change_percent": -0.5533534250310224
+        },
+        "peak_RSS_MiB": {
+          "baseline": 7.3234593356299165,
+          "candidate": 7.296757895205925,
+          "change_percent": -0.36460147042920443
+        }
+      },
+      "result": {
+        "Mbps": {
+          "baseline": 200.0715497401585,
+          "candidate": 200.0757728276766,
+          "change_percent": 0.0021107886271520826
+        },
+        "CPU_ns_per_byte": {
+          "baseline": 2.5735206674722564,
+          "candidate": 2.3519753867537516,
+          "change_percent": -8.608645872508546
+        },
+        "CPU_core_percent": {
+          "baseline": 6.436041753658593,
+          "candidate": 5.882117310689291,
+          "change_percent": -8.606601140435755
+        },
+        "peak_RSS_MiB": {
+          "baseline": 7.111282796906486,
+          "candidate": 6.97751275198416,
+          "change_percent": -1.8810958408308265
+        }
+      },
+      "AA_pass": true,
+      "timing_pass": true,
+      "auxiliary_limited": false,
+      "validity": "usable"
+    },
+    {
+      "block": "tcp-v4-http-8",
+      "capacity_ranking": false,
+      "rate_controlled": true,
+      "control": {
+        "Mbps": {
+          "baseline": 200.69867322479925,
+          "candidate": 200.69751160833425,
+          "change_percent": -0.000578786319971325
+        },
+        "CPU_ns_per_byte": {
+          "baseline": 2.888177373397874,
+          "candidate": 2.917650414764668,
+          "change_percent": 1.0204719986473432
+        },
+        "CPU_core_percent": {
+          "baseline": 7.245603299865614,
+          "candidate": 7.319499385568184,
+          "change_percent": 1.0198748488471576
+        },
+        "peak_RSS_MiB": {
+          "baseline": 7.661521622642511,
+          "candidate": 7.9282239643877475,
+          "change_percent": 3.481062312178773
+        }
+      },
+      "result": {
+        "Mbps": {
+          "baseline": 200.69710332959392,
+          "candidate": 200.69746444420872,
+          "change_percent": 0.0001799301578397916
+        },
+        "CPU_ns_per_byte": {
+          "baseline": 2.927787791875503,
+          "candidate": 2.8077029441773718,
+          "change_percent": -4.1015557217419225
+        },
+        "CPU_core_percent": {
+          "baseline": 7.34490186562648,
+          "candidate": 7.043672565110941,
+          "change_percent": -4.101202521510416
+        },
+        "peak_RSS_MiB": {
+          "baseline": 7.8053062583176605,
+          "candidate": 7.78120195611423,
+          "change_percent": -0.30881942880516267
+        }
+      },
+      "AA_pass": true,
+      "timing_pass": true,
+      "auxiliary_limited": false,
+      "validity": "usable"
+    },
+    {
+      "block": "tcp-v6-https-1",
+      "capacity_ranking": false,
+      "rate_controlled": true,
+      "control": {
+        "Mbps": {
+          "baseline": 200.0687955154151,
+          "candidate": 200.06999490685345,
+          "change_percent": 0.0005994895082350737
+        },
+        "CPU_ns_per_byte": {
+          "baseline": 2.7734090856830016,
+          "candidate": 2.8430279838881742,
+          "change_percent": 2.5102282445298885
+        },
+        "CPU_core_percent": {
+          "baseline": 6.935845348431744,
+          "candidate": 7.109997136397356,
+          "change_percent": 2.5108949121103175
+        },
+        "peak_RSS_MiB": {
+          "baseline": 7.16719277986507,
+          "candidate": 7.39370682640079,
+          "change_percent": 3.1604291037359955
+        }
+      },
+      "result": {
+        "Mbps": {
+          "baseline": 200.06917308416362,
+          "candidate": 200.07210122527692,
+          "change_percent": 0.0014635643603488901
+        },
+        "CPU_ns_per_byte": {
+          "baseline": 2.7778598234408256,
+          "candidate": 2.652015428384704,
+          "change_percent": -4.530264414143225
+        },
+        "CPU_core_percent": {
+          "baseline": 6.946987039528135,
+          "candidate": 6.632372033607458,
+          "change_percent": -4.528797939747509
+        },
+        "peak_RSS_MiB": {
+          "baseline": 7.309413160572682,
+          "candidate": 7.126695933030606,
+          "change_percent": -2.499752353959983
+        }
+      },
+      "AA_pass": true,
+      "timing_pass": true,
+      "auxiliary_limited": false,
+      "validity": "usable"
+    },
+    {
+      "block": "tcp-v6-https-8",
+      "capacity_ranking": false,
+      "rate_controlled": true,
+      "control": {
+        "Mbps": {
+          "baseline": 200.6893161495445,
+          "candidate": 200.6851626794282,
+          "change_percent": -0.002069602007714888
+        },
+        "CPU_ns_per_byte": {
+          "baseline": 3.1522747053335665,
+          "candidate": 3.1567460005758963,
+          "change_percent": 0.14184345148486877
+        },
+        "CPU_core_percent": {
+          "baseline": 7.90777607720035,
+          "candidate": 7.918830027729909,
+          "change_percent": 0.13978583133416045
+        },
+        "peak_RSS_MiB": {
+          "baseline": 7.316280072657312,
+          "candidate": 7.886714880509202,
+          "change_percent": 7.796787468316602
+        }
+      },
+      "result": {
+        "Mbps": {
+          "baseline": 200.6858573618361,
+          "candidate": 200.687561444497,
+          "change_percent": 0.0008491294221091295
+        },
+        "CPU_ns_per_byte": {
+          "baseline": 3.1152195004790366,
+          "candidate": 3.046899138519638,
+          "change_percent": -2.1931155075554987
+        },
+        "CPU_core_percent": {
+          "baseline": 7.814683624454923,
+          "candidate": 7.643354118653132,
+          "change_percent": -2.1924048884799374
+        },
+        "peak_RSS_MiB": {
+          "baseline": 7.5675969878107185,
+          "candidate": 7.610395609814946,
+          "change_percent": 0.5655510206630243
+        }
+      },
+      "AA_pass": true,
+      "timing_pass": true,
+      "auxiliary_limited": false,
+      "validity": "usable"
+    },
+    {
+      "block": "stealth-v4-http-1",
+      "capacity_ranking": false,
+      "rate_controlled": true,
+      "control": {
+        "Mbps": {
+          "baseline": 200.07364109568013,
+          "candidate": 200.07218186058466,
+          "change_percent": -0.0007293489974413703
+        },
+        "CPU_ns_per_byte": {
+          "baseline": 2.9609311967369827,
+          "candidate": 2.957929990375454,
+          "change_percent": -0.10136021954295638
+        },
+        "CPU_core_percent": {
+          "baseline": 7.4049871890510675,
+          "candidate": 7.3974216171349205,
+          "change_percent": -0.10216860236210712
+        },
+        "peak_RSS_MiB": {
+          "baseline": 5.0230486824642915,
+          "candidate": 4.990148375604364,
+          "change_percent": -0.6549868205495191
+        }
+      },
+      "result": {
+        "Mbps": {
+          "baseline": 200.0723851658271,
+          "candidate": 200.07247379968098,
+          "change_percent": 4.430089330931253e-05
+        },
+        "CPU_ns_per_byte": {
+          "baseline": 2.9332368485311275,
+          "candidate": 2.829669560005427,
+          "change_percent": -3.5308191555538326
+        },
+        "CPU_core_percent": {
+          "baseline": 7.3356785444911585,
+          "candidate": 7.076670536808327,
+          "change_percent": -3.5307982228493073
+        },
+        "peak_RSS_MiB": {
+          "baseline": 4.894132191433591,
+          "candidate": 4.785054208095668,
+          "change_percent": -2.2287502476709964
+        }
+      },
+      "AA_pass": true,
+      "timing_pass": true,
+      "auxiliary_limited": false,
+      "validity": "usable"
+    },
+    {
+      "block": "stealth-v4-http-8",
+      "capacity_ranking": false,
+      "rate_controlled": true,
+      "control": {
+        "Mbps": {
+          "baseline": 200.6931048020012,
+          "candidate": 200.69102244729328,
+          "change_percent": -0.0010375815900465213
+        },
+        "CPU_ns_per_byte": {
+          "baseline": 3.141150796425316,
+          "candidate": 3.1572006188512027,
+          "change_percent": 0.5109535793108577
+        },
+        "CPU_core_percent": {
+          "baseline": 7.880018680710412,
+          "candidate": 7.920200573854764,
+          "change_percent": 0.5099212929877028
+        },
+        "peak_RSS_MiB": {
+          "baseline": 5.6603112577981305,
+          "candidate": 5.4921875,
+          "change_percent": -2.97022107338194
+        }
+      },
+      "result": {
+        "Mbps": {
+          "baseline": 200.69305188898775,
+          "candidate": 200.69788476519395,
+          "change_percent": 0.0024080934345693805
+        },
+        "CPU_ns_per_byte": {
+          "baseline": 3.1610193056872173,
+          "candidate": 3.1193290380281127,
+          "change_percent": -1.318886840839495
+        },
+        "CPU_core_percent": {
+          "baseline": 7.929857114327263,
+          "candidate": 7.82546886827479,
+          "change_percent": -1.3163950440402084
+        },
+        "peak_RSS_MiB": {
+          "baseline": 5.703665428161636,
+          "candidate": 5.526919981546854,
+          "change_percent": -3.0988045992688784
+        }
+      },
+      "AA_pass": true,
+      "timing_pass": true,
+      "auxiliary_limited": false,
+      "validity": "usable"
+    },
+    {
+      "block": "stealth-v6-https-1",
+      "capacity_ranking": false,
+      "rate_controlled": true,
+      "control": {
+        "Mbps": {
+          "baseline": 200.06918132887276,
+          "candidate": 200.06963467694783,
+          "change_percent": 0.00022659565659388647
+        },
+        "CPU_ns_per_byte": {
+          "baseline": 3.077339045067041,
+          "candidate": 3.0748749907675474,
+          "change_percent": -0.08007093997144388
+        },
+        "CPU_core_percent": {
+          "baseline": 7.695942419672626,
+          "candidate": 7.689791256175681,
+          "change_percent": -0.07992735861980238
+        },
+        "peak_RSS_MiB": {
+          "baseline": 5.173765822223028,
+          "candidate": 5.053818028001825,
+          "change_percent": -2.318384680380936
+        }
+      },
+      "result": {
+        "Mbps": {
+          "baseline": 200.06847394981037,
+          "candidate": 200.07164089747542,
+          "change_percent": 0.001582931884525074
+        },
+        "CPU_ns_per_byte": {
+          "baseline": 3.076631294968468,
+          "candidate": 2.8777279886490135,
+          "change_percent": -6.464970522946379
+        },
+        "CPU_core_percent": {
+          "baseline": 7.694145465315298,
+          "candidate": 7.196834758333326,
+          "change_percent": -6.463494994003116
+        },
+        "peak_RSS_MiB": {
+          "baseline": 4.8999138026538285,
+          "candidate": 4.6631970904618845,
+          "change_percent": -4.831038294260126
+        }
+      },
+      "AA_pass": true,
+      "timing_pass": true,
+      "auxiliary_limited": false,
+      "validity": "usable"
+    },
+    {
+      "block": "stealth-v6-https-8",
+      "capacity_ranking": false,
+      "rate_controlled": true,
+      "control": {
+        "Mbps": {
+          "baseline": 200.6879951429928,
+          "candidate": 200.68504344272424,
+          "change_percent": -0.0014707906501709722
+        },
+        "CPU_ns_per_byte": {
+          "baseline": 3.3722920921237,
+          "candidate": 3.359615789865726,
+          "change_percent": -0.37589573831936507
+        },
+        "CPU_core_percent": {
+          "baseline": 8.459662970724054,
+          "candidate": 8.427741949920112,
+          "change_percent": -0.37733206292508426
+        },
+        "peak_RSS_MiB": {
+          "baseline": 5.171727480902174,
+          "candidate": 5.078123497595932,
+          "change_percent": -1.8099171631122624
+        }
+      },
+      "result": {
+        "Mbps": {
+          "baseline": 200.68802157612913,
+          "candidate": 200.68014459591157,
+          "change_percent": -0.003924987727565998
+        },
+        "CPU_ns_per_byte": {
+          "baseline": 3.360477381346178,
+          "candidate": 3.296793564770328,
+          "change_percent": -1.8950824346967932
+        },
+        "CPU_core_percent": {
+          "baseline": 8.430016199678626,
+          "candidate": 8.269940810391155,
+          "change_percent": -1.8988740412334337
+        },
+        "peak_RSS_MiB": {
+          "baseline": 5.237370877734123,
+          "candidate": 4.953610176848769,
+          "change_percent": -5.417998982881267
+        }
+      },
+      "AA_pass": true,
+      "timing_pass": true,
+      "auxiliary_limited": false,
+      "validity": "usable"
+    }
+  ]
+}

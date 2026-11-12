@@ -1,0 +1,245 @@
+{
+  "environment": {
+    "kernel": "7.0.0-1017-azure",
+    "machine": "aarch64",
+    "sources": {
+      "main": {
+        "sha": "d6c070a0f9e211f5a5b14b7e8c8bc0f995d7b7a7",
+        "path": "/home/runner/work/ProtunNext/ProtunNext/target/erasure-audit/main-jg47uejz",
+        "archive_sha256": "6e74d82d310d2ef204dd31e63fad04fe46542458ff8fdee5a34fcc12066aa0d7",
+        "effective_sources_sha256": "8398296afb44ff00da483842c46a46f06539a54a94083ed7c7f4f89f648ca75d",
+        "runtime_sources_sha256": "5d448b4aabf1041e3a13920294314097f88a30eeb9a2d4c799724c2c04112fc7",
+        "build_configuration": {
+          "mode": "release",
+          "target": "aarch64-unknown-linux-gnu",
+          "compiler": "rustc 1.99.1 (58cf8f9c3 2026-10-13)\nbinary: rustc\ncommit-hash: 58cf8f9c35b355199727627d07ae34a4e2846d67\ncommit-date: 2026-10-13\nhost: aarch64-unknown-linux-gnu\nrelease: 1.99.1\nLLVM version: 23.1.1\n",
+          "rustflags": [],
+          "binary_sha256": "c75b4003bb51039cfbf9dc3955e472448ae4463c04a6a16c1927cff67a88fd79"
+        }
+      },
+      "erase": {
+        "sha": "6cbbc06e6072a4812d0e8babcde9fea49644205b",
+        "path": "/home/runner/work/ProtunNext/ProtunNext/target/erasure-audit/erase-dk387z3r",
+        "archive_sha256": "34a5f08f35bdbcce750754cdbfdc311b8c268561f47d49cadef32b3f904f134d",
+        "effective_sources_sha256": "773abac228c28cfb3f78fe85014f8bfaa13887240ee696ff0e0a1ca950a43621",
+        "runtime_sources_sha256": "5d448b4aabf1041e3a13920294314097f88a30eeb9a2d4c799724c2c04112fc7",
+        "build_configuration": {
+          "mode": "pgo",
+          "target": "aarch64-unknown-linux-gnu",
+          "compiler": "rustc 1.99.1 (58cf8f9c3 2026-10-13)\nbinary: rustc\ncommit-hash: 58cf8f9c35b355199727627d07ae34a4e2846d67\ncommit-date: 2026-10-13\nhost: aarch64-unknown-linux-gnu\nrelease: 1.99.1\nLLVM version: 23.1.1\n",
+          "rustflags": [
+            "-Cprofile-use=/home/runner/work/ProtunNext/ProtunNext/target/erasure-audit/pgo-b41wvxyx/client.profdata",
+            "-Cllvm-args=-pgo-warn-missing-function"
+          ],
+          "binary_sha256": "f9f0a14a0cf8026259815201d14851c0711777319a61628f95657de5be71c81e",
+          "profile": {
+            "path": "/home/runner/work/ProtunNext/ProtunNext/target/erasure-audit/pgo-b41wvxyx/client.profdata",
+            "sha256": "37c32c623f1f788d5364ba5a26448281e283966fcaad83a7154c64348e23b19e",
+            "llvm_tool_sha256": "328d5572c08687cacc846a9e5d410c3cb350bfbe9cc09859c88e7dd1918e9b97",
+            "llvm_version": "LLVM (http://llvm.org/):\n  LLVM version 23.1.1-rust-1.99.1-stable\n  Optimized build.\n",
+            "instrumented_binary_sha256": "81a5b98bc27c876cdfa7f46dd0b6a77e93b602b782f24067ef5472c806928c1f",
+            "generation_flags": [
+              "-Cprofile-generate=/home/runner/work/ProtunNext/ProtunNext/target/erasure-audit/pgo-b41wvxyx/raw"
+            ],
+            "raw_files": [
+              {
+                "name": "10284853396230178941_0-7426.profraw",
+                "bytes": 1121232,
+                "sha256": "36c7933750a7b44e2564cb0e9cf810b6b92364adbf0f34f94048357f85cfdb1d"
+              },
+              {
+                "name": "10284853396230178941_0-7447.profraw",
+                "bytes": 1121360,
+                "sha256": "fc1949965a2755af82dfc2466004baa33cbef8a68eed8541ca3c1bb1169d0265"
+              },
+              {
+                "name": "10284853396230178941_0-7472.profraw",
+                "bytes": 1121680,
+                "sha256": "a60754f11d4a0e1c490a8173ad7b87f8beec8a120d4ac215648947bccef0e050"
+              },
+              {
+                "name": "10284853396230178941_0-7493.profraw",
+                "bytes": 1121840,
+                "sha256": "9604bc8735072c2eee695fa7811b3b8e80c26bef1cf2fe186ee4369862aa3eb9"
+              },
+              {
+                "name": "10284853396230178941_0-7518.profraw",
+                "bytes": 1124784,
+                "sha256": "f2fbe6706b343034e9d4c9ea6e751edb8d52bca801bcc9989d972deef82c6ed2"
+              },
+              {
+                "name": "10284853396230178941_0-7539.profraw",
+                "bytes": 1125040,
+                "sha256": "888089ed471482610e94ec18a1b42897b791fabf1f96adafccda42d238806e1c"
+              }
+            ],
+            "training": {
+              "scope": "instrumented training only; no performance estimate",
+              "kernel": "7.0.0-1017-azure",
+              "machine": "aarch64",
+              "cpu_identity": {
+                "sha256": "14e6006866312cf1cce854d5d34e7b20068847cc2a2ef039078ded03b684882f",
+                "details": [
+                  [
+                    "cpu architecture",
+                    "8"
+                  ],
+                  [
+                    "cpu implementer",
+                    "0x41"
+                  ],
+                  [
+                    "cpu part",
+                    "0xd49"
+                  ],
+                  [
+                    "cpu revision",
+                    "0"
+                  ],
+                  [
+                    "cpu variant",
+                    "0x0"
+                  ],
+                  [
+                    "features",
+                    "fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics fphp asimdhp cpuid asimdrdm jscvt fcma lrcpc dcpop sha3 sm3 sm4 asimddp sha512 sve asimdfhm uscat ilrcpc flagm sb paca pacg dcpodp sve2 sveaes svebitperm svesha3 svesm4 flagm2 frint svei8mm svebf16 i8mm bf16"
+                  ]
+                ]
+              },
+              "cpu_layout": [
+                0,
+                1,
+                2,
+                3
+              ],
+              "cases": [
+                {
+                  "name": "udp-v4-http-2",
+                  "flows": 2,
+                  "bytes": 16777216,
+                  "verified": true,
+                  "client_source": "773abac228c28cfb3f78fe85014f8bfaa13887240ee696ff0e0a1ca950a43621",
+                  "helper_source": "8398296afb44ff00da483842c46a46f06539a54a94083ed7c7f4f89f648ca75d"
+                },
+                {
+                  "name": "udp-v6-https-4",
+                  "flows": 4,
+                  "bytes": 33554432,
+                  "verified": true,
+                  "client_source": "773abac228c28cfb3f78fe85014f8bfaa13887240ee696ff0e0a1ca950a43621",
+                  "helper_source": "8398296afb44ff00da483842c46a46f06539a54a94083ed7c7f4f89f648ca75d"
+                },
+                {
+                  "name": "tcp-v4-http-2",
+                  "flows": 2,
+                  "bytes": 16777216,
+                  "verified": true,
+                  "client_source": "773abac228c28cfb3f78fe85014f8bfaa13887240ee696ff0e0a1ca950a43621",
+                  "helper_source": "8398296afb44ff00da483842c46a46f06539a54a94083ed7c7f4f89f648ca75d"
+                },
+                {
+                  "name": "tcp-v6-https-4",
+                  "flows": 4,
+                  "bytes": 33554432,
+                  "verified": true,
+                  "client_source": "773abac228c28cfb3f78fe85014f8bfaa13887240ee696ff0e0a1ca950a43621",
+                  "helper_source": "8398296afb44ff00da483842c46a46f06539a54a94083ed7c7f4f89f648ca75d"
+                },
+                {
+                  "name": "stealth-v4-http-2",
+                  "flows": 2,
+                  "bytes": 16777216,
+                  "verified": true,
+                  "client_source": "773abac228c28cfb3f78fe85014f8bfaa13887240ee696ff0e0a1ca950a43621",
+                  "helper_source": "8398296afb44ff00da483842c46a46f06539a54a94083ed7c7f4f89f648ca75d"
+                },
+                {
+                  "name": "stealth-v6-https-4",
+                  "flows": 4,
+                  "bytes": 33554432,
+                  "verified": true,
+                  "client_source": "773abac228c28cfb3f78fe85014f8bfaa13887240ee696ff0e0a1ca950a43621",
+                  "helper_source": "8398296afb44ff00da483842c46a46f06539a54a94083ed7c7f4f89f648ca75d"
+                }
+              ]
+            },
+            "instrumentation_absent": true
+          },
+          "erasure_checked": true,
+          "erasure_binary_sha256": "aa2dbdf093eb292f4e086e5b31d6d561b102d9284cdd4f60d01e90db4bfa7102"
+        }
+      }
+    },
+    "binaries": {
+      "main": "c75b4003bb51039cfbf9dc3955e472448ae4463c04a6a16c1927cff67a88fd79",
+      "erase": "f9f0a14a0cf8026259815201d14851c0711777319a61628f95657de5be71c81e"
+    },
+    "host_cpus": [
+      0,
+      1,
+      2,
+      3
+    ],
+    "compiler": "rustc 1.99.1 (58cf8f9c3 2026-10-13)\nbinary: rustc\ncommit-hash: 58cf8f9c35b355199727627d07ae34a4e2846d67\ncommit-date: 2026-10-13\nhost: aarch64-unknown-linux-gnu\nrelease: 1.99.1\nLLVM version: 23.1.1\n\ntarget=aarch64-unknown-linux-gnu\nprofile=release thin-LTO codegen-units=1 panic=abort\nbase RUSTFLAGS=[]\nmode=pgo\n",
+    "scope": "native diagnostic: actual host kernel; not supported-LTS kernel acceptance"
+  },
+  "same_runtime_sources": true,
+  "observed_samples": 8,
+  "expected_samples": 8,
+  "errors": [],
+  "blocks": [
+    {
+      "block": "udp-v4-http-1",
+      "capacity_ranking": false,
+      "rate_controlled": true,
+      "control": {
+        "Mbps": {
+          "baseline": 200.07879476914295,
+          "candidate": 200.07848540149095,
+          "change_percent": -0.00015462290861023575
+        },
+        "CPU_ns_per_byte": {
+          "baseline": 2.401803909367063,
+          "candidate": 2.3693733747373353,
+          "change_percent": -1.3502573837626097
+        },
+        "CPU_core_percent": {
+          "baseline": 6.006826706497509,
+          "candidate": 5.925713738394346,
+          "change_percent": -1.3503463986304864
+        },
+        "peak_RSS_MiB": {
+          "baseline": 7.345263515910377,
+          "candidate": 7.3118478859202165,
+          "change_percent": -0.45492758588959736
+        }
+      },
+      "result": {
+        "Mbps": {
+          "baseline": 200.07894259349362,
+          "candidate": 200.0786070904187,
+          "change_percent": -0.00016768534988331751
+        },
+        "CPU_ns_per_byte": {
+          "baseline": 2.346656703759088,
+          "candidate": 2.3069643015817154,
+          "change_percent": -1.6914447739113214
+        },
+        "CPU_core_percent": {
+          "baseline": 5.8689096332127795,
+          "candidate": 5.769626010064301,
+          "change_percent": -1.6916877129377172
+        },
+        "peak_RSS_MiB": {
+          "baseline": 7.468520156962889,
+          "candidate": 7.155790489136337,
+          "change_percent": -4.187304328756403
+        }
+      },
+      "AA_pass": true,
+      "timing_pass": true,
+      "auxiliary_limited": false,
+      "validity": "usable"
+    }
+  ]
+}

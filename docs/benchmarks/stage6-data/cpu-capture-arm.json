@@ -1,0 +1,230 @@
+{
+  "environment": {
+    "kernel": "7.0.0-1017-azure",
+    "machine": "aarch64",
+    "sources": {
+      "main": {
+        "sha": "d6c070a0f9e211f5a5b14b7e8c8bc0f995d7b7a7",
+        "path": "/home/runner/work/ProtunNext/ProtunNext/target/erasure-audit/main-d3zjc9rv",
+        "archive_sha256": "6e74d82d310d2ef204dd31e63fad04fe46542458ff8fdee5a34fcc12066aa0d7",
+        "effective_sources_sha256": "8398296afb44ff00da483842c46a46f06539a54a94083ed7c7f4f89f648ca75d",
+        "runtime_sources_sha256": "5d448b4aabf1041e3a13920294314097f88a30eeb9a2d4c799724c2c04112fc7",
+        "build_configuration": {
+          "mode": "release",
+          "target": "aarch64-unknown-linux-gnu",
+          "compiler": "rustc 1.99.1 (58cf8f9c3 2026-10-13)\nbinary: rustc\ncommit-hash: 58cf8f9c35b355199727627d07ae34a4e2846d67\ncommit-date: 2026-10-13\nhost: aarch64-unknown-linux-gnu\nrelease: 1.99.1\nLLVM version: 23.1.1\n",
+          "rustflags": [],
+          "binary_sha256": "c75b4003bb51039cfbf9dc3955e472448ae4463c04a6a16c1927cff67a88fd79"
+        }
+      },
+      "erase": {
+        "sha": "3a4e735e4eebd577f1376e0660e8ce6d6e6e9da6",
+        "path": "/home/runner/work/ProtunNext/ProtunNext/target/erasure-audit/erase-92_s4_2c",
+        "archive_sha256": "a3f2bfe093ed08661fdb2f798e91dc8d3e3d9ca7bf42b79383e6560a6f1099e3",
+        "effective_sources_sha256": "773abac228c28cfb3f78fe85014f8bfaa13887240ee696ff0e0a1ca950a43621",
+        "runtime_sources_sha256": "5d448b4aabf1041e3a13920294314097f88a30eeb9a2d4c799724c2c04112fc7",
+        "build_configuration": {
+          "mode": "cpu",
+          "target": "aarch64-unknown-linux-gnu",
+          "compiler": "rustc 1.99.1 (58cf8f9c3 2026-10-13)\nbinary: rustc\ncommit-hash: 58cf8f9c35b355199727627d07ae34a4e2846d67\ncommit-date: 2026-10-13\nhost: aarch64-unknown-linux-gnu\nrelease: 1.99.1\nLLVM version: 23.1.1\n",
+          "rustflags": [
+            "-Ctarget-cpu=native"
+          ],
+          "binary_sha256": "45bd26e3e1f1f240df52783a8a1f1182b0a248bb5cc19b93a76f620e5eda0144",
+          "target_cpu": "native",
+          "cpu_identity": {
+            "sha256": "14e6006866312cf1cce854d5d34e7b20068847cc2a2ef039078ded03b684882f",
+            "details": [
+              [
+                "cpu architecture",
+                "8"
+              ],
+              [
+                "cpu implementer",
+                "0x41"
+              ],
+              [
+                "cpu part",
+                "0xd49"
+              ],
+              [
+                "cpu revision",
+                "0"
+              ],
+              [
+                "cpu variant",
+                "0x0"
+              ],
+              [
+                "features",
+                "fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics fphp asimdhp cpuid asimdrdm jscvt fcma lrcpc dcpop sha3 sm3 sm4 asimddp sha512 sve asimdfhm uscat ilrcpc flagm sb paca pacg dcpodp sve2 sveaes svebitperm svesha3 svesm4 flagm2 frint svei8mm svebf16 i8mm bf16"
+              ]
+            ]
+          },
+          "compiler_target_cfg": [
+            "debug_assertions",
+            "panic=\"unwind\"",
+            "target_abi=\"\"",
+            "target_arch=\"aarch64\"",
+            "target_endian=\"little\"",
+            "target_env=\"gnu\"",
+            "target_family=\"unix\"",
+            "target_feature=\"aes\"",
+            "target_feature=\"bf16\"",
+            "target_feature=\"bti\"",
+            "target_feature=\"crc\"",
+            "target_feature=\"dit\"",
+            "target_feature=\"dotprod\"",
+            "target_feature=\"dpb\"",
+            "target_feature=\"dpb2\"",
+            "target_feature=\"fcma\"",
+            "target_feature=\"fhm\"",
+            "target_feature=\"flagm\"",
+            "target_feature=\"fp16\"",
+            "target_feature=\"frintts\"",
+            "target_feature=\"i8mm\"",
+            "target_feature=\"jsconv\"",
+            "target_feature=\"lor\"",
+            "target_feature=\"lse\"",
+            "target_feature=\"mte\"",
+            "target_feature=\"neon\"",
+            "target_feature=\"paca\"",
+            "target_feature=\"pacg\"",
+            "target_feature=\"pan\"",
+            "target_feature=\"pmuv3\"",
+            "target_feature=\"ras\"",
+            "target_feature=\"rcpc\"",
+            "target_feature=\"rcpc2\"",
+            "target_feature=\"rdm\"",
+            "target_feature=\"sb\"",
+            "target_feature=\"sha2\"",
+            "target_feature=\"sha3\"",
+            "target_feature=\"sm4\"",
+            "target_feature=\"ssbs\"",
+            "target_feature=\"sve\"",
+            "target_feature=\"sve2\"",
+            "target_feature=\"vh\"",
+            "target_has_atomic=\"128\"",
+            "target_has_atomic=\"16\"",
+            "target_has_atomic=\"32\"",
+            "target_has_atomic=\"64\"",
+            "target_has_atomic=\"8\"",
+            "target_has_atomic=\"ptr\"",
+            "target_has_atomic_primitive_alignment=\"128\"",
+            "target_has_atomic_primitive_alignment=\"16\"",
+            "target_has_atomic_primitive_alignment=\"32\"",
+            "target_has_atomic_primitive_alignment=\"64\"",
+            "target_has_atomic_primitive_alignment=\"8\"",
+            "target_has_atomic_primitive_alignment=\"ptr\"",
+            "target_os=\"linux\"",
+            "target_pointer_width=\"64\"",
+            "target_vendor=\"unknown\"",
+            "unix"
+          ],
+          "erasure_checked": true,
+          "erasure_binary_sha256": "8622c1487415a00c5c24b019b8cf539c65917c460bc17100bd86d1dbd920ee61"
+        }
+      }
+    },
+    "binaries": {
+      "main": "c75b4003bb51039cfbf9dc3955e472448ae4463c04a6a16c1927cff67a88fd79",
+      "erase": "45bd26e3e1f1f240df52783a8a1f1182b0a248bb5cc19b93a76f620e5eda0144"
+    },
+    "host_cpus": [
+      0,
+      1,
+      2,
+      3
+    ],
+    "compiler": "rustc 1.99.1 (58cf8f9c3 2026-10-13)\nbinary: rustc\ncommit-hash: 58cf8f9c35b355199727627d07ae34a4e2846d67\ncommit-date: 2026-10-13\nhost: aarch64-unknown-linux-gnu\nrelease: 1.99.1\nLLVM version: 23.1.1\n\ntarget=aarch64-unknown-linux-gnu\nprofile=release thin-LTO codegen-units=1 panic=abort\nbase RUSTFLAGS=[]\nmode=cpu\n",
+    "scope": "native diagnostic: actual host kernel; not supported-LTS kernel acceptance",
+    "cpu_identity": {
+      "sha256": "14e6006866312cf1cce854d5d34e7b20068847cc2a2ef039078ded03b684882f",
+      "details": [
+        [
+          "cpu architecture",
+          "8"
+        ],
+        [
+          "cpu implementer",
+          "0x41"
+        ],
+        [
+          "cpu part",
+          "0xd49"
+        ],
+        [
+          "cpu revision",
+          "0"
+        ],
+        [
+          "cpu variant",
+          "0x0"
+        ],
+        [
+          "features",
+          "fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics fphp asimdhp cpuid asimdrdm jscvt fcma lrcpc dcpop sha3 sm3 sm4 asimddp sha512 sve asimdfhm uscat ilrcpc flagm sb paca pacg dcpodp sve2 sveaes svebitperm svesha3 svesm4 flagm2 frint svei8mm svebf16 i8mm bf16"
+        ]
+      ]
+    }
+  },
+  "same_runtime_sources": true,
+  "observed_samples": 8,
+  "expected_samples": 8,
+  "errors": [],
+  "blocks": [
+    {
+      "block": "udp-v4-http-1",
+      "capacity_ranking": false,
+      "rate_controlled": true,
+      "control": {
+        "Mbps": {
+          "baseline": 200.07891041902678,
+          "candidate": 200.07916666048536,
+          "change_percent": 0.00012807019891258875
+        },
+        "CPU_ns_per_byte": {
+          "baseline": 2.2980078334615506,
+          "candidate": 2.3101629505061947,
+          "change_percent": 0.5289414973983941
+        },
+        "CPU_core_percent": {
+          "baseline": 5.7472405543142635,
+          "candidate": 5.777648299761109,
+          "change_percent": 0.5290842650395033
+        },
+        "peak_RSS_MiB": {
+          "baseline": 7.112278339170095,
+          "candidate": 7.718464340298588,
+          "change_percent": 8.523091648283643
+        }
+      },
+      "result": {
+        "Mbps": {
+          "baseline": 200.07825848710408,
+          "candidate": 200.07895530696885,
+          "change_percent": 0.00034827365553713463
+        },
+        "CPU_ns_per_byte": {
+          "baseline": 2.3048498105005106,
+          "candidate": 2.257770766791732,
+          "change_percent": -2.0426078738100095
+        },
+        "CPU_core_percent": {
+          "baseline": 5.7643351322617615,
+          "candidate": 5.646609458727645,
+          "change_percent": -2.042311399891217
+        },
+        "peak_RSS_MiB": {
+          "baseline": 7.232185312513174,
+          "candidate": 7.369003703091203,
+          "change_percent": 1.8917987394668323
+        }
+      },
+      "AA_pass": true,
+      "timing_pass": true,
+      "auxiliary_limited": false,
+      "validity": "usable"
+    }
+  ]
+}

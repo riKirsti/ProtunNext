@@ -9,6 +9,29 @@ const BLOCK: usize = 65536;
 const WARM_BLOCKS: u64 = 64;
 static WIRE_CPU_START: AtomicU64 = AtomicU64::new(0);
 
+// Hash once before setup/warmup. Equal source hashes cannot conceal changed
+// helpers, and executable hashing cannot extend the measured interval.
+fn executable_digest() -> &'static str {
+    static DIGEST: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    DIGEST.get_or_init(|| {
+        let output = std::process::Command::new("sha256sum")
+            .arg(format!("/proc/{}/exe", std::process::id()))
+            .env_remove("LLVM_PROFILE_FILE")
+            .output()
+            .unwrap();
+        assert!(output.status.success());
+        let text = String::from_utf8(output.stdout).unwrap();
+        let digest = text.split_whitespace().next().unwrap();
+        assert!(digest.len() == 64 && digest.bytes().all(|b| b.is_ascii_hexdigit()));
+        digest.to_owned()
+    })
+}
+
+fn emit(mut metric: serde_json::Value) {
+    metric["binary_sha256"] = executable_digest().into();
+    super::emit(metric);
+}
+
 fn clock_cpu(clock: libc::clockid_t) -> u64 {
     let mut value = libc::timespec {
         tv_sec: 0,
@@ -20,6 +43,12 @@ fn clock_cpu(clock: libc::clockid_t) -> u64 {
 }
 
 pub(super) fn dispatch(args: &[String]) -> bool {
+    if matches!(
+        args.get(1).map(String::as_str),
+        Some("download-client" | "download-peer" | "download-load")
+    ) {
+        let _ = executable_digest();
+    }
     match args.get(1).map(String::as_str) {
         Some("download-client") => client(
             &args[2],

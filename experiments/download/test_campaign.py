@@ -10,6 +10,11 @@ import campaign
 
 
 class DownloadValidity(unittest.TestCase):
+    def setUp(self):
+        env = mock.patch.dict(campaign.os.environ, {'NEXT_BUILD_MODE':'release'})
+        env.start()
+        self.addCleanup(env.stop)
+
     def fixture(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
@@ -40,6 +45,49 @@ class DownloadValidity(unittest.TestCase):
         for row in rows:
             self.assertEqual(row["bytes"],65536*row["flows"]*row["blocks_per_flow"])
         self.assertIn("download-client",campaign.guest_script())
+
+    def build_fixture(self, mode):
+        with mock.patch.dict(campaign.os.environ, {'NEXT_BUILD_MODE':mode}):
+            self.fixture()
+        self.env['binaries'] = {'main':'1'*64, 'erase':'2'*64}
+        self.env['cpu_identity'] = {'sha256':'3'*64}
+        for row in self.rows:
+            m=row['metrics'][0]
+            m['binary_sha256']=self.env['binaries'][row['build']]
+            m['peer']['binary_sha256']=m['load']['binary_sha256']=self.env['binaries']['main']
+        for name in ['main','erase']:
+            self.env['sources'][name]['build_configuration'] = dict(mode='release' if name=='main' else mode,
+                binary_sha256=self.env['binaries'][name], rustflags=[])
+        candidate=self.env['sources']['erase']['build_configuration']
+        candidate['erasure_checked']=True
+        candidate.update(gate_version=3,negative_control={'expected_rejection':True})
+        if mode=='pgo':
+            candidate.update(rustflags=['-Cprofile-use=/fresh/client.profdata'], profile=dict(path='/fresh/client.profdata',sha256='4'*64,instrumentation_absent=True,raw_files=[{'sha256':'5'*64}],
+                training={'cases':[dict(name=f'{p}-{n}',flows=2 if n==0 else 4,verified=True) for p in ['udp','tcp','stealth'] for n in range(2)]}))
+        else:
+            candidate.update(rustflags=['-Ctarget-cpu=native'],cpu_identity=self.env['cpu_identity'].copy())
+        return candidate
+
+    def test_pgo_requires_final_binary_consumed_profile_and_separate_verified_training(self):
+        for mutation in ['valid','instrumented','reused','missing_profile','unconsumed','evaluation_leak','failed_training','changed_helper']:
+            with self.subTest(mutation=mutation):
+                cfg=self.build_fixture('pgo')
+                if mutation=='instrumented':cfg['rustflags'].append('-Cprofile-generate=/raw')
+                elif mutation=='reused':self.env['binaries']['erase']=self.env['binaries']['main'];cfg['binary_sha256']=self.env['binaries']['main']
+                elif mutation=='missing_profile':cfg['profile']['raw_files']=[]
+                elif mutation=='unconsumed':cfg['rustflags']=[]
+                elif mutation=='evaluation_leak':cfg['profile']['training']['cases'][0]['flows']=1
+                elif mutation=='failed_training':cfg['profile']['training']['cases'][0]['verified']=False
+                elif mutation=='changed_helper':self.rows[0]['metrics'][0]['peer']['binary_sha256']='2'*64
+                self.assertEqual(bool(self.analyze()['errors']),mutation!='valid')
+
+    def test_cpu_tuning_rejects_unmatched_cpu_or_absent_tuning(self):
+        for mutation in ['valid','different_cpu','missing_flag']:
+            with self.subTest(mutation=mutation):
+                cfg=self.build_fixture('cpu')
+                if mutation=='different_cpu':cfg['cpu_identity']['sha256']='9'*64
+                elif mutation=='missing_flag':cfg['rustflags']=[]
+                self.assertEqual(bool(self.analyze()['errors']),mutation!='valid')
 
     def test_focused_retest_has_explicit_nonempty_plan(self):
         with mock.patch.dict(campaign.os.environ,{"NEXT_DOWNLOAD_BLOCK":"stealth-v6-https-8"}):

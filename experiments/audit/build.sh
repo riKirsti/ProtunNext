@@ -3,6 +3,10 @@
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 target=${1:?Rust target required}
+if [ "${NEXT_BUILD_MODE:-release}" != release ]; then
+  python3 experiments/build/tune.py "$target"
+  exit
+fi
 python3 experiments/audit/prepare.py --baseline "${BASELINE:-f7bf03f5b4dc3981eaadedbf3a7841c5ed5ee5c1}"
 mkdir -p target/erasure-audit/bin
 { rustc -vV; cargo -vV; printf 'target=%s\nprofile=release thin-LTO codegen-units=1 panic=abort\nRUSTFLAGS=%s\n' "$target" "${RUSTFLAGS-}"; } > target/erasure-audit/toolchain.txt
