@@ -18,11 +18,14 @@ def plan():
     client_cores = int(os.environ.get("NEXT_DOWNLOAD_CLIENT_CORES", "1"))
     parallel = os.environ.get("NEXT_DOWNLOAD_PARALLEL", "0") == "1"
     build_mode = os.environ.get("NEXT_BUILD_MODE", "release")
-    assert build_mode in {"release", "pgo", "cpu"}, "unknown build experiment"
+    assert build_mode in {"release", "pgo", "cpu", "pgo-cpu"}, "unknown build experiment"
     assert client_cores in {1, 2}, "invalid client CPU allowance"
     assert not parallel or client_cores == 2, "parallel comparison needs two allowed client CPUs"
     assert rate >= 0, "invalid offered download rate"
-    total_blocks = 2048 if rate else 32768
+    total_blocks = 2048 if rate else int(os.environ.get("NEXT_DOWNLOAD_BLOCKS", "32768"))
+    assert total_blocks > 0 and total_blocks % 8 == 0, "invalid verified payload size"
+    network_delay = int(os.environ.get("NEXT_NETWORK_DELAY_MS", "0"))
+    assert network_delay in {0, 5}, "unsupported disposable network scenario"
     for protocol in ["udp", "tcp", "stealth"]:
         for family, application, flows in [("v4", "http", 1), ("v4", "http", 8),
                                             ("v6", "https", 1), ("v6", "https", 8)]:
@@ -36,6 +39,8 @@ def plan():
                     if rate:
                         assert rate >= flows, "offered rate cannot be split across flows"
                         rows[-1]["offered_rate_bps"] = rate
+                    if network_delay:
+                        rows[-1]["network_delay_ms"] = network_delay
                     if tun_mode == "compare":
                         rows[-1]["tun_mode"] = "vnet" if build == "erase" else "raw"
                     elif tun_mode == "vnet":
@@ -71,6 +76,7 @@ def smoke_arguments(peer):
 
 
 def guest_script():
+    assert int(os.environ.get("NEXT_NETWORK_DELAY_MS", "0")) == 0, "network delay scenario requires native disposable namespaces"
     lines = ["#!/bin/sh", "export PATH=/bin", "mount -t proc proc /proc",
              "mount -t sysfs sysfs /sys", "mount -t devtmpfs devtmpfs /dev",
              'echo "ERASURE_KERNEL $(uname -r)"',
@@ -114,11 +120,15 @@ def geometric(values):
 
 
 def metrics(row, env):
+    if row.get("network_delay_ms"):
+        assert "NEXT_NETEM 5" in row.get("stdout", "") and "netem" in row["stdout"] and "delay 5ms" in row["stdout"], "network impairment not configured"
     assert row["exit"] == 0 and len(row["metrics"]) == 1, "process failed or incomplete metrics"
     m = row["metrics"][0]
     if "build_mode" in row:
         cfg = env["sources"][row["build"]]["build_configuration"]
         assert cfg["mode"] == row["build_mode"], "build configuration mismatch"
+        assert ("-Ctarget-cpu=native" in cfg["rustflags"]) == (cfg["mode"] in {"cpu", "pgo-cpu"}), "undeclared/missing CPU tuning"
+        assert any(f.startswith("-Cprofile-use=") for f in cfg["rustflags"]) == (cfg["mode"] in {"pgo", "pgo-cpu"}), "undeclared/missing PGO tuning"
         assert cfg["binary_sha256"] == env["binaries"][row["build"]], "built binary identity mismatch"
         assert m["binary_sha256"] == env["binaries"][row["build"]], "running client binary mismatch"
         assert m["peer"]["binary_sha256"] == m["load"]["binary_sha256"] == env["binaries"]["main"], "auxiliary binary changed"
@@ -128,7 +138,7 @@ def metrics(row, env):
             assert cfg["erasure_checked"] is True, "optimized erasure not checked"
             if row.get("build_gate_version", 1) >= 2:
                 assert cfg["gate_version"] == row["build_gate_version"] and cfg["negative_control"]["expected_rejection"] is True, "optimized negative control not checked"
-        if cfg["mode"] == "pgo":
+        if cfg["mode"] in {"pgo", "pgo-cpu"}:
             profile = cfg["profile"]
             assert len(profile["sha256"]) == 64 and profile["raw_files"], "missing training profile identity"
             assert profile["instrumentation_absent"] is True, "final instrumentation not checked"
@@ -136,7 +146,7 @@ def metrics(row, env):
             cases = profile["training"]["cases"]
             assert len(cases) == 6 and all(c["verified"] and c["flows"] in {2,4} for c in cases), "invalid/overlapping PGO training"
             assert {c["name"].split('-')[0] for c in cases} == {"udp","tcp","stealth"}, "incomplete training transports"
-        if cfg["mode"] == "cpu":
+        if cfg["mode"] in {"cpu", "pgo-cpu"}:
             assert cfg["cpu_identity"]["sha256"] == env["cpu_identity"]["sha256"], "CPU-specific binary evaluated on different CPU"
             assert "-Ctarget-cpu=native" in cfg["rustflags"], "CPU tuning was not applied"
     if "client_cores" in row:
@@ -182,6 +192,7 @@ def metrics(row, env):
     seconds, cpu = m["seconds"], m["client_cpu_seconds"]
     assert all(math.isfinite(v) and v > 0 for v in [seconds, cpu, load["seconds"], peer["seconds"], m["client_rss_kib"]])
     assert m.get("offered_rate_bps", 0) == row.get("offered_rate_bps", 0), "offered rate identity mismatch"
+    assert m.get("network_delay_ms", 0) == row.get("network_delay_ms", 0), "network scenario identity mismatch"
     if "offered_rate_bps" in row:
         rate = row["offered_rate_bps"]
         assert isinstance(rate, int) and not isinstance(rate, bool) and rate > 0
@@ -263,7 +274,7 @@ def publish(folder):
            "| Workload | Validity | Download Mbps base / candidate | CPU ns/B base / candidate | CPU core % base / candidate | Peak RSS MiB base / candidate | Capacity ranking |",
            "|---|---|---:|---:|---:|---:|---|"]
     if report["same_runtime_sources"]:
-        tuned = any(r.get("build_mode") in {"pgo","cpu"} for r in json.loads((folder/"plan.json").read_text()))
+        tuned = any(r.get("build_mode") in {"pgo","cpu","pgo-cpu"} for r in json.loads((folder/"plan.json").read_text()))
         message = "Runtime source fingerprints match; this is a recorded compiler-build comparison, not a runtime-source optimization." if tuned else "Production source fingerprints match: baseline characterization only; no optimization gain is claimed."
         lines[2:2] = [message, ""]
     for b in report["blocks"]:

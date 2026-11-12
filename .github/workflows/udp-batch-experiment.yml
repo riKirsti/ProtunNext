@@ -5,6 +5,7 @@ on:
       - src/linux_batch.rs
       - experiments/download/**
       - experiments/audit/**
+      - experiments/build/**
       - .github/workflows/udp-batch-experiment.yml
   workflow_dispatch:
     inputs:

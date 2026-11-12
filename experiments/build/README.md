@@ -49,3 +49,30 @@ Frame-pointer diagnostics in the LTS workflow are currently limited to ordinary
 release mode; the workflow does not mislabel unoptimized diagnostics as PGO.
 Native matrix/control/identity/headroom checks and guarded physical-device tests
 must justify any retained recipe. There is no automatic promotion or release.
+
+## Stage 7 same-host acceptance
+
+`build-acceptance.yml` freezes merged PR #11 and runs portable, PGO, CPU and
+PGO+CPU factors on each native host. The portable baseline/helper is built once;
+the same archives are reused and baseline executable hashes must stay identical.
+Combined PGO is freshly trained with the same native CPU flag used for its final
+build. Independent profiles are never substituted for the combined training.
+Every tuned factor retains its own release regressions, linked positive/negative
+erasure checks, compiler/CPU/profile/binary metadata and logs.
+
+Comparisons rotate factor order by workload and retain separate A/A and balanced
+samples. Each scenario is a separate host allocation: do not pool or rank
+absolute results across scenarios. `paced` uses 128 MiB at 200 Mbps; `capacity`
+uses unpaced verified 4 GiB. `delay` uses the paced payload and a 5 ms netem hold
+on outer-loopback transmissions in the disposable client namespace only. This
+is nominal additional 10 ms round-trip delay, not a physical network/packet-loss
+model. qdisc setup must succeed and be retained in each sample, and the binary
+must report the matching scenario. The namespace disappears with the owned test
+process group; no host interface, route, sysctl or NIC configuration changes.
+
+All twelve IPv4 HTTP/IPv6 HTTPS × one/eight-flow × three-transport cells remain
+separate for each factor. Auxiliary saturation, short/misaligned intervals and
+unstable A/A cells are retained and cannot manufacture capacity rankings.
+This does not promote tuned builds to portable defaults or claim every platform
+is measured. Physical device PGO is separately trained/tested; the losing Travel
+Cortex-A53 experiment is not combined or installed.

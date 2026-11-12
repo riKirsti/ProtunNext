@@ -29,6 +29,11 @@ fn executable_digest() -> &'static str {
 
 fn emit(mut metric: serde_json::Value) {
     metric["binary_sha256"] = executable_digest().into();
+    metric["network_delay_ms"] = std::env::var("NEXT_NETWORK_DELAY_MS")
+        .unwrap_or_else(|_| "0".into())
+        .parse::<u64>()
+        .unwrap()
+        .into();
     super::emit(metric);
 }
 

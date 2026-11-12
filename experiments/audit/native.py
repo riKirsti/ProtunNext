@@ -15,20 +15,20 @@ ROOT = pathlib.Path(__file__).resolve().parents[2]
 OUT = ROOT / "target/erasure-audit/results/native"
 
 
-def run(download=False):
+def run(download=False, output_override=None, bins_override=None, sources_override=None, smoke=True, compiler_override=None):
     if download:
         sys.path.insert(0, str(ROOT / "experiments"))
         from download import campaign
-    output = OUT / "download" if download else OUT
+    output = pathlib.Path(output_override) if output_override is not None else (OUT / "download" if download else OUT)
     expected = campaign.plan() if download else plan()
     publisher = campaign.publish if download else publish
     output.mkdir(parents=True, exist_ok=True)
     cpus = sorted(os.sched_getaffinity(0))
     assert len(cpus) >= 4
-    bins = {n: ROOT / "target/erasure-audit/bin" / n for n in ["main", "erase"]}
-    sources = json.loads((ROOT / "target/erasure-audit/builds.json").read_text())
+    bins = bins_override or {n: ROOT / "target/erasure-audit/bin" / n for n in ["main", "erase"]}
+    sources = sources_override or json.loads((ROOT / "target/erasure-audit/builds.json").read_text())
     build_cpu = None
-    if os.environ.get("NEXT_BUILD_MODE") == "cpu":
+    if os.environ.get("NEXT_BUILD_MODE") in {"cpu", "pgo-cpu"}:
         sys.path.insert(0, str(ROOT / "experiments/build"))
         from common import cpu_identity
         build_cpu = cpu_identity()
@@ -36,7 +36,7 @@ def run(download=False):
         assert json.loads(subprocess.check_output([str(binary), "identity"], text=True))["effective_sources_sha256"] == sources[name]["effective_sources_sha256"]
     env = dict(kernel=os.uname().release, machine=os.uname().machine, sources=sources,
                binaries={n: sha(p) for n, p in bins.items()}, host_cpus=cpus,
-               compiler=(ROOT / "target/erasure-audit/toolchain.txt").read_text(),
+               compiler=compiler_override or (ROOT / "target/erasure-audit/toolchain.txt").read_text(),
                scope="native diagnostic: actual host kernel; not supported-LTS kernel acceptance")
     (output / "environment.json").write_text(json.dumps(env, indent=2))
     if build_cpu:
@@ -52,7 +52,7 @@ def run(download=False):
             env["cpu_layout"] = dict(client=cpus[2:4], peer=cpus[0], server=cpus[0], load=cpus[1])
             (output / "environment.json").write_text(json.dumps(env, indent=2))
     with (output / "guest.log").open("w") as log:
-        if download:
+        if download and smoke:
             baseline_mode = "vnet" if os.environ.get("NEXT_DOWNLOAD_TUN_MODE") == "vnet" else "raw"
             smokes = [("main", baseline_mode, args) for args in campaign.smoke_arguments(str(bins["main"]))]
             if os.environ.get("NEXT_DOWNLOAD_TUN_MODE", "raw") in {"compare", "vnet"}:
@@ -84,6 +84,12 @@ def run(download=False):
             arguments = campaign.arguments(row, str(bins["main"])) if download else ["client", str(bins["main"]), row["protocol"],
                          str(row["size"]), str(row["window"]), str(row["seconds"]), str(row["flows"])]
             command = ["unshare", "-n", str(bins[row["build"]]), *arguments]
+            if row.get("network_delay_ms"):
+                assert row["network_delay_ms"] == 5
+                # qdisc belongs only to the new disposable namespace. A failed
+                # setup prevents exec; host networking is never modified.
+                setup='set -e; ip link set lo up; tc qdisc add dev lo root netem delay 5ms; echo NEXT_NETEM 5; tc qdisc show dev lo; exec "$@"'
+                command=["unshare","-n","sh","-c",setup,"netem",str(bins[row["build"]]),*arguments]
             proc = subprocess.Popen(command, env=process_env, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
             try:
                 code = proc.wait(timeout=180 if download else 40)
