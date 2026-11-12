@@ -175,5 +175,6 @@ jobs:
             target/erasure-audit/builds.json
             target/erasure-audit/toolchain.txt
             target/erasure-audit/pgo-*/
+            target/erasure-audit/*disassembly.txt
             target/erasure-audit/*.log
             target/erasure-audit/bin/

@@ -38,7 +38,8 @@ def main():
 
     def build(name, selected, log, test=False, example=False):
         env = dict(base_env, CARGO_TARGET_DIR=str(OUT/f'cargo-{name}'),
-                   NEXT_BUILD_ID=state[name]['effective_sources_sha256'], RUSTFLAGS=shlex.join(selected))
+                   NEXT_BUILD_ID=state[name]['effective_sources_sha256'], CARGO_ENCODED_RUSTFLAGS='\x1f'.join(selected))
+        env.pop('RUSTFLAGS', None)
         args = ['cargo', 'test' if test else 'build', '--locked', '--release', '--target', target,
                 '--no-default-features', '--features', 'unix', '--manifest-path', str(pathlib.Path(state[name]['path'])/'Cargo.toml')]
         args += ['--lib'] if test else (['--example', 'erasure_codegen'] if example else ['--bin', 'erasure-probe'])
@@ -90,6 +91,7 @@ def main():
     shutil.copy2(final, OUT/'bin/erase')
     build('erase', selected, 'optimized-regressions.log', test=True)
     erasure = build('erase', selected, 'optimized-erasure-build.log', example=True)
+    shutil.copy2(erasure, OUT/'bin/optimized-erasure-codegen')
     subprocess.run([str(erasure), 'K'], check=True)
     assembly = subprocess.check_output(['objdump', '-Cd', '--no-show-raw-insn', str(erasure)], text=True)
     relocations = subprocess.run(['objdump', '-R', str(erasure)], capture_output=True, text=True)
