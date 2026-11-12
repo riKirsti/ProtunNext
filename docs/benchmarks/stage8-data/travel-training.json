@@ -948,5 +948,109 @@
       "owned_processes_and_guard_absent": true
     },
     "all_passed": true
-  }
+  },
+  "training_attempts": [
+    {
+      "name": "udp-v4-https-2-a1",
+      "protocol": "udp",
+      "flows": 2,
+      "valid": false,
+      "error": "AssertionError: warmup failed",
+      "warmup_attempts": [
+        {
+          "valid": false,
+          "bytes": null,
+          "error": "SSLEOFError: [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1010)"
+        },
+        {
+          "valid": false,
+          "bytes": null,
+          "error": "SSLEOFError: [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1010)"
+        },
+        {
+          "valid": false,
+          "bytes": null,
+          "error": "SSLEOFError: [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1010)"
+        }
+      ]
+    },
+    {
+      "name": "udp-v4-https-2-a2",
+      "protocol": "udp",
+      "flows": 2,
+      "valid": true,
+      "warmup_attempts": [
+        {
+          "valid": true,
+          "bytes": 12000000,
+          "error": null
+        }
+      ]
+    },
+    {
+      "name": "udp-v4-https-4-a1",
+      "protocol": "udp",
+      "flows": 4,
+      "valid": true,
+      "warmup_attempts": [
+        {
+          "valid": true,
+          "bytes": 12000000,
+          "error": null
+        }
+      ]
+    },
+    {
+      "name": "tcp-v4-https-2-a1",
+      "protocol": "tcp",
+      "flows": 2,
+      "valid": true,
+      "warmup_attempts": [
+        {
+          "valid": true,
+          "bytes": 12000000,
+          "error": null
+        }
+      ]
+    },
+    {
+      "name": "tcp-v4-https-4-a1",
+      "protocol": "tcp",
+      "flows": 4,
+      "valid": true,
+      "warmup_attempts": [
+        {
+          "valid": true,
+          "bytes": 12000000,
+          "error": null
+        }
+      ]
+    },
+    {
+      "name": "stealth-v4-https-2-a1",
+      "protocol": "stealth",
+      "flows": 2,
+      "valid": true,
+      "warmup_attempts": [
+        {
+          "valid": true,
+          "bytes": 12000000,
+          "error": null
+        }
+      ]
+    },
+    {
+      "name": "stealth-v4-https-4-a1",
+      "protocol": "stealth",
+      "flows": 4,
+      "valid": true,
+      "warmup_attempts": [
+        {
+          "valid": true,
+          "bytes": 12000000,
+          "error": null
+        }
+      ]
+    }
+  ]
 }
