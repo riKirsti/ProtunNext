@@ -35,6 +35,15 @@ A device comparison must compile explicitly for that device and record its
 requirements. See [rustc target options](https://doc.rust-lang.org/rustc/codegen-options/index.html#target-cpu).
 Neither mode changes CPU allowances, NIC/router settings, crypto or worker bounds.
 
+Optimized configurations run release functional tests and the linked erasure
+fixture. The checker excludes zero-initialized allocation from erasure evidence.
+A real isolated negative control omits both the fill and barrier from the erase
+helper and must fail the checker. Merely removing a barrier is not reliably a
+negative under every target: some optimizers retain the ordinary clearing call.
+The insecure control is never executed as a runtime or deployed. Its disassembly,
+hash, explicit mutation and expected rejection are retained. Initial unsuccessful
+checks remain part of the stage record, not accepted timing samples.
+
 Optimized speed/resource comparisons remain separate from instrumentation.
 Frame-pointer diagnostics in the LTS workflow are currently limited to ordinary
 release mode; the workflow does not mislabel unoptimized diagnostics as PGO.

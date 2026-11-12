@@ -106,9 +106,9 @@ def main():
     shutil.copytree(state['erase']['path'], negative, dirs_exist_ok=True, ignore=shutil.ignore_patterns('.git', 'target'))
     packet = negative/'src/packet.rs'
     text = packet.read_text()
-    barrier = 'zeroize::optimization_barrier(bytes);'
-    assert text.count(barrier) == 1
-    packet.write_text(text.replace(barrier, '// Insecure isolated negative control: barrier removed.'))
+    erasure_body = 'bytes.fill(0);\n    zeroize::optimization_barrier(bytes);'
+    assert text.count(erasure_body) == 1
+    packet.write_text(text.replace(erasure_body, '// Insecure isolated negative control: entire wipe omitted.'))
     negative_env = dict(base_env, CARGO_TARGET_DIR=str(OUT/'cargo-negative'), CARGO_ENCODED_RUSTFLAGS='\x1f'.join(selected))
     negative_env.pop('RUSTFLAGS', None)
     with (OUT/'optimized-negative-build.log').open('w') as stream:
@@ -123,9 +123,9 @@ def main():
     except AssertionError as error:
         assert str(error) == 'no recognized zero memset reachable from audit_drop_packet; inspect disassembly'
     else:
-        raise AssertionError('optimized checker accepted the insecure barrier-free Drop')
-    extra['negative_control'] = dict(expected_rejection=True, binary_sha256=sha(negative_binary), checker_sha256=sha(ROOT/'experiments/audit/check_codegen.py'))
-    extra['gate_version'] = 2
+        raise AssertionError('optimized checker accepted the insecure wipe-free Drop')
+    extra['negative_control'] = dict(expected_rejection=True, mutation='omit fill and barrier in isolated erase helper', source_packet_sha256=sha(packet), binary_sha256=sha(negative_binary), checker_sha256=sha(ROOT/'experiments/audit/check_codegen.py'))
+    extra['gate_version'] = 3
     extra.update(erasure_checked=True, erasure_binary_sha256=sha(erasure))
     if mode == 'pgo':
         section_tool = tool.with_name('llvm-objdump')

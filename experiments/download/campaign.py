@@ -48,7 +48,7 @@ def plan():
                             rows[-1]["thread_placement"] = "split"
                     if build_mode != "release":
                         rows[-1]["build_mode"] = build_mode if build == "erase" else "release"
-                        rows[-1]["build_gate_version"] = 2
+                        rows[-1]["build_gate_version"] = 3
     selected=os.environ.get("NEXT_DOWNLOAD_BLOCK","")
     if selected:
         assert selected in {r["block"] for r in rows}, "unknown download workload block"
