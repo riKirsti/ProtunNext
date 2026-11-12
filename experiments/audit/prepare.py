@@ -15,6 +15,8 @@ BASELINE = "f7bf03f5b4dc3981eaadedbf3a7841c5ed5ee5c1"
 
 def prepare(candidate="HEAD", baseline=BASELINE):
     OUT.mkdir(parents=True, exist_ok=True)
+    tls_records = os.environ.get("NEXT_TLS_RECORD_PROTOTYPE", "0") == "1"
+    assert not (tls_records and os.environ.get("NEXT_RECEIVE_PROTOTYPE", "0") == "1"), "compare independent prototypes separately"
     state = {}
     for name, ref in {"main": baseline, "erase": candidate}.items():
         sha = subprocess.check_output(["git", "rev-parse", f"{ref}^{{commit}}"], cwd=ROOT, text=True).strip()
@@ -22,6 +24,7 @@ def prepare(candidate="HEAD", baseline=BASELINE):
         archive = subprocess.check_output(["git", "archive", sha], cwd=ROOT)
         subprocess.run(["tar", "-x", "-C", str(dest)], input=archive, check=True)
         prototype = None
+        tls_patch = None
         if name == "erase" and os.environ.get("NEXT_RECEIVE_PROTOTYPE", "0") == "1":
             patch = ROOT / "experiments/receive/stage4-pinned.patch"
             prototype = hashlib.sha256(patch.read_bytes()).hexdigest()
@@ -34,6 +37,14 @@ def prepare(candidate="HEAD", baseline=BASELINE):
             # Give only this disposable archive its own working-tree boundary.
             # The checked patch modifies src/ and the declared vendor surface;
             # the user's checkout and production build are never patched.
+            subprocess.run(["git", "init", "--quiet", str(dest)], check=True)
+            subprocess.run(["git", "-c", "core.autocrlf=false", "apply", "--whitespace=nowarn", str(patch)], cwd=dest, check=True)
+        if name == "erase" and tls_records:
+            patch = ROOT / "experiments/crypto/stage5-aws-lc-records.patch"
+            tls_patch = hashlib.sha256(patch.read_bytes()).hexdigest()
+            assert tls_patch == "3cf2ac9ad7eef47777bd72a4846ddb86d9d2f4660594309d2cdeb9a99e69c5e8", "TLS prototype identity changed"
+            for file in [*(dest / "src").rglob("*.rs"), dest / "Cargo.toml", dest / "Cargo.lock"]:
+                file.write_bytes(file.read_bytes().replace(b"\r\n", b"\n"))
             subprocess.run(["git", "init", "--quiet", str(dest)], check=True)
             subprocess.run(["git", "-c", "core.autocrlf=false", "apply", "--whitespace=nowarn", str(patch)], cwd=dest, check=True)
         runtime = hashlib.sha256()
@@ -78,6 +89,9 @@ def prepare(candidate="HEAD", baseline=BASELINE):
         state[name] = dict(sha=sha, path=str(dest), archive_sha256=hashlib.sha256(archive).hexdigest(), effective_sources_sha256=digest.hexdigest(), runtime_sources_sha256=runtime.hexdigest())
         if prototype:
             state[name].update(prototype_patch_sha256=prototype, prototype_source_commit="543675241b948a6d3b8c656bb39feb7450b9470a")
+        if tls_patch:
+            state[name].update(tls_record_prototype_patch_sha256=tls_patch,
+                               prototype_scope="NoLocalAgent record-cipher comparison; dual-provider compatibility unresolved")
     # Equal packet sources are a legitimate A/A characterization, not a speedup.
     (OUT / "builds.json").write_text(json.dumps(state, indent=2), encoding="utf-8")
     return state

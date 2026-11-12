@@ -1,0 +1,195 @@
+diff --git a/Cargo.lock b/Cargo.lock
+index a9e0f5b..29c3958 100644
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -187,6 +187,29 @@ version = "1.5.1"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "f2032f911046de80f0a198e0901378627c33f59ea0ac00e363d481118bd70a53"
+ 
++[[package]]
++name = "aws-lc-rs"
++version = "1.19.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "048006790404103c488e6c5616b3e7e702a71292aadda08e8f7698a9e0d2eb53"
++dependencies = [
++ "aws-lc-sys",
++ "zeroize",
++]
++
++[[package]]
++name = "aws-lc-sys"
++version = "0.47.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "8bfbe32ac36b3c428696ce315464181bc4029d689fd58e3f2a4e58c252242f52"
++dependencies = [
++ "cc",
++ "cmake",
++ "dunce",
++ "fs_extra",
++ "pkg-config",
++]
++
+ [[package]]
+ name = "base16ct"
+ version = "0.2.0"
+@@ -422,6 +445,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "86e055fa6e3e40ad6187ba25b6855eeb635d5271f8e0f0e1e9a5826b8d75bea0"
+ dependencies = [
+  "find-msvc-tools",
++ "jobserver",
++ "libc",
+  "shlex",
+ ]
+ 
+@@ -536,6 +561,15 @@ dependencies = [
+  "digest 0.10.7",
+ ]
+ 
++[[package]]
++name = "cmake"
++version = "0.1.58"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "c0f78a02292a74a88ac736019ab962ece0bc380e3f977bf72e376c5d78ff0678"
++dependencies = [
++ "cc",
++]
++
+ [[package]]
+ name = "combine"
+ version = "4.6.9"
+@@ -1014,6 +1048,12 @@ dependencies = [
+  "zeroize",
+ ]
+ 
++[[package]]
++name = "dunce"
++version = "1.0.5"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "92773504d58c093f6de2459af4af33faa518c13451eb8f2b5698ed3d36e7c813"
++
+ [[package]]
+ name = "eax"
+ version = "0.5.0"
+@@ -1225,6 +1265,12 @@ dependencies = [
+  "autocfg",
+ ]
+ 
++[[package]]
++name = "fs_extra"
++version = "1.3.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "42703706b716c37f96a77aea830392ad231f44c9e9a67872fa5548707e11b11c"
++
+ [[package]]
+ name = "funty"
+ version = "2.0.0"
+@@ -1819,6 +1865,16 @@ dependencies = [
+  "syn 2.0.119",
+ ]
+ 
++[[package]]
++name = "jobserver"
++version = "0.1.35"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "1c00acbd29eabad4a2392fa0e921c874934dbbf4194312ad20f04a0ed67a3cb3"
++dependencies = [
++ "getrandom 0.4.3",
++ "libc",
++]
++
+ [[package]]
+ name = "js-sys"
+ version = "0.3.107"
+@@ -2358,6 +2414,12 @@ dependencies = [
+  "spki 0.8.1",
+ ]
+ 
++[[package]]
++name = "pkg-config"
++version = "0.3.34"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "f6b464fbc74e149a392436b17d523f769e057cb6877f6a5c4618bc6f11800548"
++
+ [[package]]
+ name = "plain"
+ version = "0.2.3"
+@@ -2819,6 +2881,7 @@ version = "0.23.46"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "48e13bd8c0e9365c43cfa5c9e8f9ad49d3c8444926c9aac819e0e4dc503c8fdf"
+ dependencies = [
++ "aws-lc-rs",
+  "log",
+  "once_cell",
+  "ring",
+@@ -2843,6 +2906,7 @@ version = "0.103.16"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "4443b1b6d39d7c663139942cc4558262562d2c84123bb6282ef177009ca8b281"
+ dependencies = [
++ "aws-lc-rs",
+  "ring",
+  "rustls-pki-types",
+  "untrusted",
+diff --git a/Cargo.toml b/Cargo.toml
+index 5b7d22c..2b61380 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -36,7 +36,7 @@ getrandom = "0.4"
+ base64 = "0.22"
+ proton-boringtun = { version = "=4.9.0", path = "vendor/proton-boringtun", default-features = false, features = ["in-place"] }
+ rand_chacha = "0.10"
+-rustls = { version = "=0.23.46", default-features = false, features = ["std", "ring", "tls12"] }
++rustls = { version = "=0.23.46", default-features = false, features = ["std", "ring", "aws_lc_rs", "tls12"] }
+ webpki-roots = "1"
+ proton-vpn-local-agent = { version = "=0.13.0", registry = "proton", optional = true }
+ futures = { version = "0.3", optional = true }
+diff --git a/src/stealth.rs b/src/stealth.rs
+index 1a09643..834f535 100644
+--- a/src/stealth.rs
++++ b/src/stealth.rs
+@@ -122,7 +122,7 @@ mod policy {
+         .map_err(|e| Error::Protocol(e.to_string()))
+     }
+     fn config() -> Result<Arc<rustls::ClientConfig>> {
+-        let provider = Arc::new(rustls::crypto::ring::default_provider());
++        let provider = Arc::new(crate::tls::record_crypto_provider()?);
+         let config = rustls::ClientConfig::builder_with_provider(provider.clone())
+             .with_safe_default_protocol_versions()
+             .map_err(|e| Error::Protocol(e.to_string()))?
+diff --git a/src/tls.rs b/src/tls.rs
+index 09a092b..d52f9af 100644
+--- a/src/tls.rs
++++ b/src/tls.rs
+@@ -47,7 +47,7 @@ pub fn client_with_roots(
+ }
+ fn config_with_roots(roots: rustls::RootCertStore) -> Result<Arc<rustls::ClientConfig>> {
+     let mut config = rustls::ClientConfig::builder_with_provider(Arc::new(
+-        rustls::crypto::ring::default_provider(),
++        record_crypto_provider()?,
+     ))
+     .with_safe_default_protocol_versions()
+     .map_err(|e| Error::Protocol(e.to_string()))?
+@@ -56,3 +56,24 @@ fn config_with_roots(roots: rustls::RootCertStore) -> Result<Arc<rustls::ClientC
+     config.alpn_protocols.clear();
+     Ok(Arc::new(config))
+ }
++
++/// Experimental Stage 5 record-cipher comparison. Keep the existing TLS policy:
++/// suite order/identities, key exchanges, randomness, signing and verification.
++/// Only the implementations behind the advertised record suites are replaced.
++pub(crate) fn record_crypto_provider() -> Result<rustls::crypto::CryptoProvider> {
++    let mut provider = rustls::crypto::ring::default_provider();
++    let candidate = rustls::crypto::aws_lc_rs::default_provider();
++    provider.cipher_suites = provider
++        .cipher_suites
++        .iter()
++        .map(|suite| {
++            candidate
++                .cipher_suites
++                .iter()
++                .find(|other| other.suite() == suite.suite())
++                .copied()
++                .ok_or(Error::Invalid("TLS record cipher unavailable"))
++        })
++        .collect::<Result<Vec<_>>>()?;
++    Ok(provider)
++}

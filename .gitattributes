@@ -1,2 +1,3 @@
 /vendor/proton-boringtun/** -text
 /experiments/receive/*.patch -text
+/experiments/crypto/*.patch -text

@@ -8,6 +8,10 @@ on:
       - .github/workflows/udp-batch-experiment.yml
   workflow_dispatch:
     inputs:
+      tls_records:
+        type: boolean
+        default: false
+        description: Build archive-only Stage 5 TLS record prototype (NoLocalAgent experiment)
       screen_crypto:
         type: boolean
         default: false
@@ -49,8 +53,9 @@ defaults:
 env:
   BASELINE: ${{ inputs.baseline || 'f3e7502217153bad5decc8ef700f5afee6d0652e' }}
   NEXT_RECEIVE_PROTOTYPE: ${{ inputs.parallel_receive && '1' || '0' }}
+  NEXT_TLS_RECORD_PROTOTYPE: ${{ inputs.tls_records && '1' || '0' }}
 concurrency:
-  group: udp-batch-${{ github.ref }}-${{ inputs.tun_mode }}-${{ inputs.rate_bps }}-${{ inputs.block }}-${{ inputs.client_cores }}-${{ inputs.parallel_receive }}
+  group: udp-batch-${{ github.ref }}-${{ inputs.tun_mode }}-${{ inputs.rate_bps }}-${{ inputs.block }}-${{ inputs.client_cores }}-${{ inputs.parallel_receive }}-${{ inputs.tls_records }}-${{ inputs.screen_crypto }}
   cancel-in-progress: true
 jobs:
   crypto-screen:
