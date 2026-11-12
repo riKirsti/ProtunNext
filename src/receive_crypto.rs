@@ -14,6 +14,46 @@ use std::{collections::VecDeque, sync::mpsc, thread};
 const MAX_BATCH: usize = 32;
 const MIN_PARALLEL: usize = 8;
 
+fn pin(cpu: usize) -> bool {
+    #[cfg(target_os = "linux")]
+    {
+        // SAFETY: zero initializes an empty Linux CPU mask.
+        let mut mask: libc::cpu_set_t = unsafe { std::mem::zeroed() };
+        // SAFETY: callers obtain cpu from this same bounded CPU_SETSIZE mask.
+        unsafe { libc::CPU_SET(cpu, &mut mask) };
+        // SAFETY: current owned thread only; complete immutable input mask.
+        unsafe { libc::sched_setaffinity(0, std::mem::size_of_val(&mask), &mask) == 0 }
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = cpu;
+        false
+    }
+}
+fn placement() -> Option<[usize; 2]> {
+    #[cfg(target_os = "linux")]
+    {
+        if !thread::available_parallelism().is_ok_and(|n| n.get() >= 2) {
+            return None;
+        }
+        // SAFETY: initialized CPU-set storage for the current owned thread.
+        let mut mask: libc::cpu_set_t = unsafe { std::mem::zeroed() };
+        // SAFETY: complete writable output mask; query changes no thread state.
+        if unsafe { libc::sched_getaffinity(0, std::mem::size_of_val(&mask), &mut mask) } != 0 {
+            return None;
+        }
+        let mut cpus = (0..libc::CPU_SETSIZE as usize).filter(|&cpu| {
+            // SAFETY: index is bounded by the initialized mask size.
+            unsafe { libc::CPU_ISSET(cpu, &mask) }
+        });
+        Some([cpus.next()?, cpus.next()?])
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        None
+    }
+}
+
 enum Item {
     Raw(Packet),
     Job(DataJob<Packet>),
@@ -35,12 +75,22 @@ struct Helper {
     thread: Option<thread::JoinHandle<()>>,
 }
 impl Helper {
+    #[cfg(test)]
     fn new() -> std::io::Result<Self> {
+        Self::new_on(None)
+    }
+    fn new_on(cpu: Option<usize>) -> std::io::Result<Self> {
         let (send, receive) = mpsc::sync_channel::<Vec<Item>>(1);
         let (done, collect) = mpsc::sync_channel(1);
+        let (started, startup) = mpsc::sync_channel(1);
         let thread = thread::Builder::new()
             .name("protun-next-open".into())
             .spawn(move || {
+                let placed = cpu.is_none_or(pin);
+                let _ = started.send(placed);
+                if !placed {
+                    return;
+                }
                 while let Ok(mut batch) = receive.recv() {
                     for item in &mut batch {
                         item.authenticate();
@@ -50,6 +100,10 @@ impl Helper {
                     }
                 }
             })?;
+        if !startup.recv().unwrap_or(false) {
+            let _ = thread.join();
+            return Err(std::io::Error::other("receive helper CPU placement failed"));
+        }
         Ok(Self {
             input: Some(send),
             output: Some(collect),
@@ -84,16 +138,24 @@ pub(crate) struct Receiver {
     owner_batch: Vec<Item>,
     helper_batch: Vec<Item>,
     deferred: Option<Result<Receive>>,
+    placement: Option<[usize; 2]>,
 }
 impl Receiver {
     pub(crate) fn new() -> Self {
-        Self::with_parallel(
-            cfg!(target_os = "linux")
-                && thread::available_parallelism().is_ok_and(|n| n.get() >= 2),
-        )
+        let cpus = placement();
+        Self::with_placement(cpus.is_some(), cpus)
     }
+    #[cfg(test)]
     fn with_parallel(enabled: bool) -> Self {
-        let helper = enabled.then(Helper::new).and_then(std::result::Result::ok);
+        Self::with_placement(enabled, None)
+    }
+    fn with_placement(enabled: bool, placement: Option<[usize; 2]>) -> Self {
+        let mut helper = enabled
+            .then(|| Helper::new_on(placement.map(|cpus| cpus[1])))
+            .and_then(std::result::Result::ok);
+        if helper.is_some() && placement.is_some_and(|cpus| !pin(cpus[0])) {
+            helper = None;
+        }
         let capacity = if helper.is_some() { MAX_BATCH } else { 0 };
         Self {
             helper,
@@ -101,6 +163,7 @@ impl Receiver {
             owner_batch: Vec::with_capacity(capacity),
             helper_batch: Vec::with_capacity(capacity),
             deferred: None,
+            placement,
         }
     }
     pub(crate) fn is_drained(&self) -> bool {
@@ -136,6 +199,10 @@ impl Receiver {
         }
         let helper = self.helper.as_ref().expect("parallel receiver");
         counters.parallel_batches += 1;
+        if let Some([owner, helper]) = self.placement {
+            counters.parallel_owner_cpu = Some(owner as u32);
+            counters.parallel_helper_cpu = Some(helper as u32);
+        }
         counters.parallel_helper_packets += self.helper_batch.len() as u64;
         counters.parallel_owner_packets += self.owner_batch.len() as u64;
         counters.parallel_max_batch = counters.parallel_max_batch.max(data_count as u64);
