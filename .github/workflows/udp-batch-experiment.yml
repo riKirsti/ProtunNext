@@ -12,8 +12,8 @@ on:
       build_mode:
         type: choice
         default: release
-        options: [release, pgo, cpu]
-        description: Independent Stage 6 client build; portable release baseline helpers
+        options: [release, pgo, cpu, accept-paced, accept-capacity, accept-delay]
+        description: Independent build or Stage 7 same-host factors; fixed portable helpers
       tls_records:
         type: boolean
         default: false
@@ -126,7 +126,7 @@ jobs:
       matrix:
         os: [ubuntu-24.04, ubuntu-24.04-arm]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 40
+    timeout-minutes: 100
     steps:
       - uses: actions/checkout@v4
         with:
@@ -139,9 +139,14 @@ jobs:
           python3 -m unittest discover -s experiments/audit -p 'test_*.py' -v
       - name: Build candidate and fixed baseline auxiliaries
         run: |
-          if [ "$NEXT_BUILD_MODE" = pgo ]; then rustup component add llvm-tools-preview; fi
-          bash experiments/audit/build.sh "$(rustc -vV | sed -n 's/^host: //p')"
+          if [[ "$NEXT_BUILD_MODE" = pgo || "$NEXT_BUILD_MODE" = accept-* ]]; then rustup component add llvm-tools-preview; fi
+          if [[ "$NEXT_BUILD_MODE" = accept-* ]]; then
+            python3 experiments/build/accept.py "${NEXT_BUILD_MODE#accept-}"
+          else
+            bash experiments/audit/build.sh "$(rustc -vV | sed -n 's/^host: //p')"
+          fi
       - name: Compare verified downloads across all transports
+        if: ${{ !startsWith(inputs.build_mode, 'accept-') }}
         env:
           NEXT_DOWNLOAD_RATE_BPS: ${{ inputs.rate_bps || '0' }}
           NEXT_DOWNLOAD_BLOCK: ${{ inputs.block }}
@@ -167,3 +172,4 @@ jobs:
             target/erasure-audit/pgo-*/
             target/erasure-audit/*disassembly.txt
             target/erasure-audit/bin/
+            target/erasure-audit/matrix/

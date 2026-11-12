@@ -52,7 +52,8 @@ must justify any retained recipe. There is no automatic promotion or release.
 
 ## Stage 7 same-host acceptance
 
-`build-acceptance.yml` freezes merged PR #11 and runs portable, PGO, CPU and
+The existing native workflow's `accept-paced`, `accept-capacity`, and
+`accept-delay` build modes freeze merged PR #11 and run portable, PGO, CPU and
 PGO+CPU factors on each native host. The portable baseline/helper is built once;
 the same archives are reused and baseline executable hashes must stay identical.
 Combined PGO is freshly trained with the same native CPU flag used for its final
