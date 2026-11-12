@@ -60,6 +60,7 @@ class DownloadValidity(unittest.TestCase):
                 binary_sha256=self.env['binaries'][name], rustflags=[])
         candidate=self.env['sources']['erase']['build_configuration']
         candidate['erasure_checked']=True
+        candidate.update(gate_version=2,negative_control={'expected_rejection':True})
         if mode=='pgo':
             candidate.update(rustflags=['-Cprofile-use=/fresh/client.profdata'], profile=dict(path='/fresh/client.profdata',sha256='4'*64,instrumentation_absent=True,raw_files=[{'sha256':'5'*64}],
                 training={'cases':[dict(name=f'{p}-{n}',flows=2 if n==0 else 4,verified=True) for p in ['udp','tcp','stealth'] for n in range(2)]}))

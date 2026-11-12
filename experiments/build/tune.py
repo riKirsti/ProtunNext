@@ -100,6 +100,32 @@ def main():
     assembly_path.write_text(assembly)
     with (OUT/'optimized-erasure-check.log').open('w') as stream:
         subprocess.run([sys.executable, str(ROOT/'experiments/audit/check_codegen.py'), str(assembly_path)], stdout=stream, stderr=subprocess.STDOUT, check=True)
+    # Validate this exact optimizer/CPU configuration against an insecure
+    # control, not just the portable compiler configuration in ordinary CI.
+    negative = pathlib.Path(tempfile.mkdtemp(prefix='negative-', dir=OUT))
+    shutil.copytree(state['erase']['path'], negative, dirs_exist_ok=True, ignore=shutil.ignore_patterns('.git', 'target'))
+    packet = negative/'src/packet.rs'
+    text = packet.read_text()
+    barrier = 'zeroize::optimization_barrier(bytes);'
+    assert text.count(barrier) == 1
+    packet.write_text(text.replace(barrier, '// Insecure isolated negative control: barrier removed.'))
+    negative_env = dict(base_env, CARGO_TARGET_DIR=str(OUT/'cargo-negative'), CARGO_ENCODED_RUSTFLAGS='\x1f'.join(selected))
+    negative_env.pop('RUSTFLAGS', None)
+    with (OUT/'optimized-negative-build.log').open('w') as stream:
+        subprocess.run(['cargo','build','--locked','--release','--target',target,'--no-default-features','--features','unix','--example','erasure_codegen','--manifest-path',str(negative/'Cargo.toml')], env=negative_env, stdout=stream, stderr=subprocess.STDOUT, check=True)
+    negative_binary = OUT/'cargo-negative'/target/'release/examples/erasure_codegen'
+    negative_asm = subprocess.check_output(['objdump','-Cd','--no-show-raw-insn',str(negative_binary)], text=True)
+    negative_asm += subprocess.run(['objdump','-R',str(negative_binary)], capture_output=True, text=True).stdout
+    (OUT/'optimized-negative-disassembly.txt').write_text(negative_asm)
+    from check_codegen import check
+    try:
+        check(negative_asm, roots=('audit_drop_packet',))
+    except AssertionError as error:
+        assert str(error) == 'no recognized zero memset reachable from audit_drop_packet; inspect disassembly'
+    else:
+        raise AssertionError('optimized checker accepted the insecure barrier-free Drop')
+    extra['negative_control'] = dict(expected_rejection=True, binary_sha256=sha(negative_binary), checker_sha256=sha(ROOT/'experiments/audit/check_codegen.py'))
+    extra['gate_version'] = 2
     extra.update(erasure_checked=True, erasure_binary_sha256=sha(erasure))
     if mode == 'pgo':
         section_tool = tool.with_name('llvm-objdump')

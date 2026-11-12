@@ -48,6 +48,7 @@ def plan():
                             rows[-1]["thread_placement"] = "split"
                     if build_mode != "release":
                         rows[-1]["build_mode"] = build_mode if build == "erase" else "release"
+                        rows[-1]["build_gate_version"] = 2
     selected=os.environ.get("NEXT_DOWNLOAD_BLOCK","")
     if selected:
         assert selected in {r["block"] for r in rows}, "unknown download workload block"
@@ -125,6 +126,8 @@ def metrics(row, env):
         if cfg["mode"] != "release":
             assert env["binaries"]["main"] != env["binaries"]["erase"], "build experiment reused baseline binary"
             assert cfg["erasure_checked"] is True, "optimized erasure not checked"
+            if row.get("build_gate_version", 1) >= 2:
+                assert cfg["gate_version"] == row["build_gate_version"] and cfg["negative_control"]["expected_rejection"] is True, "optimized negative control not checked"
         if cfg["mode"] == "pgo":
             profile = cfg["profile"]
             assert len(profile["sha256"]) == 64 and profile["raw_files"], "missing training profile identity"
