@@ -21,11 +21,6 @@ use std::{
 };
 
 pub(crate) trait Network {
-    /// Minimum free buffers before an additional prefetched receive, including
-    /// its scratch, backend batching and two buffers for owner/control progress.
-    fn receive_reserve(&self) -> usize {
-        3
-    }
     fn diagnostics(&self) -> crate::performance::IoCounters {
         Default::default()
     }
@@ -104,16 +99,6 @@ impl Datagram {
     }
 }
 impl Network for Datagram {
-    fn receive_reserve(&self) -> usize {
-        #[cfg(any(target_os = "linux", target_os = "android"))]
-        {
-            self.batch.receive_reserve()
-        }
-        #[cfg(not(any(target_os = "linux", target_os = "android")))]
-        {
-            3
-        }
-    }
     fn diagnostics(&self) -> crate::performance::IoCounters {
         #[cfg(any(target_os = "linux", target_os = "android"))]
         {

@@ -310,7 +310,6 @@ pub(crate) fn run<N: Network>(
     let mut net_ready = true;
     let mut drain = false;
     let mut network_error = None;
-    let mut receive_crypto = crate::receive_crypto::Receiver::new();
     while !stop.load(Ordering::Relaxed) {
         let batch_now = boottime()?;
         if let Some(replacement) = observer.and_then(|o| o.take_tun_update()) {
@@ -526,7 +525,7 @@ pub(crate) fn run<N: Network>(
                 _ => pool.recycle(output)?,
             }
         }
-        for remaining in (1..=BUDGET).rev() {
+        for _ in 0..BUDGET {
             if network_error.is_some()
                 || !net_ready
                 || pool.available() < 2
@@ -535,28 +534,16 @@ pub(crate) fn run<N: Network>(
             {
                 break;
             }
-            // Reserve queue capacity and two free pool buffers for the entire
-            // prefetched group; no authenticated job crosses an owner-loop barrier.
-            let limit = remaining
-                .min(63 - to_tun.len())
-                .min(pool.available().saturating_sub(2).max(1));
-            match receive_crypto.receive(
-                &mut network,
-                &mut pool,
-                &mut session,
-                limit,
-                &mut counters,
-                |packet| {
+            let mut input = pool.take_sized(65535).ok_or(Error::Full)?;
+            match network.receive(&mut input, &mut pool) {
+                Ok(Receive::Packet) => {
+                    counters.network_reads += 1;
                     if let Some(observer) = observer {
-                        observer.capture_wireguard(packet, false);
+                        observer.capture_wireguard(input.data(), false);
                     }
-                },
-            ) {
-                Ok(crate::receive_crypto::Decrypted::Packet {
-                    result,
-                    packet: mut output,
-                    in_place,
-                }) => {
+                    let in_place = input.data().starts_with(&[4, 0, 0, 0]);
+                    let (result, mut output) =
+                        decrypt_owned(&mut session, &mut pool, input, in_place)?;
                     if in_place {
                         counters.in_place_decryptions += 1;
                     }
@@ -634,13 +621,17 @@ pub(crate) fn run<N: Network>(
                         }
                     }
                 }
-                Ok(crate::receive_crypto::Decrypted::Event(Receive::WouldBlock)) => {
+                Ok(Receive::WouldBlock) => {
                     net_ready = false;
+                    pool.recycle(input)?;
                     break;
                 }
-                Ok(crate::receive_crypto::Decrypted::Event(Receive::Yield)) => {}
-                Ok(crate::receive_crypto::Decrypted::Event(Receive::Eof)) => {
+                Ok(Receive::Yield) => {
+                    pool.recycle(input)?;
+                }
+                Ok(Receive::Eof) => {
                     counters.outer_eof += 1;
+                    pool.recycle(input)?;
                     network_error =
                         Some(std::io::Error::from(std::io::ErrorKind::UnexpectedEof).into());
                     tun_ready = false;
@@ -648,10 +639,8 @@ pub(crate) fn run<N: Network>(
                     drain = false;
                     break;
                 }
-                Ok(crate::receive_crypto::Decrypted::Event(Receive::Packet)) => {
-                    unreachable!("data has an owned result")
-                }
                 Err(e) => {
+                    pool.recycle(input)?;
                     counters.outer_io_errors += 1;
                     network_error = Some(e);
                     tun_ready = false;
@@ -661,10 +650,6 @@ pub(crate) fn run<N: Network>(
                 }
             }
         }
-        debug_assert!(
-            receive_crypto.is_drained(),
-            "receive results crossed a control barrier"
-        );
         for _ in 0..BUDGET {
             if !drain || to_net.len() + network.pending() >= 63 {
                 break;
@@ -885,7 +870,7 @@ fn encrypt_owned(
 }
 
 type OwnedDecryption = (Result<Output>, crate::packet::Packet);
-pub(crate) fn decrypt_owned(
+fn decrypt_owned(
     session: &mut Session,
     pool: &mut PacketPool,
     input: crate::packet::Packet,

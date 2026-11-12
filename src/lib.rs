@@ -40,8 +40,6 @@ pub mod packet;
 pub mod performance;
 #[cfg(any(unix, windows))]
 mod platform;
-#[cfg(any(unix, windows))]
-mod receive_crypto;
 pub mod routing;
 pub mod session;
 pub mod stealth;
