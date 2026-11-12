@@ -49,3 +49,22 @@ checking cleanup. Separate frame-pointer profiles do not supply speed estimates.
 
 No candidate is selected until whole-download measurements justify its scheduling,
 memory and maintenance cost. Multicore primitive throughput alone is insufficient.
+
+## Initial screening and placement follow-up
+
+Initial normalized production source `7da4431e14d70ba955f2fe8de615efb9f486160f`
+(the following `5ba2066` commit preserves upstream CRLF only) passes all platform
+checks and 24 focused verified downloads. It does not justify promotion: UDP
+IPv4 single-flow throughput on 6.12 is 1906.41/1564.93 Mbps (-17.91%), client
+CPU/byte +91.15%; at 200 Mbps, native x64 CPU/byte rises 43.73% and ARM64 24.89%.
+These are separate cohorts, not pooled results. Both paced cells pass controls;
+the unpaced cell is helper-limited. All exercise real parallel authentication.
+
+The follow-up keeps the same batch bounds, ownership and crypto, but puts the
+owner and helper on distinct CPUs within the caller's existing allowance.
+Affinity changes affect only owned threads and end with their lifetimes; no
+host/NIC setting changes. Startup failure retains serial delivery. Recorded
+thread CPU IDs must cover exactly the two allowed client CPUs. This tests whether
+thread migration/handoff placement contributes to the initial regression; it
+does not assume that a scheduling change fixes it. Initial failures are retained
+and the follow-up requires independent measurements and Travel validation.

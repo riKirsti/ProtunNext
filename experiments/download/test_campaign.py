@@ -136,7 +136,7 @@ class DownloadValidity(unittest.TestCase):
             m.update(tun_mode="vnet",client_affinity_cpus=[2,3],shared_peer_server_cpu=True)
             m["counters"].update(tun_coalesced_packets=32,tun_max_write_batch=16,tun_offload_fallbacks=0)
             if row["build"]=="erase":
-                m["counters"].update(parallel_batches=1,parallel_helper_packets=8,parallel_owner_packets=8,parallel_max_batch=16)
+                m["counters"].update(parallel_batches=1,parallel_helper_packets=8,parallel_owner_packets=8,parallel_max_batch=16,parallel_owner_cpu=2,parallel_helper_cpu=3)
             m["peer"].update(cpu_seconds=9,wire_cpu_seconds=4.5,server_cpu_seconds=4.5)
         result=self.analyze()
         self.assertFalse(result["errors"])
@@ -146,6 +146,9 @@ class DownloadValidity(unittest.TestCase):
         candidate["client_affinity_cpus"]=[0,1]
         self.assertTrue(self.analyze()["errors"])
         candidate["client_affinity_cpus"]=[2,3]
+        candidate["counters"]["parallel_helper_cpu"]=2
+        self.assertTrue(self.analyze()["errors"])
+        candidate["counters"]["parallel_helper_cpu"]=3
         for key,bad in [("parallel_batches",0),("parallel_helper_packets",0),("parallel_owner_packets",0),("parallel_max_batch",4),("parallel_max_batch",33)]:
             saved=candidate["counters"][key];candidate["counters"][key]=bad
             self.assertTrue(self.analyze()["errors"])

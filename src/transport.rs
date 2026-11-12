@@ -30,6 +30,8 @@ pub struct Counters {
     pub parallel_owner_packets: u64,
     pub parallel_max_batch: u64,
     pub parallel_control_barriers: u64,
+    pub parallel_owner_cpu: Option<u32>,
+    pub parallel_helper_cpu: Option<u32>,
     /// Byte accounting is populated only by debug-counters builds.
     pub successful_crypto_copy_bytes: u64,
     pub pool_recycle_wipe_bytes: u64,

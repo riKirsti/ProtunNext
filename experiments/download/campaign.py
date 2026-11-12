@@ -42,6 +42,8 @@ def plan():
                         rows[-1].update(client_cores=2, shared_peer_server_cpu=True)
                     if parallel:
                         rows[-1]["parallel_receive"] = build == "erase"
+                        if build == "erase":
+                            rows[-1]["thread_placement"] = "split"
     selected=os.environ.get("NEXT_DOWNLOAD_BLOCK","")
     if selected:
         assert selected in {r["block"] for r in rows}, "unknown download workload block"
@@ -118,6 +120,8 @@ def metrics(row, env):
         assert m["counters"].get("parallel_helper_packets", 0) > 0
         assert m["counters"].get("parallel_owner_packets", 0) > 0
         assert 8 <= m["counters"].get("parallel_max_batch", 0) <= 32
+        if row.get("thread_placement") == "split":
+            assert {m["counters"]["parallel_owner_cpu"],m["counters"]["parallel_helper_cpu"]} == set(m["client_affinity_cpus"]), "receive threads do not occupy the two allowed CPUs"
     elif "parallel_receive" in row:
         assert m["counters"].get("parallel_batches", 0) == 0, "baseline unexpectedly used parallel receive"
     assert m.get("tun_mode", "raw") == row.get("tun_mode", "raw"), "TUN mode identity mismatch"
