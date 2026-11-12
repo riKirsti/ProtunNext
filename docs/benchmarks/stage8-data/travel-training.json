@@ -1,0 +1,952 @@
+{
+  "profile": {
+    "run": "<local-work>\\stage8-travel-private\\training\\run-6bde5600a8",
+    "source_build": {
+      "features": "unix",
+      "flags": [
+        "-Cprofile-generate"
+      ],
+      "bytes": 9185936,
+      "binary_sha256": "2a3d125c66621295daca79f219ccc164f2956efc9c99556430ccba4a19430167",
+      "source": {
+        "sha": "aa43d3dab035092e0f9ff21c3f811435ef225017",
+        "archive_sha256": "a0b4b7ca1b4e1784cb5bbf05eea5177a97d5686950995fc121c888adbc8525bb",
+        "runtime_sources_sha256": "5d448b4aabf1041e3a13920294314097f88a30eeb9a2d4c799724c2c04112fc7",
+        "effective_sources_sha256": "9983b2291201851a14a22092c6bd3de8750b100b9f0acb79825db7f87a4f9e1a",
+        "build_mode": "pgo",
+        "target": "aarch64-unknown-linux-musl",
+        "features": "unix; NoLocalAgent"
+      },
+      "target": "aarch64-unknown-linux-musl",
+      "variant": "pgo-gen"
+    },
+    "cases": [
+      {
+        "name": "udp-v4-https-2-a2",
+        "protocol": "udp",
+        "flows": 2,
+        "valid": true,
+        "scope": "training only; not performance",
+        "warmups": [
+          {
+            "requested_bytes": 12000000,
+            "valid": true,
+            "tls": "TLSv1.2",
+            "status": 206,
+            "content_range": "bytes 0-11999999/148648524",
+            "bytes": 12000000,
+            "sha256": "389a4dfd673664cfc1391c678a627e9f26822a6fc51dcb3108ead489f4497f67",
+            "seconds": 0.8510430000023916,
+            "Mbps": 112.80276084725473
+          }
+        ],
+        "transfers": [
+          {
+            "requested_bytes": 12000000,
+            "valid": true,
+            "tls": "TLSv1.2",
+            "status": 206,
+            "content_range": "bytes 0-11999999/148648524",
+            "bytes": 12000000,
+            "sha256": "389a4dfd673664cfc1391c678a627e9f26822a6fc51dcb3108ead489f4497f67",
+            "seconds": 1.1245699999999488,
+            "Mbps": 85.36596210107363
+          },
+          {
+            "requested_bytes": 12000000,
+            "valid": true,
+            "tls": "TLSv1.2",
+            "status": 206,
+            "content_range": "bytes 0-11999999/148648524",
+            "bytes": 12000000,
+            "sha256": "389a4dfd673664cfc1391c678a627e9f26822a6fc51dcb3108ead489f4497f67",
+            "seconds": 1.2822644999978365,
+            "Mbps": 74.86754877808906
+          }
+        ],
+        "snapshot": {
+          "sequence": 5,
+          "state": "TunnelEstablished",
+          "elapsed": {
+            "secs": 2,
+            "nanos": 63513982
+          },
+          "mono_timestamp": {
+            "secs": 19253,
+            "nanos": 185360170
+          },
+          "stats_generation": 0,
+          "statistics": {
+            "handshake_age": {
+              "secs": 2,
+              "nanos": 21604435
+            },
+            "sent_bytes": 345681,
+            "received_bytes": 30860092,
+            "estimated_loss": 0.16024333,
+            "handshake_rtt": {
+              "secs": 0,
+              "nanos": 40000000
+            }
+          },
+          "counters": {
+            "tun_reads": 5344,
+            "network_reads": 22226,
+            "decrypted_packets": 22225,
+            "invalid_packets": 0,
+            "outbound_filtered": 0,
+            "inbound_filtered": 0,
+            "pool_pressure": 0,
+            "polls": 1517,
+            "tun_backpressure": 0,
+            "tun_write_calls": 2470,
+            "tun_written_packets": 22225,
+            "tun_coalesced_packets": 21859,
+            "tun_max_write_batch": 32,
+            "tun_offload_fallbacks": 0,
+            "network_backpressure": 0,
+            "io": {
+              "receive_calls": 2198,
+              "send_calls": 1111,
+              "received_datagrams": 22226,
+              "sent_datagrams": 5346,
+              "max_receive_batch": 16,
+              "max_send_batch": 16,
+              "truncated_datagrams": 0,
+              "gso_datagrams": 4998,
+              "gro_datagrams": 21568,
+              "kernel_fallbacks": 0,
+              "enobufs": 0,
+              "received_bytes": 31869756,
+              "sent_bytes": 516869,
+              "receive_would_block": 867,
+              "send_would_block": 0,
+              "receive_interrupted": 0,
+              "send_interrupted": 0
+            },
+            "to_network_high_water": 63,
+            "to_tun_high_water": 63,
+            "pool_reserved_bytes": 405758,
+            "outer_eof": 0,
+            "outer_io_errors": 0,
+            "in_place_encryptions": 5344,
+            "in_place_decryptions": 22225,
+            "successful_crypto_copy_bytes": 0,
+            "pool_recycle_wipe_bytes": 0,
+            "to_network_bytes_high_water": 0,
+            "to_tun_bytes_high_water": 0
+          },
+          "tun_present": true,
+          "interface_error": null
+        },
+        "forwarded_bytes": {
+          "in": 24148045,
+          "out": 261800
+        },
+        "profiles": [
+          {
+            "name": "udp-v4-https-2-a2-pgo-17764740997186523491_0-32200.profraw",
+            "sha256": "cdef5b0dafc16894930592ab90ffc739389cc91e9df6e097c014ba26f5aee759",
+            "bytes": 1881080
+          }
+        ]
+      },
+      {
+        "name": "udp-v4-https-4-a1",
+        "protocol": "udp",
+        "flows": 4,
+        "valid": true,
+        "scope": "training only; not performance",
+        "warmups": [
+          {
+            "requested_bytes": 12000000,
+            "valid": true,
+            "tls": "TLSv1.2",
+            "status": 206,
+            "content_range": "bytes 0-11999999/148648524",
+            "bytes": 12000000,
+            "sha256": "389a4dfd673664cfc1391c678a627e9f26822a6fc51dcb3108ead489f4497f67",
+            "seconds": 0.8444696999940788,
+            "Mbps": 113.68081057339668
+          }
+        ],
+        "transfers": [
+          {
+            "requested_bytes": 12000000,
+            "valid": true,
+            "tls": "TLSv1.2",
+            "status": 206,
+            "content_range": "bytes 0-11999999/148648524",
+            "bytes": 12000000,
+            "sha256": "389a4dfd673664cfc1391c678a627e9f26822a6fc51dcb3108ead489f4497f67",
+            "seconds": 1.8914172999939183,
+            "Mbps": 50.75558947267147
+          },
+          {
+            "requested_bytes": 12000000,
+            "valid": true,
+            "tls": "TLSv1.2",
+            "status": 206,
+            "content_range": "bytes 0-11999999/148648524",
+            "bytes": 12000000,
+            "sha256": "389a4dfd673664cfc1391c678a627e9f26822a6fc51dcb3108ead489f4497f67",
+            "seconds": 1.9935957999987295,
+            "Mbps": 48.15419454638757
+          },
+          {
+            "requested_bytes": 12000000,
+            "valid": true,
+            "tls": "TLSv1.2",
+            "status": 206,
+            "content_range": "bytes 0-11999999/148648524",
+            "bytes": 12000000,
+            "sha256": "389a4dfd673664cfc1391c678a627e9f26822a6fc51dcb3108ead489f4497f67",
+            "seconds": 1.6459941000066465,
+            "Mbps": 58.323416833397125
+          },
+          {
+            "requested_bytes": 12000000,
+            "valid": true,
+            "tls": "TLSv1.2",
+            "status": 206,
+            "content_range": "bytes 0-11999999/148648524",
+            "bytes": 12000000,
+            "sha256": "389a4dfd673664cfc1391c678a627e9f26822a6fc51dcb3108ead489f4497f67",
+            "seconds": 3.2289367000048514,
+            "Mbps": 29.73114957622296
+          }
+        ],
+        "snapshot": {
+          "sequence": 7,
+          "state": "TunnelEstablished",
+          "elapsed": {
+            "secs": 4,
+            "nanos": 43540694
+          },
+          "mono_timestamp": {
+            "secs": 19260,
+            "nanos": 853513221
+          },
+          "stats_generation": 0,
+          "statistics": {
+            "handshake_age": {
+              "secs": 4,
+              "nanos": 4140525
+            },
+            "sent_bytes": 1088986,
+            "received_bytes": 60999706,
+            "estimated_loss": 0.14056963,
+            "handshake_rtt": {
+              "secs": 0,
+              "nanos": 38000000
+            }
+          },
+          "counters": {
+            "tun_reads": 16792,
+            "network_reads": 43905,
+            "decrypted_packets": 43904,
+            "invalid_packets": 0,
+            "outbound_filtered": 0,
+            "inbound_filtered": 0,
+            "pool_pressure": 2,
+            "polls": 4485,
+            "tun_backpressure": 0,
+            "tun_write_calls": 9875,
+            "tun_written_packets": 43904,
+            "tun_coalesced_packets": 42468,
+            "tun_max_write_batch": 32,
+            "tun_offload_fallbacks": 0,
+            "network_backpressure": 0,
+            "io": {
+              "receive_calls": 6163,
+              "send_calls": 4192,
+              "received_datagrams": 43905,
+              "sent_datagrams": 16794,
+              "max_receive_batch": 16,
+              "max_send_batch": 16,
+              "truncated_datagrams": 0,
+              "gso_datagrams": 15059,
+              "gro_datagrams": 42145,
+              "kernel_fallbacks": 0,
+              "enobufs": 0,
+              "received_bytes": 62955036,
+              "sent_bytes": 1626510,
+              "receive_would_block": 2687,
+              "send_would_block": 0,
+              "receive_interrupted": 0,
+              "send_interrupted": 0
+            },
+            "to_network_high_water": 63,
+            "to_tun_high_water": 63,
+            "pool_reserved_bytes": 405758,
+            "outer_eof": 0,
+            "outer_io_errors": 0,
+            "in_place_encryptions": 16792,
+            "in_place_decryptions": 43904,
+            "successful_crypto_copy_bytes": 0,
+            "pool_recycle_wipe_bytes": 0,
+            "to_network_bytes_high_water": 0,
+            "to_tun_bytes_high_water": 0
+          },
+          "tun_present": true,
+          "interface_error": null
+        },
+        "forwarded_bytes": {
+          "in": 48487274,
+          "out": 935216
+        },
+        "profiles": [
+          {
+            "name": "udp-v4-https-4-a1-pgo-17764740997186523491_0-514.profraw",
+            "sha256": "a41e59b56ec6906153387a8d3260f667301a4bf1580e3cde4cb2ad2146cd6209",
+            "bytes": 1881080
+          }
+        ]
+      },
+      {
+        "name": "tcp-v4-https-2-a1",
+        "protocol": "tcp",
+        "flows": 2,
+        "valid": true,
+        "scope": "training only; not performance",
+        "warmups": [
+          {
+            "requested_bytes": 12000000,
+            "valid": true,
+            "tls": "TLSv1.2",
+            "status": 206,
+            "content_range": "bytes 0-11999999/148648524",
+            "bytes": 12000000,
+            "sha256": "389a4dfd673664cfc1391c678a627e9f26822a6fc51dcb3108ead489f4497f67",
+            "seconds": 0.7015875999932177,
+            "Mbps": 136.8325209865853
+          }
+        ],
+        "transfers": [
+          {
+            "requested_bytes": 12000000,
+            "valid": true,
+            "tls": "TLSv1.2",
+            "status": 206,
+            "content_range": "bytes 0-11999999/148648524",
+            "bytes": 12000000,
+            "sha256": "389a4dfd673664cfc1391c678a627e9f26822a6fc51dcb3108ead489f4497f67",
+            "seconds": 1.058041399999638,
+            "Mbps": 90.73368962692088
+          },
+          {
+            "requested_bytes": 12000000,
+            "valid": true,
+            "tls": "TLSv1.2",
+            "status": 206,
+            "content_range": "bytes 0-11999999/148648524",
+            "bytes": 12000000,
+            "sha256": "389a4dfd673664cfc1391c678a627e9f26822a6fc51dcb3108ead489f4497f67",
+            "seconds": 0.9576174999965588,
+            "Mbps": 100.24879453471243
+          }
+        ],
+        "snapshot": {
+          "sequence": 4,
+          "state": "TunnelEstablished",
+          "elapsed": {
+            "secs": 1,
+            "nanos": 56651899
+          },
+          "mono_timestamp": {
+            "secs": 19265,
+            "nanos": 495939727
+          },
+          "stats_generation": 0,
+          "statistics": {
+            "handshake_age": {
+              "secs": 1,
+              "nanos": 3705753
+            },
+            "sent_bytes": 99718,
+            "received_bytes": 12728480,
+            "estimated_loss": 0.059916317,
+            "handshake_rtt": {
+              "secs": 0,
+              "nanos": 51000000
+            }
+          },
+          "counters": {
+            "tun_reads": 1911,
+            "network_reads": 9211,
+            "decrypted_packets": 9210,
+            "invalid_packets": 0,
+            "outbound_filtered": 0,
+            "inbound_filtered": 0,
+            "pool_pressure": 0,
+            "polls": 628,
+            "tun_backpressure": 0,
+            "tun_write_calls": 863,
+            "tun_written_packets": 9210,
+            "tun_coalesced_packets": 9027,
+            "tun_max_write_batch": 32,
+            "tun_offload_fallbacks": 0,
+            "network_backpressure": 2,
+            "io": {
+              "receive_calls": 1394,
+              "send_calls": 348,
+              "received_datagrams": 0,
+              "sent_datagrams": 0,
+              "max_receive_batch": 0,
+              "max_send_batch": 0,
+              "truncated_datagrams": 0,
+              "gso_datagrams": 0,
+              "gro_datagrams": 0,
+              "kernel_fallbacks": 0,
+              "enobufs": 0,
+              "received_bytes": 13016866,
+              "sent_bytes": 134300,
+              "receive_would_block": 325,
+              "send_would_block": 0,
+              "receive_interrupted": 0,
+              "send_interrupted": 0
+            },
+            "to_network_high_water": 63,
+            "to_tun_high_water": 63,
+            "pool_reserved_bytes": 405758,
+            "outer_eof": 0,
+            "outer_io_errors": 0,
+            "in_place_encryptions": 1911,
+            "in_place_decryptions": 9210,
+            "successful_crypto_copy_bytes": 0,
+            "pool_recycle_wipe_bytes": 0,
+            "to_network_bytes_high_water": 0,
+            "to_tun_bytes_high_water": 0
+          },
+          "tun_present": true,
+          "interface_error": null
+        },
+        "forwarded_bytes": {
+          "in": 24134069,
+          "out": 251320
+        },
+        "profiles": [
+          {
+            "name": "tcp-v4-https-2-a1-pgo-17764740997186523491_0-1368.profraw",
+            "sha256": "2d043ff0e44a1d4a3f9d17d47487b17e96ca20032b451096d3276e247d2480c8",
+            "bytes": 1881880
+          }
+        ]
+      },
+      {
+        "name": "tcp-v4-https-4-a1",
+        "protocol": "tcp",
+        "flows": 4,
+        "valid": true,
+        "scope": "training only; not performance",
+        "warmups": [
+          {
+            "requested_bytes": 12000000,
+            "valid": true,
+            "tls": "TLSv1.2",
+            "status": 206,
+            "content_range": "bytes 0-11999999/148648524",
+            "bytes": 12000000,
+            "sha256": "389a4dfd673664cfc1391c678a627e9f26822a6fc51dcb3108ead489f4497f67",
+            "seconds": 0.5798081999964779,
+            "Mbps": 165.57199432602567
+          }
+        ],
+        "transfers": [
+          {
+            "requested_bytes": 12000000,
+            "valid": true,
+            "tls": "TLSv1.2",
+            "status": 206,
+            "content_range": "bytes 0-11999999/148648524",
+            "bytes": 12000000,
+            "sha256": "389a4dfd673664cfc1391c678a627e9f26822a6fc51dcb3108ead489f4497f67",
+            "seconds": 1.5107988999952795,
+            "Mbps": 63.542540307846366
+          },
+          {
+            "requested_bytes": 12000000,
+            "valid": true,
+            "tls": "TLSv1.2",
+            "status": 206,
+            "content_range": "bytes 0-11999999/148648524",
+            "bytes": 12000000,
+            "sha256": "389a4dfd673664cfc1391c678a627e9f26822a6fc51dcb3108ead489f4497f67",
+            "seconds": 2.0790303999965545,
+            "Mbps": 46.17537098070288
+          },
+          {
+            "requested_bytes": 12000000,
+            "valid": true,
+            "tls": "TLSv1.2",
+            "status": 206,
+            "content_range": "bytes 0-11999999/148648524",
+            "bytes": 12000000,
+            "sha256": "389a4dfd673664cfc1391c678a627e9f26822a6fc51dcb3108ead489f4497f67",
+            "seconds": 1.3652264999982435,
+            "Mbps": 70.3180021777511
+          },
+          {
+            "requested_bytes": 12000000,
+            "valid": true,
+            "tls": "TLSv1.2",
+            "status": 206,
+            "content_range": "bytes 0-11999999/148648524",
+            "bytes": 12000000,
+            "sha256": "389a4dfd673664cfc1391c678a627e9f26822a6fc51dcb3108ead489f4497f67",
+            "seconds": 1.1320732999884058,
+            "Mbps": 84.80016267584722
+          }
+        ],
+        "snapshot": {
+          "sequence": 5,
+          "state": "TunnelEstablished",
+          "elapsed": {
+            "secs": 2,
+            "nanos": 55369663
+          },
+          "mono_timestamp": {
+            "secs": 19271,
+            "nanos": 758784646
+          },
+          "stats_generation": 0,
+          "statistics": {
+            "handshake_age": {
+              "secs": 2,
+              "nanos": 608539
+            },
+            "sent_bytes": 358278,
+            "received_bytes": 52224530,
+            "estimated_loss": 0.0012748837,
+            "handshake_rtt": {
+              "secs": 0,
+              "nanos": 52000000
+            }
+          },
+          "counters": {
+            "tun_reads": 8379,
+            "network_reads": 37603,
+            "decrypted_packets": 37602,
+            "invalid_packets": 0,
+            "outbound_filtered": 0,
+            "inbound_filtered": 0,
+            "pool_pressure": 0,
+            "polls": 1210,
+            "tun_backpressure": 0,
+            "tun_write_calls": 5404,
+            "tun_written_packets": 37602,
+            "tun_coalesced_packets": 36782,
+            "tun_max_write_batch": 32,
+            "tun_offload_fallbacks": 0,
+            "network_backpressure": 2,
+            "io": {
+              "receive_calls": 4057,
+              "send_calls": 785,
+              "received_datagrams": 0,
+              "sent_datagrams": 0,
+              "max_receive_batch": 0,
+              "max_send_batch": 0,
+              "truncated_datagrams": 0,
+              "gso_datagrams": 0,
+              "gro_datagrams": 0,
+              "kernel_fallbacks": 0,
+              "enobufs": 0,
+              "received_bytes": 53418018,
+              "sent_bytes": 509284,
+              "receive_would_block": 442,
+              "send_would_block": 0,
+              "receive_interrupted": 0,
+              "send_interrupted": 0
+            },
+            "to_network_high_water": 63,
+            "to_tun_high_water": 63,
+            "pool_reserved_bytes": 405758,
+            "outer_eof": 0,
+            "outer_io_errors": 0,
+            "in_place_encryptions": 8379,
+            "in_place_decryptions": 37602,
+            "successful_crypto_copy_bytes": 0,
+            "pool_recycle_wipe_bytes": 0,
+            "to_network_bytes_high_water": 0,
+            "to_tun_bytes_high_water": 0
+          },
+          "tun_present": true,
+          "interface_error": null
+        },
+        "forwarded_bytes": {
+          "in": 48356166,
+          "out": 337224
+        },
+        "profiles": [
+          {
+            "name": "tcp-v4-https-4-a1-pgo-17764740997186523491_0-2153.profraw",
+            "sha256": "b822c1befc83d5b806596a85f3e1b5d0861bd96c73a6771d3c4bb55569c9f201",
+            "bytes": 1881832
+          }
+        ]
+      },
+      {
+        "name": "stealth-v4-https-2-a1",
+        "protocol": "stealth",
+        "flows": 2,
+        "valid": true,
+        "scope": "training only; not performance",
+        "warmups": [
+          {
+            "requested_bytes": 12000000,
+            "valid": true,
+            "tls": "TLSv1.2",
+            "status": 206,
+            "content_range": "bytes 0-11999999/148648524",
+            "bytes": 12000000,
+            "sha256": "389a4dfd673664cfc1391c678a627e9f26822a6fc51dcb3108ead489f4497f67",
+            "seconds": 5.9804032999963965,
+            "Mbps": 16.052429106254063
+          }
+        ],
+        "transfers": [
+          {
+            "requested_bytes": 12000000,
+            "valid": true,
+            "tls": "TLSv1.2",
+            "status": 206,
+            "content_range": "bytes 0-11999999/148648524",
+            "bytes": 12000000,
+            "sha256": "389a4dfd673664cfc1391c678a627e9f26822a6fc51dcb3108ead489f4497f67",
+            "seconds": 1.3857444000022952,
+            "Mbps": 69.27684499381056
+          },
+          {
+            "requested_bytes": 12000000,
+            "valid": true,
+            "tls": "TLSv1.2",
+            "status": 206,
+            "content_range": "bytes 0-11999999/148648524",
+            "bytes": 12000000,
+            "sha256": "389a4dfd673664cfc1391c678a627e9f26822a6fc51dcb3108ead489f4497f67",
+            "seconds": 1.4896211000013864,
+            "Mbps": 64.4459184955897
+          }
+        ],
+        "snapshot": {
+          "sequence": 9,
+          "state": "TunnelEstablished",
+          "elapsed": {
+            "secs": 7,
+            "nanos": 43310854
+          },
+          "mono_timestamp": {
+            "secs": 19282,
+            "nanos": 893595996
+          },
+          "stats_generation": 0,
+          "statistics": {
+            "handshake_age": {
+              "secs": 2,
+              "nanos": 559430
+            },
+            "sent_bytes": 147410,
+            "received_bytes": 24242530,
+            "estimated_loss": 0.00051420927,
+            "handshake_rtt": {
+              "secs": 5,
+              "nanos": 36000000
+            }
+          },
+          "counters": {
+            "tun_reads": 3365,
+            "network_reads": 17494,
+            "decrypted_packets": 17493,
+            "invalid_packets": 0,
+            "outbound_filtered": 0,
+            "inbound_filtered": 0,
+            "pool_pressure": 0,
+            "polls": 885,
+            "tun_backpressure": 0,
+            "tun_write_calls": 1882,
+            "tun_written_packets": 17493,
+            "tun_coalesced_packets": 17204,
+            "tun_max_write_batch": 32,
+            "tun_offload_fallbacks": 0,
+            "network_backpressure": 3,
+            "io": {
+              "receive_calls": 1354,
+              "send_calls": 553,
+              "received_datagrams": 0,
+              "sent_datagrams": 0,
+              "max_receive_batch": 0,
+              "max_send_batch": 0,
+              "truncated_datagrams": 0,
+              "gso_datagrams": 0,
+              "gro_datagrams": 0,
+              "kernel_fallbacks": 0,
+              "enobufs": 0,
+              "received_bytes": 25625669,
+              "sent_bytes": 220729,
+              "receive_would_block": 410,
+              "send_would_block": 0,
+              "receive_interrupted": 0,
+              "send_interrupted": 0
+            },
+            "to_network_high_water": 63,
+            "to_tun_high_water": 63,
+            "pool_reserved_bytes": 405758,
+            "outer_eof": 0,
+            "outer_io_errors": 0,
+            "in_place_encryptions": 3365,
+            "in_place_decryptions": 17493,
+            "successful_crypto_copy_bytes": 0,
+            "pool_recycle_wipe_bytes": 0,
+            "to_network_bytes_high_water": 0,
+            "to_tun_bytes_high_water": 0
+          },
+          "tun_present": true,
+          "interface_error": null
+        },
+        "forwarded_bytes": {
+          "in": 24149270,
+          "out": 175488
+        },
+        "profiles": [
+          {
+            "name": "stealth-v4-https-2-a1-pgo-17764740997186523491_0-2941.profraw",
+            "sha256": "db25a5b6c37e9781274acbbcf8c6e3ff41de0793afa820092e94e505e858609e",
+            "bytes": 1885496
+          }
+        ]
+      },
+      {
+        "name": "stealth-v4-https-4-a1",
+        "protocol": "stealth",
+        "flows": 4,
+        "valid": true,
+        "scope": "training only; not performance",
+        "warmups": [
+          {
+            "requested_bytes": 12000000,
+            "valid": true,
+            "tls": "TLSv1.2",
+            "status": 206,
+            "content_range": "bytes 0-11999999/148648524",
+            "bytes": 12000000,
+            "sha256": "389a4dfd673664cfc1391c678a627e9f26822a6fc51dcb3108ead489f4497f67",
+            "seconds": 5.843819900008384,
+            "Mbps": 16.427610987782543
+          }
+        ],
+        "transfers": [
+          {
+            "requested_bytes": 12000000,
+            "valid": true,
+            "tls": "TLSv1.2",
+            "status": 206,
+            "content_range": "bytes 0-11999999/148648524",
+            "bytes": 12000000,
+            "sha256": "389a4dfd673664cfc1391c678a627e9f26822a6fc51dcb3108ead489f4497f67",
+            "seconds": 1.6664168999996036,
+            "Mbps": 57.60863322978952
+          },
+          {
+            "requested_bytes": 12000000,
+            "valid": true,
+            "tls": "TLSv1.2",
+            "status": 206,
+            "content_range": "bytes 0-11999999/148648524",
+            "bytes": 12000000,
+            "sha256": "389a4dfd673664cfc1391c678a627e9f26822a6fc51dcb3108ead489f4497f67",
+            "seconds": 2.883091700001387,
+            "Mbps": 33.297588141214455
+          },
+          {
+            "requested_bytes": 12000000,
+            "valid": true,
+            "tls": "TLSv1.2",
+            "status": 206,
+            "content_range": "bytes 0-11999999/148648524",
+            "bytes": 12000000,
+            "sha256": "389a4dfd673664cfc1391c678a627e9f26822a6fc51dcb3108ead489f4497f67",
+            "seconds": 1.9585461000096984,
+            "Mbps": 49.015951168841326
+          },
+          {
+            "requested_bytes": 12000000,
+            "valid": true,
+            "tls": "TLSv1.2",
+            "status": 206,
+            "content_range": "bytes 0-11999999/148648524",
+            "bytes": 12000000,
+            "sha256": "389a4dfd673664cfc1391c678a627e9f26822a6fc51dcb3108ead489f4497f67",
+            "seconds": 2.260256699999445,
+            "Mbps": 42.47305184407752
+          }
+        ],
+        "snapshot": {
+          "sequence": 10,
+          "state": "TunnelEstablished",
+          "elapsed": {
+            "secs": 8,
+            "nanos": 42090775
+          },
+          "mono_timestamp": {
+            "secs": 19294,
+            "nanos": 872303903
+          },
+          "stats_generation": 0,
+          "statistics": {
+            "handshake_age": {
+              "secs": 3,
+              "nanos": 9593504
+            },
+            "sent_bytes": 570974,
+            "received_bytes": 53822622,
+            "estimated_loss": 0.036346912,
+            "handshake_rtt": {
+              "secs": 5,
+              "nanos": 30000000
+            }
+          },
+          "counters": {
+            "tun_reads": 11328,
+            "network_reads": 38736,
+            "decrypted_packets": 38735,
+            "invalid_packets": 0,
+            "outbound_filtered": 0,
+            "inbound_filtered": 0,
+            "pool_pressure": 0,
+            "polls": 1479,
+            "tun_backpressure": 0,
+            "tun_write_calls": 7323,
+            "tun_written_packets": 38735,
+            "tun_coalesced_packets": 37806,
+            "tun_max_write_batch": 32,
+            "tun_offload_fallbacks": 0,
+            "network_backpressure": 3,
+            "io": {
+              "receive_calls": 2302,
+              "send_calls": 1010,
+              "received_datagrams": 0,
+              "sent_datagrams": 0,
+              "max_receive_batch": 0,
+              "max_send_batch": 0,
+              "truncated_datagrams": 0,
+              "gso_datagrams": 0,
+              "gro_datagrams": 0,
+              "kernel_fallbacks": 0,
+              "enobufs": 0,
+              "received_bytes": 56760471,
+              "sent_bytes": 797681,
+              "receive_would_block": 608,
+              "send_would_block": 0,
+              "receive_interrupted": 0,
+              "send_interrupted": 0
+            },
+            "to_network_high_water": 63,
+            "to_tun_high_water": 63,
+            "pool_reserved_bytes": 405758,
+            "outer_eof": 0,
+            "outer_io_errors": 0,
+            "in_place_encryptions": 11328,
+            "in_place_decryptions": 38735,
+            "successful_crypto_copy_bytes": 0,
+            "pool_recycle_wipe_bytes": 0,
+            "to_network_bytes_high_water": 0,
+            "to_tun_bytes_high_water": 0
+          },
+          "tun_present": true,
+          "interface_error": null
+        },
+        "forwarded_bytes": {
+          "in": 48435708,
+          "out": 502016
+        },
+        "profiles": [
+          {
+            "name": "stealth-v4-https-4-a1-pgo-17764740997186523491_0-3873.profraw",
+            "sha256": "22b1b451ccc33d715fb3a987a1cad7864722a2ddd6ae7c794fbb63557094461c",
+            "bytes": 1885816
+          }
+        ]
+      }
+    ],
+    "profiles": [
+      {
+        "name": "udp-v4-https-2-a2-pgo-17764740997186523491_0-32200.profraw",
+        "sha256": "cdef5b0dafc16894930592ab90ffc739389cc91e9df6e097c014ba26f5aee759",
+        "bytes": 1881080
+      },
+      {
+        "name": "udp-v4-https-4-a1-pgo-17764740997186523491_0-514.profraw",
+        "sha256": "a41e59b56ec6906153387a8d3260f667301a4bf1580e3cde4cb2ad2146cd6209",
+        "bytes": 1881080
+      },
+      {
+        "name": "tcp-v4-https-2-a1-pgo-17764740997186523491_0-1368.profraw",
+        "sha256": "2d043ff0e44a1d4a3f9d17d47487b17e96ca20032b451096d3276e247d2480c8",
+        "bytes": 1881880
+      },
+      {
+        "name": "tcp-v4-https-4-a1-pgo-17764740997186523491_0-2153.profraw",
+        "sha256": "b822c1befc83d5b806596a85f3e1b5d0861bd96c73a6771d3c4bb55569c9f201",
+        "bytes": 1881832
+      },
+      {
+        "name": "stealth-v4-https-2-a1-pgo-17764740997186523491_0-2941.profraw",
+        "sha256": "db25a5b6c37e9781274acbbcf8c6e3ff41de0793afa820092e94e505e858609e",
+        "bytes": 1885496
+      },
+      {
+        "name": "stealth-v4-https-4-a1-pgo-17764740997186523491_0-3873.profraw",
+        "sha256": "22b1b451ccc33d715fb3a987a1cad7864722a2ddd6ae7c794fbb63557094461c",
+        "bytes": 1885816
+      }
+    ],
+    "llvm_version": "LLVM (http://llvm.org/):\n  LLVM version 23.1.1-rust-1.99.1-stable\n  Optimized build.\n",
+    "llvm_tool_sha256": "6d381285f5c9fae7ba9808ee701c192a681be421712a535f616f001563531d2a",
+    "profile_sha256": "dc68f8c42ade944ee984ed479b853e1e8b345f70fcfa0468f85c172b6aeb042d"
+  },
+  "validation": {
+    "compiler": "rustc 1.99.1 (58cf8f9c3 2026-10-13)\nbinary: rustc\ncommit-hash: 58cf8f9c35b355199727627d07ae34a4e2846d67\ncommit-date: 2026-10-13\nhost: x86_64-pc-windows-msvc\nrelease: 1.99.1\nLLVM version: 23.1.1\n",
+    "pgo_instrumentation_absent_in_final": true,
+    "optimized_erasure": {
+      "pgo": {
+        "positive": {
+          "audit_drop_packet": [
+            {
+              "function": "audit_drop_packet",
+              "call": "228148:      \tbl\t0x266d50 <memset>",
+              "arguments": "  22812c:      \tbl\t0x22bdec <<protun_next::packet::Packet>::data>\n  228130:      \tstp\tx0, x1, [x29, #-0x10]\n  228134:      \tsub\tx8, x29, #0x10\n  228138:      \tmov\tw2, #0x3f               // =63\n  22813c:      \tmov\tx0, x21\n  228140:      \tmov\tw1, wzr\n  228144:      \tmovk\tw2, #0x1, lsl #16"
+            }
+          ],
+          "audit_recycle_packet": [
+            {
+              "function": "audit_recycle_packet",
+              "call": "228250:      \tbl\t0x266d50 <memset>",
+              "arguments": "  228234:      \tsub\tx8, x29, #0x10\n  228238:      \tcmp\tx21, x22\n  22823c:      \tb.hi\t0x228284 <audit_recycle_packet+0xf8>\n  228240:      \tmov\tw2, #0x3f               // =63\n  228244:      \tmov\tx0, x19\n  228248:      \tmov\tw1, wzr\n  22824c:      \tmovk\tw2, #0x1, lsl #16"
+            }
+          ]
+        },
+        "missing_wipe_rejected": true,
+        "positive_binary_sha256": "58042b08f28ea77697643d92a8b02d1eadf13f7848b9ab9be38b77b7e18f8c5e",
+        "negative_binary_sha256": "9b56dc2b363af3094d7ff831caec6480aa732f0ae87bc5d9496e5e5f515bcfd6"
+      }
+    }
+  },
+  "postflight": {
+    "utc": "2026-11-12T23:10:12.719904+00:00",
+    "checks": {
+      "mode_unchanged": true,
+      "identity_unchanged": true,
+      "links_unchanged": true,
+      "rules_unchanged": true,
+      "default_unchanged": true,
+      "packages_unchanged": true,
+      "limits_unchanged": true,
+      "configs_unchanged": true,
+      "stage_absent": true,
+      "interface_absent": true,
+      "table_empty": true,
+      "owned_processes_and_guard_absent": true
+    },
+    "all_passed": true
+  }
+}

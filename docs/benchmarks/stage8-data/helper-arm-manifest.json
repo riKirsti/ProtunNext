@@ -1,0 +1,21 @@
+{
+  "builds": {
+    "main": {
+      "sha": "64caaa24004db4f9cc901cc76d62d51bbc61d983",
+      "path": "/home/runner/work/ProtunNext/ProtunNext/target/erasure-audit/main-72nrc6xn",
+      "archive_sha256": "b8074de59af34c1556237e85644f4cc40604313b189c5e99a22f483e09c7281e",
+      "effective_sources_sha256": "706e72332dbd8d70a6f2c8d196dc920d9210c3b5fd98de4ab23ba07fe92681c1",
+      "runtime_sources_sha256": "5d448b4aabf1041e3a13920294314097f88a30eeb9a2d4c799724c2c04112fc7"
+    },
+    "erase": {
+      "sha": "aa43d3dab035092e0f9ff21c3f811435ef225017",
+      "path": "/home/runner/work/ProtunNext/ProtunNext/target/erasure-audit/erase-xi9t0zfc",
+      "archive_sha256": "ea33e5f6c74b111ba0804dab02112b77687c3472fc02b51fedffe7d0883bca13",
+      "effective_sources_sha256": "dc346f0b3dce274e17f547db5e3f013477a999074efb1fb725a9d42a4a5e0790",
+      "runtime_sources_sha256": "5d448b4aabf1041e3a13920294314097f88a30eeb9a2d4c799724c2c04112fc7"
+    }
+  },
+  "artifact_sha256": "b9378f91a59df2076700dac24e1e07c54eb29791c67dfbb9413a64b29e4bdc11",
+  "hardware": "Architecture:                            aarch64\nCPU op-mode(s):                          32-bit, 64-bit\nByte Order:                              Little Endian\nCPU(s):                                  4\nOn-line CPU(s) list:                     0-3\nVendor ID:                               ARM\nBIOS Vendor ID:                          MICROSOFT CORPORATION\nModel name:                              Neoverse-N2\nBIOS Model name:                         Cobalt 100 None CPU @ 3.4GHz\nBIOS CPU family:                         280\nModel:                                   0\nThread(s) per core:                      1\nCore(s) per socket:                      4\nSocket(s):                               1\nStepping:                                r0p0\nBogoMIPS:                                2000.00\nFlags:                                   fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics fphp asimdhp cpuid asimdrdm jscvt fcma lrcpc dcpop sha3 sm3 sm4 asimddp sha512 sve asimdfhm uscat ilrcpc flagm sb paca pacg dcpodp sve2 sveaes svebitperm svesha3 svesm4 flagm2 frint svei8mm svebf16 i8mm bf16\nL1d cache:                               256 KiB (4 instances)\nL1i cache:                               256 KiB (4 instances)\nL2 cache:                                4 MiB (4 instances)\nL3 cache:                                128 MiB (1 instance)\nNUMA node(s):                            1\nNUMA node0 CPU(s):                       0-3\nVulnerability Gather data sampling:      Not affected\nVulnerability Ghostwrite:                Not affected\nVulnerability Indirect target selection: Not affected\nVulnerability Itlb multihit:             Not affected\nVulnerability L1tf:                      Not affected\nVulnerability Mds:                       Not affected\nVulnerability Meltdown:                  Not affected\nVulnerability Mmio stale data:           Not affected\nVulnerability Old microcode:             Not affected\nVulnerability Reg file data sampling:    Not affected\nVulnerability Retbleed:                  Not affected\nVulnerability Spec rstack overflow:      Not affected\nVulnerability Spec store bypass:         Mitigation; Speculative Store Bypass disabled via prctl\nVulnerability Spectre v1:                Mitigation; __user pointer sanitization\nVulnerability Spectre v2:                Mitigation; CSV2, BHB\nVulnerability Srbds:                     Not affected\nVulnerability Tsa:                       Not affected\nVulnerability Tsx async abort:           Not affected\nVulnerability Vmscape:                   Not affected\n",
+  "toolchain": "rustc 1.99.1 (58cf8f9c3 2026-10-13)\nbinary: rustc\ncommit-hash: 58cf8f9c35b355199727627d07ae34a4e2846d67\ncommit-date: 2026-10-13\nhost: aarch64-unknown-linux-gnu\nrelease: 1.99.1\nLLVM version: 23.1.1\ncargo 1.99.1 (5f94df478 2026-08-27)\nrelease: 1.99.1\ncommit-hash: 5f94df4789f005f9a352888e8355ffc645b7ed0e\ncommit-date: 2026-08-27\nhost: aarch64-unknown-linux-gnu\nlibgit2: 1.9.6 (sys:0.21.0 vendored)\nlibcurl: 8.21.0-DEV (sys:0.4.90+curl-8.21.0 vendored ssl:OpenSSL/3.6.3)\nssl: OpenSSL 3.6.3 9 Jun 2026\nos: Ubuntu 24.4.0 (noble) [64-bit]\ntarget=aarch64-unknown-linux-gnu\nprofile=release thin-LTO codegen-units=1 panic=abort\nRUSTFLAGS=\n"
+}

@@ -17,7 +17,7 @@ Research is open-ended; earlier prototypes do not exclude different designs.
 | 5 | Alternative acceleration: crypto implementations, native WireGuard, advanced I/O/TLS, CPU/NIC coordination and kernel bypass | Evaluated in PR #10; retain ring, archive TLS-suite experiment and record deferred architectures |
 | 6 | Client-only PGO, architecture-specific builds and platform tuning | Evaluated in PR #11; retain optional independent build experiments, portable defaults unchanged |
 | 7 | Combine measured winners and validate real workloads/platforms | Evaluated in PR #12; optional native combination and device PGO efficiency evidence, maximum capacity unresolved |
-| 8 (focused follow-up) | Remove the measured peer bottleneck and diagnose delayed TCP before claiming client capacity | Review below; preserve the completed seven-stage evidence |
+| 8 (focused follow-up) | Remove the measured peer bottleneck and diagnose delayed TCP before claiming client capacity | Evaluated in PR #13; tested helper prototypes do not establish headroom, maximum capacity remains inconclusive |
 
 One stage per PR. Before each transition, review the goal, frozen baseline,
 evidence, proposed changes, exclusions, validation and completion criteria with
@@ -405,3 +405,37 @@ excluded; preserve packages/settings/account/key/Direct mode and create no relea
 Completion requires a justified helper choice, an explicit client-capacity
 accept/reject/inconclusive result, delayed-TCP diagnosis and restored physical
 tests. No fixed client CPU/RAM ceiling or minimum gain threshold is added.
+
+## Stage 8 result
+
+[PR #13](https://github.com/riKirsti/ProtunNext/pull/13) retains separate frozen
+profiles, all 96 verified normal-release helper-screen payloads and 24 verified
+sampled delayed-TCP cases. All twelve helper-screen cells pass A/A/timing, but
+neither prototype creates sufficient auxiliary headroom. The bounded reader
+raises x64 fixture throughput approximately 36–41% while regressing ARM64
+12–14%; in-place processing alone gives small, inconsistent changes. These are
+changes to the test system with byte-identical clients, not production speedups.
+
+Reject both prototypes as default helpers; keep the existing legacy fixture.
+Retain their opt-in experiment and bounded ownership tests for reproducibility.
+Maximum client capacity remains **inconclusive**. As reviewed, do not repeat
+tuned-client comparisons before establishing helper headroom. Production
+runtime/dependencies, portable defaults and Stage 7's efficiency evidence remain.
+
+The diagnostic TCP run does not reproduce the previous severe misses: all
+cases sustain approximately 199.68–199.70 Mbps, with zero final client netem
+drops. Peer socket retransmissions and receive-window pressure are still
+observed. Sampling changes timing; no causal fix or universal TCP qualification
+is claimed. Preserve the original failures and the unresolved status.
+
+The [complete capacity/resource report](benchmarks/stage8-capacity.md),
+[diagnostic evidence](benchmarks/stage8-diagnostics.md) and
+[fresh temporary Travel validation](benchmarks/stage8-travel.md) retain separate
+scopes, source/build/profile identities, controls, failures and restoration
+checks. All 24 timed Travel sessions / 96 individual payload parts verify, with
+cleanup and twelve independent checks passing after training and every cohort.
+All three WAN A/A screens fail, so none supplies a new accepted speed/efficiency
+gain. No device installation, persistent setting or release is proposed.
+Further capacity work needs a newly reviewed focused plan and an independently
+justified peer architecture; it is not permission to restart rejected production
+parallel cryptography or claim that the remaining performance gaps are closed.

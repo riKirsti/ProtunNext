@@ -59,6 +59,15 @@ in the Stage 7 report, and monitoring changes execution timing. Receive-window
 and retransmission state in the retained traces merits inspection if the miss
 recurs. These sampled diagnostic rates are excluded from acceptance comparisons.
 
+Final client-namespace TCP MIB `RetransSegs` is zero in every case. Separately,
+sampled sockets in the peer namespace do show retransmissions: the maximum
+observed cumulative socket counter is 775 packets on x64 and 743 on ARM64.
+Receive-window-limited episodes are also present (maximum observed cumulative
+socket time 538 / 445 ms). These are maxima across snapshots and sockets, not
+summed transfer totals. Zero client netem drops therefore does not establish
+absence of transport loss, reordering or receive-window pressure. The retained
+counter summary distinguishes each namespace and makes no causal claim.
+
 ## Scope
 
 Both experiments use the existing production runtime, fingerprint
