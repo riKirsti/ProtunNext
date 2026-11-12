@@ -295,3 +295,41 @@ No PGO/CPU combination, persistent NIC/router change or release ships. After
 merge, review Stage 7's frozen baseline, supported winners, independent component
 and combined comparisons, real workloads/platforms, capacity and completion
 criteria before implementing it. Deferred architectures remain open questions.
+
+## Stage 7 review, November 12
+
+Frozen baseline: merged PR #11, `83582248f3a8e153c6ee75d2846ef7c7064b6323`.
+Stage 6 finds native efficiency candidates, not established maximum-speed gains.
+PGO and native CPU tuning ran on separate allocations; device CPU tuning did not
+win, and device PGO is mixed. Keep portable defaults and the existing ring,
+serial receiver and coalescing. No rejected backend/thread design is reinstated.
+
+Compare portable, PGO, CPU and PGO+CPU on each same native x64/ARM64 machine.
+Build the baseline once and hold its client/helper binaries fixed. Reuse the same
+frozen source archives, train fresh matching profiles separately for portable and
+CPU-specific PGO, and retain all compiler/profile/binary identities. Interleave
+the candidate comparisons by workload, with A/A and balanced sample order.
+Keep matched-load efficiency separate from unpaced sustained-download capacity;
+retain auxiliary saturation, timing and control failures rather than declare a
+maximum-speed winner from an invalid cell. Do not add a fixed gain/CPU/RAM cutoff.
+
+Use held-out IPv4 HTTP/IPv6 HTTPS and one/eight-flow real kernel TCP downloads
+across UDP/TCP/Stealth. Assess realistic network conditions in disposable test
+namespaces if the fixture supports them without altering host networking; label
+emulation separately from physical WAN acceptance. Report the measured platform,
+workload duration, absolute CPU %, peak RSS MiB and verified Mbps for every build.
+Keep Windows/Apple/Android and other unmeasured targets explicit. Preserve API,
+security and tuned erasure checks, including genuine missing-wipe controls.
+
+On Travel, compare portable release with independently device-trained PGO only;
+do not combine the losing Cortex-A53 option. Repeat guarded all-transport tests
+with owned temporary files/routes, watchdog and independent restoration. Retain
+WAN variability and any failures. No saved setting, package, key/account, Direct
+path, persistent NIC configuration or release changes.
+
+One Stage 7 PR selects only justified target-specific recipes or changes, records
+rejected/inconclusive options, and distinguishes observed efficiency from actual
+sustained capacity. Completion requires full source-linked resource tables,
+regression/erasure evidence and physical restoration; unmeasured capacity or
+platforms remain limitations rather than claims that every architecture is
+exhausted or absolute best performance is proven.
