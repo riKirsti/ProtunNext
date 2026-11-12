@@ -155,12 +155,14 @@ class DownloadValidity(unittest.TestCase):
         self.assertTrue(self.analyze()['blocks'][0]['auxiliary_limited'])
 
     def test_helper_claim_requires_actual_strategy_placement_and_accounting(self):
-        for mutation in ['wrong_strategy','wrong_cpu','missing_reader','missing_ticks','changed_client']:
+        for mutation in ['wrong_strategy','wrong_cpu','missing_reader','nan_reader','missing_ticks','short_ticks','changed_client']:
             self.helper_fixture();m=self.rows[0]['metrics'][0]
             if mutation=='wrong_strategy':m['peer']['helper_mode']='legacy'
             elif mutation=='wrong_cpu':m['peer']['reader_cpu_index']=2
             elif mutation=='missing_reader':m['peer']['reader_cpu_seconds']=0
+            elif mutation=='nan_reader':m['peer']['reader_cpu_seconds']=float('nan')
             elif mutation=='missing_ticks':del m['cpu_ticks_before']
+            elif mutation=='short_ticks':m['cpu_ticks_after']['cpu0'].pop()
             elif mutation=='changed_client':m['client_affinity_cpus']=[2,3]
             self.assertTrue(self.analyze()['errors'])
 

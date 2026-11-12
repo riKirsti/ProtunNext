@@ -189,6 +189,7 @@ def metrics(row, env):
         assert peer['wire_affinity_cpus']==layout['wire'] and peer['server_affinity_cpus']==layout['server'], 'helper CPU placement changed'
         assert m['shared_load_server_cpu']==layout['shared_load_server_cpu'], 'shared auxiliary accounting missing'
         assert peer['reader_cpu_index']==(layout['reader'][0] if layout['reader'] else None), 'reader CPU placement changed'
+        assert math.isfinite(peer['reader_cpu_seconds']) and peer['reader_cpu_seconds']>=0, 'invalid reader CPU accounting'
         if mode!='legacy':assert peer['inplace_packets']>0, 'in-place helper was not used'
         if mode=='reader':assert peer['reader_frames']>0 and peer['reader_cpu_seconds']>0, 'reader was not used'
     for auxiliary in [load,peer]:
@@ -227,6 +228,7 @@ def metrics(row, env):
         for cpu_index in layout['auxiliary']:
             key='cpu'+str(cpu_index)
             before=m['cpu_ticks_before'][key];after=m['cpu_ticks_after'][key]
+            assert len(before)==len(after)==8, 'incomplete host CPU accounting'
             delta=[b-a for a,b in zip(before,after)]
             assert len(delta)==8 and all(d>=0 for d in delta) and sum(delta)>0, 'invalid host CPU accounting'
             busy=1-(delta[3]+delta[4])/sum(delta)
