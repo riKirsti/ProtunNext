@@ -16,6 +16,7 @@ trait Key: Sized {
 struct Ring(ring::aead::LessSafeKey);
 struct AwsLc(aws_lc_rs::aead::LessSafeKey);
 struct RustCrypto(ChaCha20Poly1305);
+struct RustCrypto11(chacha11::ChaCha20Poly1305);
 
 macro_rules! compatible_key {
     ($kind:ident, $module:path) => {
@@ -75,6 +76,32 @@ impl Key for RustCrypto {
         let tag: &[u8; 16] = (&*tag).try_into().map_err(|_| ())?;
         self.0
             .decrypt_in_place_detached(&nonce.into(), aad, body, tag.into())
+            .map_err(|_| ())?;
+        Ok(len)
+    }
+}
+impl Key for RustCrypto11 {
+    fn new(bytes: [u8; 32]) -> Self {
+        use chacha11::KeyInit;
+        Self(chacha11::ChaCha20Poly1305::new(&bytes.into()))
+    }
+    fn seal(&self, nonce: [u8; 12], aad: &[u8], buffer: &mut [u8]) -> Result<usize, ()> {
+        use chacha11::aead::AeadInOut;
+        let len = buffer.len().checked_sub(16).ok_or(())?;
+        let tag = self
+            .0
+            .encrypt_inout_detached(&nonce.into(), aad, (&mut buffer[..len]).into())
+            .map_err(|_| ())?;
+        buffer[len..].copy_from_slice(&tag);
+        Ok(len + 16)
+    }
+    fn open(&self, nonce: [u8; 12], aad: &[u8], buffer: &mut [u8]) -> Result<usize, ()> {
+        use chacha11::aead::AeadInOut;
+        let len = buffer.len().checked_sub(16).ok_or(())?;
+        let (body, tag) = buffer.split_at_mut(len);
+        let tag: &[u8; 16] = (&*tag).try_into().map_err(|_| ())?;
+        self.0
+            .decrypt_inout_detached(&nonce.into(), aad, body.into(), tag.into())
             .map_err(|_| ())?;
         Ok(len)
     }
@@ -141,13 +168,14 @@ fn main() {
     assert_eq!(
         args.len(),
         3,
-        "usage: stage5-crypto-screen ring|rustcrypto|aws-lc milliseconds-per-cell"
+        "usage: stage5-crypto-screen ring|rustcrypto|rustcrypto11|aws-lc milliseconds-per-cell"
     );
     let duration = Duration::from_millis(args[2].parse().unwrap());
     assert!((10..=10000).contains(&duration.as_millis()));
     match args[1].as_str() {
         "ring" => run::<Ring>("ring", duration),
         "rustcrypto" => run::<RustCrypto>("rustcrypto", duration),
+        "rustcrypto11" => run::<RustCrypto11>("rustcrypto11", duration),
         "aws-lc" => run::<AwsLc>("aws-lc", duration),
         _ => panic!("unknown backend"),
     }
@@ -185,6 +213,7 @@ mod tests {
     fn rfc8439_known_answers_all_backends() {
         known_answer::<Ring>();
         known_answer::<RustCrypto>();
+        known_answer::<RustCrypto11>();
         known_answer::<AwsLc>();
     }
     fn interop<S: Key, R: Key>() {
@@ -227,5 +256,11 @@ mod tests {
         interop::<AwsLc, Ring>();
         interop::<RustCrypto, AwsLc>();
         interop::<AwsLc, RustCrypto>();
+        interop::<Ring, RustCrypto11>();
+        interop::<RustCrypto11, Ring>();
+        interop::<RustCrypto, RustCrypto11>();
+        interop::<RustCrypto11, RustCrypto>();
+        interop::<AwsLc, RustCrypto11>();
+        interop::<RustCrypto11, AwsLc>();
     }
 }

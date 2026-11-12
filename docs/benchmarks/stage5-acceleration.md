@@ -38,3 +38,21 @@ headroom checks, independent platform evidence, absolute client CPU %/RSS/Mbps,
 security/erasure regressions and temporary latest-selected-code Travel tests.
 Build-only platforms remain explicitly performance-unmeasured. No primitive
 result, helper-limited unpaced result or build pass alone establishes a speedup.
+
+The initial [three-backend screen](https://github.com/riKirsti/ProtunNext/actions/runs/43157240325)
+at source `b3f305de0fdadb985756a035c38cfbdfa7f6703b` retains native
+[x64](https://github.com/riKirsti/ProtunNext/actions/runs/43157240325/artifacts/13916560969)
+and [ARM64](https://github.com/riKirsti/ProtunNext/actions/runs/43157240325/artifacts/13916695898)
+observations. All known-answer and directional interoperability tests pass.
+At 1280/1420 bytes, AWS-LC opening differs from ring by -0.22/+0.33% on x64
+and -0.30/-0.34% on ARM64. This is effectively a tie in this synthetic screen,
+not evidence of a full-path win. Existing RustCrypto 0.10.1 opening is slower
+by 241.99/275.72% on x64 and 138.63/129.88% on ARM64. The empty-message result
+does not justify a bulk-download backend selection. Each architecture retains
+216 observations, six repeats per backend/size/operation, without pooling hosts.
+
+A separate follow-up includes current [RustCrypto 0.11.0](https://docs.rs/chacha20poly1305/0.11.0/chacha20poly1305/)
+with zeroization enabled. All four backends re-run in the same balanced cohort;
+the earlier observations remain tied to their original source. No forced CPU
+backend, AVX-512 configuration flag or architecture-specific compiler tuning is
+introduced here. A provider-only TLS experiment remains separate from packet AEAD.

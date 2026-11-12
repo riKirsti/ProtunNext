@@ -29,7 +29,7 @@ def main():
                lock_sha256=sha(CRATE / "Cargo.lock"), source_sha256=sha(CRATE / "src/main.rs"),
                scope="primitive-only preselection; not production/session/download performance",
                rustflags=os.environ.get("RUSTFLAGS", ""),
-               order="six rounds of ring/rustcrypto/aws-lc, alternating forward/reverse",
+               order="six rounds of ring/rustcrypto/rustcrypto11/aws-lc, alternating forward/reverse",
                milliseconds_per_cell=250)
     (OUT / "environment.json").write_text(json.dumps(env, indent=2))
     (OUT / "hardware.txt").write_text(subprocess.check_output(["lscpu"], text=True))
@@ -38,7 +38,7 @@ def main():
     rows = []
     with (OUT / "samples.jsonl").open("w") as log:
         for repeat in range(6):
-            order = ["ring", "rustcrypto", "aws-lc"]
+            order = ["ring", "rustcrypto", "rustcrypto11", "aws-lc"]
             if repeat % 2:
                 order.reverse()
             for position, backend in enumerate(order):
@@ -53,7 +53,7 @@ def main():
                     rows.append(value)
                     log.write(json.dumps(value) + "\n")
                 log.flush()
-    assert len(rows) == 216
+    assert len(rows) == 288
     print(f"Retained {len(rows)} verified primitive observations on CPU {cpu}; no download result inferred.")
 
 

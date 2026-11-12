@@ -7,6 +7,7 @@ publish = false
 [dependencies]
 ring = "=0.17.14"
 chacha20poly1305 = { version = "=0.10.1", default-features = false }
+chacha11 = { package = "chacha20poly1305", version = "=0.11.0", default-features = false, features = ["zeroize"] }
 aws-lc-rs = { version = "=1.19.0", default-features = false, features = ["alloc", "non-fips", "prebuilt-nasm"] }
 serde_json = "1"
 
