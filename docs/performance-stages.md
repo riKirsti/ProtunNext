@@ -13,7 +13,7 @@ Research is open-ended; earlier prototypes do not exclude different designs.
 | 1 | Real inner TCP/HTTPS baseline and complete-path profiling | Initial foundation merged in PR #5; PR #6 retains batch-screening evidence and regression checks |
 | 2 | Simple receive-path improvements: framing/copies, scheduling, batching, bounded storage | Merged in PR #7 |
 | 3 | Genuine receive-side TUN coalescing and offload metadata | Merged in PR #8 |
-| 4 | Multicore receive architectures and asynchronous decryption | Plan reviewed after PR #8; bounded receive/decryption candidate in progress |
+| 4 | Multicore receive architectures and asynchronous decryption | Evaluated in PR #9; reject tested batch/barrier designs, retain serial production receiver |
 | 5 | Alternative acceleration: crypto implementations, native WireGuard, advanced I/O/TLS, CPU/NIC coordination and kernel bypass | Review the evidence-backed shortlist before starting |
 | 6 | Client-only PGO, architecture-specific builds and platform tuning | Review before starting |
 | 7 | Combine measured winners and validate real workloads/platforms | Review before starting |
@@ -148,3 +148,22 @@ Exercise replay/tamper, invalid packets, counter/session changes, ordering,
 backpressure, cancellation, ownership and cleanup. Include temporary latest-code
 Travel comparisons with restoration checks. Keep only justified changes in one
 stage PR, with accept/reject/inconclusive decisions before the next stage review.
+
+## Stage 4 result
+
+[PR #9](https://github.com/riKirsti/ProtunNext/pull/9) preserves the tested bounded
+parallel receiver as an explicit archive-only patch and keeps PR #8 production
+source. All 248 normal-release timed downloads verify. Fixed-rate native x64
+and ARM64 results increase CPU/byte across all qualified cells; most RSS values
+also increase. The unpaced LTS UDP cohorts are helper-limited and mixed in speed.
+All twelve balanced Travel comparisons verify, with lower observed prototype
+speed across UDP/TCP/Stealth; one baseline A/A warmup failure remains recorded.
+Cleanup and independent restoration checks pass. The final serial production
+path is the same baseline physically tested on Travel.
+
+The [complete Stage 4 evaluation](benchmarks/stage4-receive.md) retains source
+identities, all workload results, profiles, initial/pinned comparisons, control
+failures, build-only platform labels and coverage gaps. This rejects these
+batch/barrier implementations, not all asynchronous/multicore receive designs.
+After this stage merges, review Stage 5's evidence-backed acceleration shortlist
+before implementation. No Stage 5 code is included in this stage PR.
