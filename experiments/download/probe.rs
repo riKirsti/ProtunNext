@@ -8,6 +8,26 @@ use std::sync::{Arc, Barrier};
 const BLOCK: usize = 65536;
 const WARM_BLOCKS: u64 = 64;
 static WIRE_CPU_START: AtomicU64 = AtomicU64::new(0);
+static READER_CPU_START: AtomicU64 = AtomicU64::new(0);
+
+fn cpu_ticks() -> std::collections::BTreeMap<String, Vec<u64>> {
+    std::fs::read_to_string("/proc/stat")
+        .unwrap()
+        .lines()
+        .filter_map(|line| {
+            let mut fields = line.split_whitespace();
+            let name = fields.next()?;
+            if name.starts_with("cpu") && name.len() > 3 {
+                Some((
+                    name.to_owned(),
+                    fields.take(8).map(|v| v.parse().unwrap()).collect(),
+                ))
+            } else {
+                None
+            }
+        })
+        .collect()
+}
 
 // Hash once before setup/warmup. Equal source hashes cannot conceal changed
 // helpers, and executable hashing cannot extend the measured interval.
@@ -28,6 +48,11 @@ fn executable_digest() -> &'static str {
 }
 
 fn emit(mut metric: serde_json::Value) {
+    metric["helper_mode"] = std::env::var("NEXT_PEER_HELPER")
+        .unwrap_or_else(|_| "legacy".into())
+        .into();
+    metric["shared_load_server_cpu"] =
+        (std::env::var("NEXT_SHARED_LOAD_SERVER_CPU").as_deref() == Ok("1")).into();
     metric["binary_sha256"] = executable_digest().into();
     metric["network_delay_ms"] = std::env::var("NEXT_NETWORK_DELAY_MS")
         .unwrap_or_else(|_| "0".into())
@@ -467,6 +492,22 @@ fn peer(proto: &str, flows: usize, blocks: u64, family: &str, application: &str)
         unsafe { libc::fcntl(device.as_raw_fd(), libc::F_SETFL, flags | libc::O_NONBLOCK) },
         0
     );
+    let helper_mode = std::env::var("NEXT_PEER_HELPER").unwrap_or_else(|_| "legacy".into());
+    assert!(matches!(
+        helper_mode.as_str(),
+        "legacy" | "inplace" | "reader"
+    ));
+    let reader = if helper_mode == "reader" {
+        let cpu = std::env::var("NEXT_PEER_READ_CPUS")
+            .unwrap()
+            .parse()
+            .unwrap();
+        Some(crate::peer_reader::Reader::new(device.try_clone().unwrap(), cpu).unwrap())
+    } else {
+        None
+    };
+    let reader_clock = reader.as_ref().map(|r| r.clock());
+    let mut inplace_packets = 0u64;
     let mut session = Session::new(
         [9; 32],
         Session::public_key([7; 32]),
@@ -502,6 +543,9 @@ fn peer(proto: &str, flows: usize, blocks: u64, family: &str, application: &str)
         while input.read_exact(&mut marker).is_ok() {
             if marker[0] == b'G' {
                 WIRE_CPU_START.store(clock_cpu(wire_clock), Ordering::Release);
+                if let Some(clock) = reader_clock {
+                    READER_CPU_START.store(clock_cpu(clock), Ordering::Release);
+                }
                 PEER_CPU_START.store((cpu() * 1e9) as u64, Ordering::Release);
                 PEER_WALL_START.store(monotonic_ns(), Ordering::Release);
             } else {
@@ -510,6 +554,9 @@ fn peer(proto: &str, flows: usize, blocks: u64, family: &str, application: &str)
         }
     });
     while !STOP.load(Ordering::Relaxed) {
+        if let Some(reader) = &reader {
+            reader.drain_wake().unwrap();
+        }
         if timing.is_none() && PEER_WALL_START.load(Ordering::Acquire) > 0 {
             timing = Some((
                 PEER_CPU_START.load(Ordering::Acquire),
@@ -522,6 +569,9 @@ fn peer(proto: &str, flows: usize, blocks: u64, family: &str, application: &str)
                     (cpu() * 1e9 - c as f64) / 1e9,
                     (monotonic_ns() - t) as f64 / 1e9,
                     (clock_cpu(wire_clock) - WIRE_CPU_START.load(Ordering::Acquire)) as f64 / 1e9,
+                    reader_clock.map_or(0.0, |clock| {
+                        (clock_cpu(clock) - READER_CPU_START.load(Ordering::Acquire)) as f64 / 1e9
+                    }),
                 )
             });
             println!("NEXT_DRAIN");
@@ -599,6 +649,56 @@ fn peer(proto: &str, flows: usize, blocks: u64, family: &str, application: &str)
             {
                 break;
             }
+            if helper_mode != "legacy" {
+                let mut outgoing = pool.take().unwrap();
+                let result = if let Some(reader) = &reader {
+                    match reader.next().unwrap() {
+                        Some(frame) => {
+                            let n = frame.data().len();
+                            outgoing.writable()[..n].copy_from_slice(frame.data());
+                            reader.recycle(frame).unwrap();
+                            Ok(n)
+                        }
+                        None => Err(std::io::Error::from(std::io::ErrorKind::WouldBlock)),
+                    }
+                } else {
+                    device.read(&mut outgoing.writable()[..65000])
+                };
+                let n = match result {
+                    Ok(n) => {
+                        assert!(n > 0);
+                        n
+                    }
+                    Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                        pool.recycle(outgoing).unwrap();
+                        break;
+                    }
+                    Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {
+                        pool.recycle(outgoing).unwrap();
+                        continue;
+                    }
+                    Err(e) => panic!("peer TUN read {e}"),
+                };
+                outgoing.set_len(n).unwrap();
+                if !allowed.outbound(outgoing.data()) {
+                    filtered += 1;
+                    pool.recycle(outgoing).unwrap();
+                    continue;
+                }
+                let Output::Network(size) = session
+                    .encrypt_in_place(outgoing.wireguard_buffer().unwrap(), n)
+                    .unwrap()
+                else {
+                    panic!("peer in-place encrypt")
+                };
+                outgoing.set_data_len(size).unwrap();
+                if outgoing.data().starts_with(&[4, 0, 0, 0]) {
+                    inplace_packets += 1;
+                }
+                network.queue_owned(outgoing, &mut queue);
+                progress = true;
+                continue;
+            }
             match device.read(&mut wire[..65000]) {
                 Ok(n) => {
                     assert!(n > 0);
@@ -648,7 +748,7 @@ fn peer(proto: &str, flows: usize, blocks: u64, family: &str, application: &str)
                 },
                 libc::pollfd {
                     fd: device.as_raw_fd(),
-                    events: libc::POLLIN
+                    events: if reader.is_none() { libc::POLLIN } else { 0 }
                         | if pending_tun.is_some() {
                             libc::POLLOUT
                         } else {
@@ -656,22 +756,27 @@ fn peer(proto: &str, flows: usize, blocks: u64, family: &str, application: &str)
                         },
                     revents: 0,
                 },
+                libc::pollfd {
+                    fd: reader.as_ref().map_or(-1, |r| r.fd()),
+                    events: libc::POLLIN,
+                    revents: 0,
+                },
             ];
-            // SAFETY: two initialized pollfd entries, live owned descriptors.
-            let result = unsafe { libc::poll(polls.as_mut_ptr(), 2, 10) };
+            // SAFETY: initialized entries; negative optional fd is ignored by poll.
+            let result = unsafe { libc::poll(polls.as_mut_ptr(), polls.len() as libc::nfds_t, 10) };
             assert!(
                 result >= 0
                     || std::io::Error::last_os_error().kind() == std::io::ErrorKind::Interrupted
             );
         }
     }
-    let (used, seconds, wire_used) = measured.expect("peer timing not stopped");
+    let (used, seconds, wire_used, reader_used) = measured.expect("peer timing not stopped");
     let tls = match &network {
         Peer::Stream(s) => s.io().metadata(),
         _ => None,
     };
     emit(
-        serde_json::json!({"role":"peer","effective_sources_sha256":option_env!("NEXT_BUILD_ID").unwrap_or("unstamped-local-build"),"cpu_seconds":used,"wire_cpu_seconds":wire_used,"server_cpu_seconds":(used-wire_used).max(0.0),"seconds":seconds,"rss_kib":rss(),"outer_namespace":outer_namespace,"namespace":namespace(),"handshakes":handshakes,"filtered_non_peer":filtered,"tls":tls}),
+        serde_json::json!({"role":"peer","effective_sources_sha256":option_env!("NEXT_BUILD_ID").unwrap_or("unstamped-local-build"),"cpu_seconds":used,"wire_cpu_seconds":wire_used,"server_cpu_seconds":(used-wire_used-reader_used).max(0.0),"reader_cpu_seconds":reader_used,"reader_frames":reader.as_ref().map_or(0,|r|r.count()),"reader_cpu_index":reader.as_ref().map(|r|r.cpu()),"wire_affinity_cpus":std::env::var("NEXT_PEER_CPUS").unwrap().split(',').map(|v|v.parse::<usize>().unwrap()).collect::<Vec<_>>(),"server_affinity_cpus":std::env::var("NEXT_SERVER_CPUS").unwrap().split(',').map(|v|v.parse::<usize>().unwrap()).collect::<Vec<_>>(),"inplace_packets":inplace_packets,"seconds":seconds,"rss_kib":rss(),"outer_namespace":outer_namespace,"namespace":namespace(),"handshakes":handshakes,"filtered_non_peer":filtered,"tls":tls}),
     );
 }
 
@@ -830,6 +935,7 @@ fn client(binary: &str, proto: &str, flows: usize, blocks: u64, family: &str, ap
         wait_file("NEXT_PROFILE_GO");
     }
     let before = connection.wait_for_stats(connection.request_stats(), Duration::from_secs(2));
+    let cpu_before = cpu_ticks();
     peer.0.stdin.as_mut().unwrap().write_all(b"G").unwrap();
     let start = Instant::now();
     let cpu_start = cpu();
@@ -839,6 +945,7 @@ fn client(binary: &str, proto: &str, flows: usize, blocks: u64, family: &str, ap
     assert_eq!(line.trim(), "NEXT_DONE");
     let used = cpu() - cpu_start;
     let seconds = start.elapsed().as_secs_f64();
+    let cpu_after = cpu_ticks();
     peer.0.stdin.take().unwrap().write_all(b"D").unwrap();
     line.clear();
     peer_out.read_line(&mut line).unwrap();
@@ -866,7 +973,7 @@ fn client(binary: &str, proto: &str, flows: usize, blocks: u64, family: &str, ap
         .unwrap()
     };
     emit(
-        serde_json::json!({"role":"download-client","client_affinity_cpus":client_affinity_cpus(),"shared_peer_server_cpu":std::env::var("NEXT_SHARED_PEER_SERVER_CPU").as_deref()==Ok("1"),"tun_mode":descriptor_mode(device.as_raw_fd()),"offered_rate_bps":offered_rate(),"effective_sources_sha256":option_env!("NEXT_BUILD_ID").unwrap_or("unstamped-local-build"),"protocol":proto,"flows":flows,"blocks_per_flow":blocks,"family":family,"application":application,"seconds":seconds,"client_cpu_seconds":used,"client_rss_kib":rss(),"load":metric(&load_text),"peer":metric(&peer_text),"before":before,"after":after,"counters":counters,"namespace":namespace(),"kernel":std::fs::read_to_string("/proc/sys/kernel/osrelease").unwrap().trim(),"arch":std::env::consts::ARCH,"scope":"Kernel TCP HTTP/HTTPS, two inner network stacks, production Connection/TUN worker; outer sockets on loopback. No physical NIC, RTT/loss or Proton WAN acceptance. CPU excludes asynchronous kernel work; RSS excludes kernel/auxiliary memory."}),
+        serde_json::json!({"role":"download-client","client_affinity_cpus":client_affinity_cpus(),"shared_peer_server_cpu":std::env::var("NEXT_SHARED_PEER_SERVER_CPU").as_deref()==Ok("1"),"tun_mode":descriptor_mode(device.as_raw_fd()),"offered_rate_bps":offered_rate(),"effective_sources_sha256":option_env!("NEXT_BUILD_ID").unwrap_or("unstamped-local-build"),"protocol":proto,"flows":flows,"blocks_per_flow":blocks,"family":family,"application":application,"seconds":seconds,"cpu_ticks_before":cpu_before,"cpu_ticks_after":cpu_after,"client_cpu_seconds":used,"client_rss_kib":rss(),"load":metric(&load_text),"peer":metric(&peer_text),"before":before,"after":after,"counters":counters,"namespace":namespace(),"kernel":std::fs::read_to_string("/proc/sys/kernel/osrelease").unwrap().trim(),"arch":std::env::consts::ARCH,"scope":"Kernel TCP HTTP/HTTPS, two inner network stacks, production Connection/TUN worker; outer sockets on loopback. No physical NIC, RTT/loss or Proton WAN acceptance. CPU excludes asynchronous kernel work; RSS excludes kernel/auxiliary memory."}),
     );
     assert_eq!(
         counters.invalid_packets, 0,

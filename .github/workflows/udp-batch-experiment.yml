@@ -12,7 +12,7 @@ on:
       build_mode:
         type: choice
         default: release
-        options: [release, pgo, cpu, accept-paced, accept-capacity, accept-delay, capacity-diag]
+        options: [release, pgo, cpu, accept-paced, accept-capacity, accept-delay, capacity-diag, helper-screen]
         description: Independent build or Stage 7 same-host factors; fixed portable helpers
       tls_records:
         type: boolean
@@ -140,7 +140,10 @@ jobs:
       - name: Build candidate and fixed baseline auxiliaries
         run: |
           if [[ "$NEXT_BUILD_MODE" = pgo || "$NEXT_BUILD_MODE" = accept-* ]]; then rustup component add llvm-tools-preview; fi
-          if [ "$NEXT_BUILD_MODE" = capacity-diag ]; then
+          if [ "$NEXT_BUILD_MODE" = helper-screen ]; then
+            NEXT_BUILD_MODE=release bash experiments/audit/build.sh "$(rustc -vV | sed -n 's/^host: //p')"
+            sudo env "PATH=$PATH" python3 experiments/download/helper_screen.py
+          elif [ "$NEXT_BUILD_MODE" = capacity-diag ]; then
             NEXT_BUILD_MODE=release bash experiments/audit/build.sh "$(rustc -vV | sed -n 's/^host: //p')"
             sudo env "PATH=$PATH" python3 experiments/download/diagnose.py
           elif [[ "$NEXT_BUILD_MODE" = accept-* ]]; then
@@ -149,7 +152,7 @@ jobs:
             bash experiments/audit/build.sh "$(rustc -vV | sed -n 's/^host: //p')"
           fi
       - name: Compare verified downloads across all transports
-        if: ${{ !startsWith(inputs.build_mode, 'accept-') && inputs.build_mode != 'capacity-diag' }}
+        if: ${{ !startsWith(inputs.build_mode, 'accept-') && inputs.build_mode != 'capacity-diag' && inputs.build_mode != 'helper-screen' }}
         env:
           NEXT_DOWNLOAD_RATE_BPS: ${{ inputs.rate_bps || '0' }}
           NEXT_DOWNLOAD_BLOCK: ${{ inputs.block }}

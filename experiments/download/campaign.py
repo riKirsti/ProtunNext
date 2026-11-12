@@ -26,6 +26,11 @@ def plan():
     assert total_blocks > 0 and total_blocks % 8 == 0, "invalid verified payload size"
     network_delay = int(os.environ.get("NEXT_NETWORK_DELAY_MS", "0"))
     assert network_delay in {0, 5}, "unsupported disposable network scenario"
+    helper_screen=os.environ.get("NEXT_PEER_HELPER_SCREEN", "")
+    helper_fixed=os.environ.get("NEXT_PEER_HELPER_FIXED", "")
+    assert helper_screen in {"", "inplace", "reader"} and helper_fixed in {"", "legacy", "inplace", "reader"}
+    assert not (helper_screen and helper_fixed), "helper screen and client comparison must remain separate"
+    assert not (helper_screen or helper_fixed) or client_cores==1, 'helper layouts require the unchanged one-core client'
     for protocol in ["udp", "tcp", "stealth"]:
         for family, application, flows in [("v4", "http", 1), ("v4", "http", 8),
                                             ("v6", "https", 1), ("v6", "https", 8)]:
@@ -41,6 +46,8 @@ def plan():
                         rows[-1]["offered_rate_bps"] = rate
                     if network_delay:
                         rows[-1]["network_delay_ms"] = network_delay
+                    if helper_screen or helper_fixed:
+                        rows[-1]["helper_mode"] = helper_fixed or (helper_screen if build=="erase" else "legacy")
                     if tun_mode == "compare":
                         rows[-1]["tun_mode"] = "vnet" if build == "erase" else "raw"
                     elif tun_mode == "vnet":
@@ -174,6 +181,16 @@ def metrics(row, env):
     for key in ["protocol", "flows", "blocks_per_flow", "family", "application"]:
         assert m[key] == row[key], key
     load, peer = m["load"], m["peer"]
+    layout=None
+    if "helper_mode" in row:
+        mode=row['helper_mode'];layout=env['helper_cpu_layouts'][mode]
+        assert m['helper_mode']==peer['helper_mode']==load['helper_mode']==mode, 'wrong helper strategy'
+        assert m['client_affinity_cpus']==layout['client'], 'client allowance changed'
+        assert peer['wire_affinity_cpus']==layout['wire'] and peer['server_affinity_cpus']==layout['server'], 'helper CPU placement changed'
+        assert m['shared_load_server_cpu']==layout['shared_load_server_cpu'], 'shared auxiliary accounting missing'
+        assert peer['reader_cpu_index']==(layout['reader'][0] if layout['reader'] else None), 'reader CPU placement changed'
+        if mode!='legacy':assert peer['inplace_packets']>0, 'in-place helper was not used'
+        if mode=='reader':assert peer['reader_frames']>0 and peer['reader_cpu_seconds']>0, 'reader was not used'
     for auxiliary in [load,peer]:
         assert all(math.isfinite(auxiliary[k]) and auxiliary[k]>0 for k in ["cpu_seconds","seconds"]), "invalid auxiliary accounting"
     for key in ["wire_cpu_seconds","server_cpu_seconds"]:
@@ -203,6 +220,17 @@ def metrics(row, env):
               peer.get("server_cpu_seconds",0)/peer["seconds"])
     if row.get("shared_peer_server_cpu"):
         aux = max(aux, peer["cpu_seconds"]/peer["seconds"])
+    if layout:
+        aux=max(aux,peer['reader_cpu_seconds']/peer['seconds'])
+        if layout['shared_load_server_cpu']:
+            aux=max(aux,load['cpu_seconds']/load['seconds']+peer['server_cpu_seconds']/peer['seconds'])
+        for cpu_index in layout['auxiliary']:
+            key='cpu'+str(cpu_index)
+            before=m['cpu_ticks_before'][key];after=m['cpu_ticks_after'][key]
+            delta=[b-a for a,b in zip(before,after)]
+            assert len(delta)==8 and all(d>=0 for d in delta) and sum(delta)>0, 'invalid host CPU accounting'
+            busy=1-(delta[3]+delta[4])/sum(delta)
+            aux=max(aux,busy)
     return dict(Mbps=load["bytes"]*8/load["seconds"]/1e6, CPU_ns_per_byte=cpu*1e9/load["bytes"],
                 CPU_core_percent=cpu/seconds*100, peak_RSS_MiB=m["client_rss_kib"]/1024,
                 short=load["seconds"]<2, interval_skew=skew, auxiliary_core_fraction=aux,
