@@ -1,4 +1,4 @@
-/target/
+target/
 /local-private/
 *.key
 *.pcap
@@ -11,3 +11,15 @@ benchmark-results.local.json
 /android/local.properties
 /apple/.build/
 /apple/.swiftpm/
+__pycache__/
+*.py[cod]
+*.profraw
+*.profdata
+perf.data*
+*.p12
+*.pfx
+*.conf
+.env*
+!*.example
+/private/
+/artifacts/

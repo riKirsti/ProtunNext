@@ -9,7 +9,7 @@ fn run() -> protun_next::Result<()> {
     let args: Vec<String> = std::env::args().collect();
     match args.get(1).map(String::as_str) {
         Some("status") => {
-            println!("{}", include_str!("../docs/parity.json"));
+            println!("{}", include_str!("requirements.json"));
             Ok(())
         }
         Some("verify-parity") => control::release_gate(),

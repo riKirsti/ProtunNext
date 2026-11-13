@@ -118,7 +118,7 @@ pub enum CodeSupport {
     NotApplicable,
 }
 pub fn parity_manifest() -> Result<Vec<ParityItem>> {
-    serde_json::from_str(include_str!("../docs/parity.json"))
+    serde_json::from_str(include_str!("requirements.json"))
         .map_err(|e| Error::Protocol(e.to_string()))
 }
 /// Code coverage is a separate gate from the user's deferred live validation.

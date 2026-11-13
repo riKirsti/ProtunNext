@@ -256,13 +256,13 @@ mod tests {
             ));
         }
         assert!(matches_prefix(
-            "192.168.7.2".parse().unwrap(),
+            "192.0.2.2".parse().unwrap(),
             "0.0.0.0".parse().unwrap(),
             0
         ));
         assert!(!matches_prefix(
-            "192.168.7.2".parse().unwrap(),
-            "192.168.8.0".parse().unwrap(),
+            "192.0.2.2".parse().unwrap(),
+            "198.51.100.0".parse().unwrap(),
             24
         ));
         assert!(!matches_prefix(
