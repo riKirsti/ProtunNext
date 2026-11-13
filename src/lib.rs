@@ -1,5 +1,5 @@
 //! Independent packet engine. Control operations do not traverse the packet path.
-//! See docs/parity.json for verified support, rather than inferring it from types.
+//! See docs/development.md and the runtime requirements ledger for verification scope.
 #[cfg(all(windows, not(target_arch = "x86_64")))]
 compile_error!("Windows production builds require x86_64");
 #[cfg(all(target_vendor = "apple", not(target_arch = "aarch64")))]

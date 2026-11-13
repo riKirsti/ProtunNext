@@ -1,130 +1,61 @@
 # ProtunNext
 
-Independent Rust successor project targeting all functionality exposed by Protun v3.0.5.
+Cross-platform Rust VPN runtime with WireGuard UDP, framed TCP and Stealth
+transports, account integration and native application bindings.
 
-**v3.0.5 function implementations are covered; live acceptance remains pending.**
-The [source comparison and function mapping](docs/parity-scope.md) covers 39
-functional requirements plus a separate performance-evidence item.
-`verify-code-parity` checks implementation coverage. `verify-parity` deliberately
-fails until deferred service/device acceptance is complete. This is a development
-build; offline tests do not establish live Proton Plus support or release readiness.
+**Development software.** Offline implementation and platform checks do not
+establish complete live service or device acceptance. The release verification
+gate remains closed. ProtunNext is an independent project and is not affiliated
+with or endorsed by Proton AG.
 
-The [supported platform contract](docs/supported-platforms.md) is Windows 11
-25H2/26H2 native x64; Linux 6.12/6.18 LTS x64/ARM64; Android 16/17 API 36/37;
-and macOS/iOS/iPadOS 26/27 ARM64. Production backend choices are internal and
-fixed. [Measured TLS selection](docs/tls-selection-20261103.md) retains the small
-transfer regression as well as the repeatable sustained-download benefit.
+## Features
 
-## Working implementation in this snapshot
+- Authenticated WireGuard sessions with replay protection, bounded packet
+  ownership and in-place data encryption/decryption.
+- UDP batching, framed TCP and platform-selected rustls I/O; explicit Linux
+  receive coalescing for compatible caller-owned TUN descriptors.
+- Managed connection lifecycle, peer updates, recovery, statistics and captures.
+- Optional Proton account, certificate and Local Agent integration. Applied
+  settings and subscription capabilities remain subject to server policy.
+- Rust library and CLI, generated bindings, Android VpnService integration and
+  an Apple NetworkExtension packet-flow adapter.
 
-* WireGuard cryptographic-session adapter with real handshakes, packet round trips,
-  replay protection, invalid-tag rejection and monotonic timer validation.
-* Preallocated owned packet pool and bounded queues. Partial writes retain the
-  original allocation with an offset; no tail allocation or copy.
-* Independently implemented TunSafe normal/predicted framing with bounded circular
-  receive storage, fragmented input and reset/error handling.
-* Framed stream I/O with vectored output, bounded backpressure and real TCP
-  loopback/WireGuard handshake tests.
-* Shared Unix/Windows UDP/framed TCP/TLS worker. Unix attaches only to a caller-owned TUN descriptor and
-  binding the outer socket to an explicitly supplied uplink interface before connect.
-  TLS selects buffered rustls on Windows/Apple and unbuffered rustls on Linux/Android at compile time; both keep flushing pending ciphertext.
-* Managed worker start/disconnect/join, bounded latest-state observation
-  and real WireGuard byte/loss/handshake/RTT statistics; no user callbacks or
-  control messages run per packet.
-* Allocation-free single-peer `AllowedIPs` enforcement for outbound destinations
-  and authenticated inbound sources, including IPv4/IPv6 family checks.
-* Strict single-peer WireGuard configuration reader; unknown directives fail
-  rather than being silently ignored. This low-level reader applies no OS settings.
-* PCAP writer, NAT-PMP wire codec and candidate-selection/settings validation.
+## Documentation
 
-The compatibility API now has a separate supervisor for peer updates,
-network recovery, replaceable/optional TUN, socket-protection callbacks, statistics
-and persistent capture controls. The optional `local-agent` feature adds an
-account thread using Proton's published Muon, certificate refresher and managed
-mTLS Local Agent. API/DNS/control sockets use a private in-tunnel TCP/IP stack;
-ordinary customer packets bypass it. The connection retains private sockets and
-NAT ownership through outer reconnects, and services local HTTP while offline or
-waiting for TCP connect. Virtual-network policy includes selected Windows subnets,
-tracked reply ownership and fragmented private responses. The Android service builds an AAR; Windows loopback transports and
-native initialization run without creating a VPN adapter.
-Account issuance, renewal and paid-server integration have not been tested with
-real credentials. Public API declarations alone do not count as implementation.
-See [the complete parity ledger](docs/parity.json),
-[architecture and dependency decisions](docs/architecture.md), and
-[verification evidence](docs/verification.md).
+- [Development](docs/development.md): architecture, APIs, tests and contribution workflow.
+- [Build](docs/building.md): toolchains, features and platform artifacts.
+- [Deploy](docs/deployment.md): host integration, packaging and operational boundaries.
+- [Contributing](CONTRIBUTING.md) and [security reporting](SECURITY.md).
 
-## Build and test
+## Quick start
+
+Install stable Rust with Cargo, rustfmt and Clippy, plus the native compiler and
+SDK for your platform. The Proton registry is configured in `.cargo/config.toml`.
+Ordinary builds/tests require no Proton account credentials.
 
 ```sh
-cargo test --locked --all-targets
+cargo test --locked --all-targets --all-features
 cargo build --locked --release --lib --bin protun-next-cli
-cargo run --locked -- status
 cargo run --locked -- check-config /path/to/private-config.conf
-cargo run --locked -- verify-parity # expected to fail during development
-cargo run --locked -- verify-code-parity # function implementation coverage
 ```
 
-The private Proton registry is configured in `.cargo/config.toml`. No Proton
-account credentials are required for the host tests. The Linux TUN integration
-test is opt-in and requires a disposable network namespace; CI runs it separately.
-Default tests never change host routes, interfaces, DNS, sysctls or packages.
+The CLI validates configuration and offers low-level Linux workers. It does not
+create/configure a VPN interface or install routes/DNS for the host. Use the
+managed library API for application integration; see the deployment guide.
 
-The experimental Linux worker is invoked as:
+## Repository layout
 
-```sh
-protun-next-cli run-udp private-config.conf EXISTING_TUN_FD UPLINK_INTERFACE
-protun-next-cli run-tcp private-config.conf EXISTING_TUN_FD UPLINK_INTERFACE
-protun-next-cli run-tls private-config.conf EXISTING_TUN_FD UPLINK_INTERFACE SERVER_NAME
-protun-next-cli run-stealth private-config.conf EXISTING_TUN_FD UPLINK_INTERFACE [random|top|DNS_SNI]
-```
+| Directory | Purpose |
+|---|---|
+| `src/` | Runtime, public APIs, platform adapters and release requirements ledger |
+| `android/`, `apple/` | Native application integration |
+| `tests/` | Functional, transport, platform and FFI regressions |
+| `scripts/` | Build, packaging, provenance, repository and security checks |
+| `examples/`, `benches/` | Linked erasure fixture and developer microbenchmark |
+| `vendor/` | Pinned dependency source, narrow patch and upstream notices |
+| `docs/` | Development, build and deployment guides |
 
-The TLS command uses standard certificate verification. The separate Stealth
-command uses Proton's published outer policy and Random/Top/explicit SNI;
-inner WireGuard authenticates packets before TUN delivery. Temporary Travel
-tests cover the saved-config NoLocalAgent path; broader account-enabled live
-acceptance remains incomplete. TCP/TLS
-MTU is limited to 16,351 bytes by normal TunSafe framing.
+## License
 
-The host must create/configure the TUN, addresses, routes and DNS. This command
-duplicates its fd and makes the shared file description nonblocking. It does not
-implement v3.0.5's complete connection lifecycle or Local Agent mode. Do not run it
-as an unattended production client. No automatic software installation/removal,
-router management or account login is implemented by this command.
-
-## Performance evidence
-
-The [final performance policy](docs/performance-policy.md) consolidates all eight
-stages: retain the serial ring-based worker, compact bounded buffers, direct
-framing/TLS receive and explicitly negotiated Linux TUN coalescing. Portable
-release builds remain the product default. PGO/CPU-native builds remain optional,
-target-qualified experiments. The campaign closes after its final validation PR;
-recorded gaps do not schedule further work automatically.
-
-The allocation integration test measures the real established-session
-encrypt/frame/decode/decrypt path: after warm-up, 1,024 1280-byte packets must
-produce **zero allocator calls** on the observed test thread. The result excludes
-initialization, handshakes/rekey, errors, TLS, kernel I/O and account work.
-
-`cargo bench --bench packet_path` times the actual framing implementation on the
-machine running it. It is **not a VPN throughput benchmark**. The
-[real-download reports](docs/performance-policy.md#review-of-every-stage) retain
-native CPU/memory/throughput and temporary Travel observations, including noisy
-controls and rejected candidates. These establish specific efficiency findings,
-not universal maximum speed or production superiority. Account-enabled acceptance
-and several platform/device measurements remain incomplete.
-
-## Scope and paid features
-
-The compatibility target includes peer updates/failover, connectivity events,
-TUN replacement, socket protection, stats, capture control, logging, secure cache,
-API forks/cookies, certificate issuance/renewal, Local Agent state/settings,
-NetShield, port forwarding, split TCP, NAT/circumvention options, policy refusals,
-jails/restrictions and platform bindingsâ€”not just the three tunnel transports.
-
-Paid capabilities remain subject to Proton's server policy and the account's
-entitlements. A local setting, stub, codec or a successful connection cannot
-grant or demonstrate a subscription capability. Secure Core/server choice and
-other app/service features must be distinguished from capabilities actually
-implemented inside the v3.0.5 library. Deferred acceptance work is recorded explicitly.
-
-GPL-3.0-or-later. No affiliation with or endorsement by Proton AG is implied.
+GPL-3.0-or-later; see [LICENSE](LICENSE). Vendored code retains its own
+[license and attribution](vendor/proton-boringtun/LICENSE.md).
