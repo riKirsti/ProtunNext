@@ -1,0 +1,20 @@
+[
+  {
+    "arch": "x64",
+    "observed": 96,
+    "verified": 96,
+    "errors": [],
+    "statuses": {
+      "usable": 12
+    }
+  },
+  {
+    "arch": "arm",
+    "observed": 96,
+    "verified": 96,
+    "errors": [],
+    "statuses": {
+      "usable": 12
+    }
+  }
+]

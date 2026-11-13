@@ -1,6 +1,11 @@
 Production packet path and verification
 =======================================
 
+The [final performance selection](performance-policy.md) is the current decision
+after Stages 1–8. This describes the retained implementation; dated reports remain
+historical evidence. The campaign closes with portable defaults, negotiated
+Linux coalescing and optional qualified build experiments.
+
 This revision replaces the unreleased tuning matrix with one production policy:
 compact bounded packets and in-place WireGuard data crypto. TLS selects buffered
 rustls on Windows/Apple and unbuffered rustls on Linux/Android at compile time.
@@ -24,7 +29,7 @@ receiver had a reproduced completion-overflow stall; a temporary corrected
 build passed the targeted burst regression and eight WAN downloads. That
 receiver, its fix and any liburing package are not dependencies of this PR.
 Complete-worker speed/RSS measurements do not justify adopting it as default.
-Production parallel crypto and mandatory PGO remain excluded. Stage 3 evaluates
+Production parallel crypto and mandatory PGO remain excluded. Stage 3 retained
 explicitly negotiated Linux receive-side TUN coalescing; see its
 [descriptor contract and evaluation](benchmarks/stage3-tun.md).
 See the linked reports for retained failures and workload limits.

@@ -1,5 +1,9 @@
 # Download performance research
 
+The campaign closes with the [final performance policy](performance-policy.md).
+The following describes the historical research fixture and its measurement
+contract. Recorded gaps do not automatically start another stage.
+
 The objective is sustained download throughput for WireGuard UDP, WireGuard TCP
 and Stealth. Merged PR4 `f7bf03f5b4dc3981eaadedbf3a7841c5ed5ee5c1` is the
 baseline. No fixed percentage CPU or 8/32 MiB memory threshold rejects a
