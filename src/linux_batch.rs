@@ -1,5 +1,5 @@
 //! Connected UDP batching. Linux sendmmsg/recvmmsg contracts are documented in
-//! docs/performance.md. All payload buffers stay owned until the syscall returns.
+//! docs/development.md. All payload buffers stay owned until the syscall returns.
 use crate::{
     Error, Result,
     packet::{Packet, PacketPool, PacketQueue},
