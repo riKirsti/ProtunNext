@@ -80,8 +80,9 @@ protun-next-cli run-stealth private-config.conf EXISTING_TUN_FD UPLINK_INTERFACE
 
 The TLS command uses standard certificate verification. The separate Stealth
 command uses Proton's published outer policy and Random/Top/explicit SNI;
-inner WireGuard authenticates packets before TUN delivery. Its live Proton
-interoperability remains unverified. TCP/TLS
+inner WireGuard authenticates packets before TUN delivery. Temporary Travel
+tests cover the saved-config NoLocalAgent path; broader account-enabled live
+acceptance remains incomplete. TCP/TLS
 MTU is limited to 16,351 bytes by normal TunSafe framing.
 
 The host must create/configure the TUN, addresses, routes and DNS. This command
