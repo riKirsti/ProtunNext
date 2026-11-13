@@ -23,7 +23,7 @@ Research is open-ended; earlier prototypes do not exclude different designs.
 | 6 | Client-only PGO, architecture-specific builds and platform tuning | Evaluated in PR #11; retain optional independent build experiments, portable defaults unchanged |
 | 7 | Combine measured winners and validate real workloads/platforms | Evaluated in PR #12; optional native combination and device PGO efficiency evidence, maximum capacity unresolved |
 | 8 (focused follow-up) | Remove the measured peer bottleneck and diagnose delayed TCP before claiming client capacity | Evaluated in PR #13; tested helper prototypes do not establish headroom, maximum capacity remains inconclusive |
-| Final selection | Review all evidence, settle production/build policy and validate the retained configuration | Final performance PR for now; review below |
+| Final selection | Review all evidence, settle production/build policy and validate the retained configuration | PR #14 closes this campaign for now; final choice and validation below |
 
 One stage per PR. Before each transition, review the goal, frozen baseline,
 evidence, proposed changes, exclusions, validation and completion criteria with
@@ -470,3 +470,27 @@ mandatory tuning, persistent setting or release. Record unproven maximum capacit
 TCP impairment, account-enabled and unmeasured OS/device performance as limits;
 they do not extend this campaign. Further performance research requires the user
 to reopen it.
+
+## Final decision and closure
+
+[PR #14](https://github.com/riKirsti/ProtunNext/pull/14) adopts the
+[final performance policy](performance-policy.md) after reviewing all stages.
+Keep portable release defaults, serial ring, bounded compact ownership, direct
+framed/TLS receive and explicit Linux TUN coalescing. Keep fresh matching
+target-specific tuning optional; do not promote unqualified benchmark profiles
+or reject features/account support to obtain a faster benchmark.
+
+Final native characterization verifies 192/192 payloads with 24/24 cells passing
+controls/timing. Temporary Travel verifies 23/24 planned sessions: the first
+baseline UDP session fails warmup, making its A/A cohort incomplete; TCP and
+Stealth verify all sessions and pass controls. All three cohorts pass cleanup
+and twelve independent restoration checks. Baseline/current executables are
+byte-identical within each host/device, so no new optimization gain is claimed.
+The [complete final report](benchmarks/final-performance.md) retains CPU/RSS/Mbps,
+all workloads, identities, failures, measurement limits and physical restoration.
+
+This is the final performance PR for now. The capacity ceiling, old delayed-TCP
+misses and unmeasured device/account/OS behavior remain documented limits,
+not automatic follow-up stages or proof that every architecture was exhausted.
+Further performance work requires the user to reopen it. No release or permanent
+device change is created; general live/paid-feature acceptance remains separate.
