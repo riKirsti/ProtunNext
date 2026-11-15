@@ -9,7 +9,10 @@ import shutil
 import subprocess
 import tempfile
 
-root = Path(__file__).resolve().parent.parent
+from compatibility import ROOT, validate_checkout
+
+validate_checkout()
+root = ROOT
 output = root / 'target'
 output.mkdir(exist_ok=True)
 env = os.environ.copy()

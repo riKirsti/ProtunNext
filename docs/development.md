@@ -25,6 +25,12 @@ no default features, and the no-account unix bundle. These checks complement the
 executable lifecycle, account, transport and FFI tests; compilation alone does
 not prove wire compatibility or live account/device acceptance.
 
+The shared compatibility validator also checks the contract's canonical UTF-8/LF
+SHA-256 from the coverage index before any external-consumer build. Preserve this
+reviewed fixture; a deliberate contract change requires explicit compatibility
+review and a matching checksum update. Line-ending differences between hosts do
+not change its identity.
+
 Retain existing module paths, generated binding contracts, feature combinations
 and host ownership rules. Review any contract fixture change explicitly; do not
 regenerate it merely to make an incompatible change pass. One refactor stage

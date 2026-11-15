@@ -9,9 +9,9 @@ use crate::{
 };
 #[cfg(windows)]
 use mio::net::UdpSocket;
-#[cfg(unix)]
-use mio::unix::SourceFd;
+#[cfg(windows)]
 use mio::{Interest, Token};
+#[cfg(not(any(target_os = "linux", target_os = "android")))]
 use std::io;
 #[cfg(unix)]
 use std::{net::UdpSocket, os::fd::AsRawFd};
@@ -64,11 +64,6 @@ impl Network for Datagram {
     #[cfg(windows)]
     fn register(&mut self, r: &mio::Registry, t: Token, i: Interest) -> io::Result<()> {
         r.register(&mut self.socket, t, i)
-    }
-    #[cfg(unix)]
-    fn register(&mut self, r: &mio::Registry, t: Token, i: Interest) -> io::Result<()> {
-        r.register(&mut SourceFd(&self.fd()), t, i)?;
-        Ok(())
     }
     #[cfg(windows)]
     fn reregister(&mut self, r: &mio::Registry, t: Token, i: Interest) -> io::Result<()> {

@@ -1,34 +1,9 @@
-"""Guard the pinned coverage index; executable contracts are compiled by Cargo."""
+"""Guard compatibility metadata and contract integrity; Cargo executes consumers."""
 import copy
 import json
-from pathlib import Path
 import unittest
 
-ROOT = Path(__file__).resolve().parent.parent
-PIN = "a498c38ae6ffb0e68e7190b2831ef985d73fa6da"
-
-
-def validate(index, ledger):
-    if index["upstream"] != {
-        "repository": "https://github.com/ProtonVPN/protun", "tag": "v3.0.5", "commit": PIN
-    }:
-        raise ValueError("upstream baseline changed")
-    actual = [item["id"] for item in ledger]
-    mapped = [key for group in index["groups"] for key in group["requirements"]]
-    if len(set(actual)) != len(actual) or len(set(mapped)) != len(mapped) or set(actual) != set(mapped):
-        raise ValueError("missing, duplicate or unknown capability mapping")
-    for item in ledger:
-        if item["source"].startswith("https://github.com/ProtonVPN/protun/") and f"/blob/{PIN}/" not in item["source"]:
-            raise ValueError("unpinned upstream requirement")
-    paths = [index["contracts"]]
-    for group in index["groups"]:
-        if not group["implementation"] or not group["checks"]:
-            raise ValueError("capability lacks implementation/check mapping")
-        paths.extend(group["implementation"] + group["checks"])
-    for path in paths:
-        target = (ROOT / path).resolve()
-        if not target.is_relative_to(ROOT) or not target.is_file():
-            raise ValueError("missing or outside-repository mapping")
+from compatibility import ROOT, PIN, validate, validate_checkout
 
 
 class CompatibilityIndex(unittest.TestCase):
@@ -38,6 +13,26 @@ class CompatibilityIndex(unittest.TestCase):
 
     def test_all_requirements_have_pinned_coverage_mappings(self):
         validate(self.index, self.ledger)
+        validate_checkout()
+
+    def test_replaced_or_unpinned_contract_is_rejected(self):
+        original = (ROOT / self.index["contracts"]).read_text(encoding="utf-8")
+        for text in ("", original + "\n// contract edited\n"):
+            with self.subTest(contract=text[:20]), self.assertRaises(ValueError):
+                validate(self.index, self.ledger, text)
+        for checksum in (None, "0" * 64):
+            index = copy.deepcopy(self.index)
+            if checksum is None:
+                index.pop("contracts_sha256")
+            else:
+                index["contracts_sha256"] = checksum
+            with self.subTest(checksum=checksum), self.assertRaises(ValueError):
+                validate(index, self.ledger)
+
+    def test_host_line_endings_do_not_change_contract_identity(self):
+        original = (ROOT / self.index["contracts"]).read_text(encoding="utf-8")
+        validate(self.index, self.ledger, original)
+        validate(self.index, self.ledger, original.replace("\n", "\r\n"))
 
     def test_missing_duplicate_and_unknown_capabilities_are_rejected(self):
         for change in ("missing", "duplicate", "unknown"):
