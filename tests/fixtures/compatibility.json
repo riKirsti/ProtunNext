@@ -34,7 +34,7 @@
     },
     {
       "requirements": ["unix-bindings", "apple-adapter", "windows-adapter", "android-adapter", "ffi-contract"],
-      "implementation": ["src/api/mod.rs", "src/api/windows.rs", "src/tun_device.rs", "apple/Sources/ProtunNextPacketFlow/PacketFlowBridge.swift", "android/src/main/java/io/github/rikirsti/protunnext/android/ProtunVpnService.kt"],
+      "implementation": ["src/api/mod.rs", "src/api/windows.rs", "src/windows/interface.rs", "src/windows/interface/settings.rs", "src/tun_device.rs", "apple/Sources/ProtunNextPacketFlow/PacketFlowBridge.swift", "android/src/main/java/io/github/rikirsti/protunnext/android/ProtunVpnService.kt", "android/src/main/java/io/github/rikirsti/protunnext/android/ConnectionManager.kt", "android/src/main/java/io/github/rikirsti/protunnext/android/TunnelInterface.kt"],
       "checks": ["tests/contracts/api.rs", "tests/binding_contract.py", "tests/ffi_contract.py", "tests/windows_ffi_contract.py", "tests/windows_network.rs", ".github/workflows/ci.yml"]
     },
     {

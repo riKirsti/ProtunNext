@@ -135,21 +135,7 @@ class ProtunVpnService : VpnService() {
         val builder = Builder().setSession("ProtunNext").setMtu(network.mtu)
             .setBlocking(false).addAddress("10.2.0.2", 32).addRoute("10.2.0.1", 32)
             .setUnderlyingNetworks(underlying?.let { arrayOf(it) } ?: emptyArray())
-        if (network.ipv6) builder.addAddress("2a07:b944::2:2", 128).addRoute("2a07:b944::2:1", 128)
-        network.dns.forEach { builder.addDnsServer(it) }
-        builder.addDnsServer("10.2.0.1")
-        if (network.ipv6) builder.addDnsServer("2a07:b944::2:1")
-        network.routes.forEach { builder.addRoute(it.address, it.length) }
-        network.apps?.let { apps ->
-            apps.packages.forEach {
-                when (apps.mode) {
-                    AppMode.Include -> builder.addAllowedApplication(it)
-                    AppMode.Exclude -> builder.addDisallowedApplication(it)
-                }
-            }
-        }
-        builder.setMetered(false)
-        return builder.establish() ?: throw SecurityException("VPN permission missing")
+        return establishInterface(builder, network)
     }
     internal fun connect(next: AndroidConnectionConfig, invalidate: InvalidateRequest?) = submit {
         if (canUpdate(config, next, invalidate)) {
