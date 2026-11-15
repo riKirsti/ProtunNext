@@ -77,6 +77,13 @@ setup owns uplink binding/protection before connect; Windows retains native
 socket setup beside its interface integration. TLS policy, record buffering,
 Linux/Android batching and the packet engine remain separate owners.
 
+Windows interface settings own the exact address/route rows and DNS changes;
+they are dropped before the device session whose IDs they use. Android core
+initialization and its public connection manager have separate owners; interface
+configuration completes the service-owned builder without taking over native
+connection lifecycle or descriptor transfer. Apple packet-flow ownership remains
+inside its dedicated serial bridge.
+
 Platform adapters own only resources explicitly assigned to them. Unix attaches
 to a caller-owned descriptor/uplink; Android supplies VpnService protection and
 network binding; Apple bridges public packet-flow APIs; Windows uses native
