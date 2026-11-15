@@ -94,10 +94,13 @@ control is never deployed or used as a tunnel. The microbenchmark under
 Record CPU, memory and framing measurements from an already-built portable
 benchmark:
 
-    cargo bench --locked --bench packet_path --no-run --message-format=json > target/bench-artifacts.json
-    python scripts/measure-baseline.py --cargo-artifacts target/bench-artifacts.json --output target/baseline/framing.json
+    python scripts/measure-baseline.py --build --output target/baseline/framing.json
 
-The runner discards a separate warmup process, then retains seven individual
+The build option uses the ordinary default-feature release library and links
+the unchanged framing harness with matching portable optimization/panic settings.
+Build time is excluded. This avoids mixing Cargo bench/test panic profiles with
+the package's native library outputs. The runner discards a separate warmup
+process, then retains seven individual
 samples, dispersion, executable hash/size, compiler, lockfile hash and source
 commit/dirty state. CPU includes all process threads (100% means one core);
 memory is lifetime peak process RSS/working set, including setup. This measures

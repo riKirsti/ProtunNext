@@ -59,8 +59,7 @@ jobs:
       - name: Build and measure the portable framing baseline
         shell: bash
         run: |
-          cargo bench --locked --bench packet_path --no-run --message-format=json > target/bench-artifacts.json
-          python scripts/measure-baseline.py --cargo-artifacts target/bench-artifacts.json --output target/baseline/framing.json
+          python scripts/measure-baseline.py --build --output target/baseline/framing.json
       - uses: actions/upload-artifact@v4
         with:
           name: framing-baseline-${{ matrix.os }}
@@ -219,8 +218,7 @@ jobs:
       - name: Measure native ARM64 framing baseline
         shell: bash
         run: |
-          cargo bench --locked --bench packet_path --no-run --message-format=json > target/bench-artifacts.json
-          python3 scripts/measure-baseline.py --cargo-artifacts target/bench-artifacts.json --output target/baseline/framing.json
+          python3 scripts/measure-baseline.py --build --output target/baseline/framing.json
       - uses: actions/upload-artifact@v4
         with:
           name: framing-baseline-linux-arm64

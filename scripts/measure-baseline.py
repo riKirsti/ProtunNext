@@ -94,21 +94,36 @@ def metrics(record, cpu, rss, elapsed):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("executable", type=Path, nargs="?")
-    parser.add_argument("--cargo-artifacts", type=Path)
+    parser.add_argument("--build", action="store_true", help="build release library and link the framing driver")
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--samples", type=int, default=7)
     args = parser.parse_args()
     if not 3 <= args.samples <= 30:
         parser.error("use 3..30 repeated samples")
-    if bool(args.executable) == bool(args.cargo_artifacts):
-        parser.error("supply an executable or --cargo-artifacts, not both")
-    if args.cargo_artifacts:
-        artifacts = [json.loads(line) for line in args.cargo_artifacts.read_text(encoding="utf-8-sig").splitlines()]
-        matches = [Path(item["executable"]) for item in artifacts
-                   if item.get("executable") and item.get("target", {}).get("name") == "packet_path"]
-        if len(matches) != 1:
-            parser.error("expected exactly one packet_path executable")
-        args.executable = matches[0]
+    if bool(args.executable) == args.build:
+        parser.error("supply an executable or --build, not both")
+    if args.build:
+        built = subprocess.run([os.environ.get("CARGO", "cargo"), "build", "--locked",
+                                "--release", "--lib", "--message-format=json"],
+                               cwd=ROOT, check=True, stdout=subprocess.PIPE, text=True)
+        native_paths = sorted({path for line in built.stdout.splitlines()
+                               for item in [json.loads(line)] if item.get("reason") == "build-script-executed"
+                               for path in item.get("linked_paths", [])})
+        target = Path(os.environ.get("CARGO_TARGET_DIR", ROOT / "target")).resolve()
+        destination = target / "baseline" / ("packet-path.exe" if os.name == "nt" else "packet-path")
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        # Link the unchanged harness to the ordinary release rlib. Cargo's bench
+        # profile mixes panic strategies for this rlib/cdylib/staticlib package.
+        command = [os.environ.get("RUSTC", "rustc"), "--edition=2024", "--crate-name", "packet_path",
+                        str(ROOT / "benches/packet_path.rs"), "--extern",
+                        f"protun_next={target / 'release/libprotun_next.rlib'}",
+                        "-L", f"dependency={target / 'release/deps'}",
+                        "-C", "opt-level=3", "-C", "lto=thin", "-C", "codegen-units=1",
+                   "-C", "panic=abort", "-o", str(destination)]
+        for path in native_paths:
+            command.extend(["-L", path])
+        subprocess.run(command, cwd=ROOT, check=True)
+        args.executable = destination
     binary = args.executable.resolve(strict=True)
     measure(binary)  # Separate-process warmup, excluded from saved samples.
     samples = [measure(binary) for _ in range(args.samples)]
@@ -126,7 +141,9 @@ def main():
         "binary_sha256": hashlib.sha256(binary.read_bytes()).hexdigest(), "binary_bytes": binary.stat().st_size,
         "lockfile_sha256": hashlib.sha256((ROOT / "Cargo.lock").read_bytes()).hexdigest(),
         "compiler": subprocess.check_output(["rustc", "-vV"], text=True).strip(),
-        "build_contract": "cargo bench --locked --bench packet_path --no-run; default features, portable profile",
+        "build_contract": ("default-feature cargo build --locked --release --lib; rustc framing harness "
+                           "linked to that rlib with opt-level=3, thin LTO, codegen-units=1, panic=abort"
+                           if args.build else "caller-supplied executable; build configuration not attested"),
         "scope": "host framing and buffer recycling; no encryption, sockets, TUN or VPN download",
         "cpu_scope": "all process threads; 100 percent is one core; includes startup and teardown",
         "memory_scope": "OS lifetime peak working set/RSS; excludes kernel and other processes",
