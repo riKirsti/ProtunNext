@@ -12,6 +12,8 @@ import os
 from pathlib import Path
 import platform
 import statistics
+import shutil
+import tomllib
 import subprocess
 import tempfile
 import time
@@ -103,27 +105,37 @@ def main():
     if bool(args.executable) == args.build:
         parser.error("supply an executable or --build, not both")
     if args.build:
-        built = subprocess.run([os.environ.get("CARGO", "cargo"), "build", "--locked",
-                                "--release", "--lib", "--message-format=json"],
-                               cwd=ROOT, check=True, stdout=subprocess.PIPE, text=True)
-        native_paths = sorted({path for line in built.stdout.splitlines()
-                               for item in [json.loads(line)] if item.get("reason") == "build-script-executed"
-                               for path in item.get("linked_paths", [])})
         target = Path(os.environ.get("CARGO_TARGET_DIR", ROOT / "target")).resolve()
-        destination = target / "baseline" / ("packet-path.exe" if os.name == "nt" else "packet-path")
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        # Link the unchanged harness to the ordinary release rlib. Cargo's bench
-        # profile mixes panic strategies for this rlib/cdylib/staticlib package.
-        command = [os.environ.get("RUSTC", "rustc"), "--edition=2024", "--crate-name", "packet_path",
-                        str(ROOT / "benches/packet_path.rs"), "--extern",
-                        f"protun_next={target / 'release/libprotun_next.rlib'}",
-                        "-L", f"dependency={target / 'release/deps'}",
-                        "-C", "opt-level=3", "-C", "lto=thin", "-C", "codegen-units=1",
-                   "-C", "panic=abort", "-o", str(destination)]
-        for path in native_paths:
-            command.extend(["-L", path])
-        subprocess.run(command, cwd=ROOT, check=True)
-        args.executable = destination
+        target.mkdir(parents=True, exist_ok=True)
+        # A normal external Cargo consumer keeps native link paths and panic
+        # strategy consistent across this rlib/cdylib/staticlib package.
+        with tempfile.TemporaryDirectory(prefix="framing-consumer-", dir=target) as folder:
+            consumer = Path(folder)
+            (consumer / "src").mkdir()
+            (consumer / ".cargo").mkdir()
+            shutil.copyfile(ROOT / ".cargo/config.toml", consumer / ".cargo/config.toml")
+            shutil.copyfile(ROOT / "Cargo.lock", consumer / "Cargo.lock")
+            shutil.copyfile(ROOT / "benches/packet_path.rs", consumer / "src/main.rs")
+            (consumer / "Cargo.toml").write_text(
+                '[package]\nname = "protun-next-framing-baseline"\nversion = "0.0.0"\nedition = "2024"\n'
+                '[workspace]\n[dependencies]\nprotun-next = { path = ' + json.dumps(str(ROOT)) + ' }\n'
+                '[profile.release]\nlto = "thin"\ncodegen-units = 1\npanic = "abort"\n', encoding="utf-8")
+            cargo = os.environ.get("CARGO", "cargo")
+            # Add only the temporary workspace package to the copied lockfile;
+            # registry dependency identities must still match the root lock.
+            subprocess.run([cargo, "update", "--workspace", "--offline"], cwd=consumer, check=True)
+            def packages(path):
+                return {(p["name"], p["version"], p.get("source"), p.get("checksum"))
+                        for p in tomllib.loads(path.read_text())["package"]}
+            if packages(consumer / "Cargo.lock") - packages(ROOT / "Cargo.lock") != {
+                ("protun-next-framing-baseline", "0.0.0", None, None)
+            }:
+                raise ValueError("baseline consumer changed the pinned dependency resolution")
+            consumer_lock_hash = hashlib.sha256((consumer / "Cargo.lock").read_bytes()).hexdigest()
+            subprocess.run([cargo, "build", "--locked", "--offline", "--release", "--target-dir",
+                            str(target / "framing-build")], cwd=consumer, check=True)
+        args.executable = target / "framing-build/release" / (
+            "protun-next-framing-baseline.exe" if os.name == "nt" else "protun-next-framing-baseline")
     binary = args.executable.resolve(strict=True)
     measure(binary)  # Separate-process warmup, excluded from saved samples.
     samples = [measure(binary) for _ in range(args.samples)]
@@ -141,8 +153,9 @@ def main():
         "binary_sha256": hashlib.sha256(binary.read_bytes()).hexdigest(), "binary_bytes": binary.stat().st_size,
         "lockfile_sha256": hashlib.sha256((ROOT / "Cargo.lock").read_bytes()).hexdigest(),
         "compiler": subprocess.check_output(["rustc", "-vV"], text=True).strip(),
-        "build_contract": ("default-feature cargo build --locked --release --lib; rustc framing harness "
-                           "linked to that rlib with opt-level=3, thin LTO, codegen-units=1, panic=abort"
+        "consumer_lockfile_sha256": consumer_lock_hash if args.build else None,
+        "build_contract": ("isolated default-feature Cargo release consumer of the unchanged framing harness; "
+                           "root-pinned dependency resolution, thin LTO, codegen-units=1, panic=abort"
                            if args.build else "caller-supplied executable; build configuration not attested"),
         "scope": "host framing and buffer recycling; no encryption, sockets, TUN or VPN download",
         "cpu_scope": "all process threads; 100 percent is one core; includes startup and teardown",

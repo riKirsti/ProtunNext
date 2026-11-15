@@ -34,6 +34,14 @@ def check_contract(api):
         "PcapFileInfo": ["file", "max_bytes"],
         "VpnState": ["interface_state", "connection_state"],
     }
+    if hasattr(api, "NetworkConfig"):
+        records.update({
+            "NetworkConfig": ["tun_adapter", "udp_socket"],
+            "AdapterConfig": ["custom_dns_server_ips", "is_ipv6_enabled", "mtu", "buffer_size_bytes"],
+            "SocketConfig": ["send_buffer_size_bytes", "receive_buffer_size_bytes"],
+            "ProTunAdapterDetails": ["interface_luid", "interface_index", "client_ipv4_addr",
+                                    "server_ipv4_addr", "client_ipv6_addr", "server_ipv6_addr"],
+        })
     for name, arguments in records.items():
         assert list(inspect.signature(getattr(api, name)).parameters) == arguments, name
     for name, methods in {

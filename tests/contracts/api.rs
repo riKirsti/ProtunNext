@@ -110,6 +110,33 @@ fn windows_contracts() {
     };
 }
 
+fn log_levels(value: LogLevel) {
+    match value {
+        LogLevel::Trace | LogLevel::Debug | LogLevel::Info | LogLevel::Warn | LogLevel::Error => {}
+    }
+}
+
+#[cfg(windows)]
+fn windows_adapter_details(value: protun_next::api::windows::ProTunAdapterDetails) {
+    use protun_next::api::windows::ProTunAdapterDetails;
+    let ProTunAdapterDetails {
+        interface_luid,
+        interface_index,
+        client_ipv4_addr,
+        server_ipv4_addr,
+        client_ipv6_addr,
+        server_ipv6_addr,
+    } = value;
+    let _: u64 = interface_luid;
+    let _: u32 = interface_index;
+    let _: (String, String, String, String) = (
+        client_ipv4_addr,
+        server_ipv4_addr,
+        client_ipv6_addr,
+        server_ipv6_addr,
+    );
+}
+
 // Explicit fields and exhaustive matches freeze the reviewed public shapes.
 fn variants_snistrategy(value: SniStrategy) {
     match value {
