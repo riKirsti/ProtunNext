@@ -6,6 +6,7 @@
   },
   "scope": "Coverage index, not proof of execution or live acceptance. Status remains in src/requirements.json.",
   "contracts": "tests/contracts/api.rs",
+  "contracts_sha256": "279f77512f01d7f935c5bb450f07c89e6f069cd1c1308b6444bb9cfe05b8db72",
   "groups": [
     {
       "requirements": ["wg-session", "key-generation"],
