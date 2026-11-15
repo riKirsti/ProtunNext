@@ -4,8 +4,7 @@ pub use crate::transport::{Counters, Transport};
 use crate::{
     Error, Result,
     config::WireguardConfig,
-    linux_network,
-    network::{Datagram, Network, Stream},
+    network::{Datagram, Network, Stream, unix as socket_setup},
     stream::FramedIo,
 };
 use std::{
@@ -247,7 +246,7 @@ pub(crate) fn run_owned(
             let socket = std::net::UdpSocket::bind(addr)?;
             socket.set_nonblocking(true)?;
             if !bind_device.is_empty() {
-                linux_network::bind_device(
+                socket_setup::bind_device(
                     socket.as_raw_fd(),
                     bind_device,
                     config.endpoint.is_ipv6(),
@@ -265,7 +264,7 @@ pub(crate) fn run_owned(
             if config.mtu > 16_351 {
                 return Err(Error::Invalid("MTU exceeds normal TCP frame capacity"));
             }
-            let socket = linux_network::connect_tcp(
+            let socket = socket_setup::connect_tcp(
                 config.endpoint,
                 bind_device,
                 observer.and_then(|o| o.protector()),

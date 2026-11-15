@@ -62,6 +62,13 @@ fork and server-observed state. Account notices yield explicit retry/rekey/fatal
 actions to the supervisor, which retains worker and teardown ordering. These
 components do not run on the packet thread or change the public API.
 
+The private network module exposes one reactor contract. Its datagram adapter
+owns UDP delivery/retry, the socket adapter owns nonblocking TCP readiness, and
+the stream adapter connects framed TCP/TLS delivery to that contract. Unix socket
+setup owns uplink binding/protection before connect; Windows retains native
+socket setup beside its interface integration. TLS policy, record buffering,
+Linux/Android batching and the packet engine remain separate owners.
+
 Platform adapters own only resources explicitly assigned to them. Unix attaches
 to a caller-owned descriptor/uplink; Android supplies VpnService protection and
 network binding; Apple bridges public packet-flow APIs; Windows uses native

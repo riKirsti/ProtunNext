@@ -120,7 +120,7 @@
     "source": "https://github.com/ProtonVPN/protun/blob/a498c38ae6ffb0e68e7190b2831ef985d73fa6da/src/api/connection_unix.rs",
     "status": "needs-live-verification",
     "evidence": [
-      "src/linux_network.rs and src/linux.rs: bind uplink/protect callback before UDP connect or TCP SYN",
+      "src/network/unix.rs and src/linux.rs: bind uplink/protect callback before UDP connect or TCP SYN",
       "tests/api_connection.rs: actual callback execution and socket recreation; native Windows protection tracked separately"
     ],
     "code_status": "complete"
@@ -337,7 +337,7 @@
     "source": "https://github.com/ProtonVPN/protun/blob/a498c38ae6ffb0e68e7190b2831ef985d73fa6da/src/connection/mio/tun_apple.rs",
     "status": "needs-live-verification",
     "evidence": [
-      "src/tun_device.rs, src/linux.rs and src/linux_network.rs: vectored utun AF prefix, continuous Apple clock, interface binding and shared full control/packet runtime",
+      "src/tun_device.rs, src/linux.rs and src/network/unix.rs: vectored utun AF prefix, continuous Apple clock, interface binding and shared full control/packet runtime",
       "macOS CI executes header/device adapter tests, supervisor tests and generated Swift typechecking; real utun activation remains deferred"
     ],
     "code_status": "complete"

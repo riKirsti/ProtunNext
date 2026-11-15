@@ -14,7 +14,7 @@
     },
     {
       "requirements": ["tcp-framing", "udp-end-to-end", "tcp-end-to-end", "stealth-end-to-end", "sni-strategy"],
-      "implementation": ["src/framing.rs", "src/stream.rs", "src/network.rs", "src/stealth.rs", "src/tls.rs"],
+      "implementation": ["src/framing.rs", "src/stream.rs", "src/network.rs", "src/network/datagram.rs", "src/network/socket.rs", "src/network/stream.rs", "src/network/unix.rs", "src/stealth.rs", "src/tls.rs"],
       "checks": ["tests/tcp_wireguard.rs", "tests/tls_framing.rs", "tests/linux_tun.rs", "src/stealth.rs"]
     },
     {
