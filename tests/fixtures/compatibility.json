@@ -44,7 +44,7 @@
     },
     {
       "requirements": ["performance-evidence"],
-      "implementation": ["src/engine.rs", "src/packet.rs", "src/linux_batch.rs", "src/tun_coalesce.rs", "src/tls_unbuffered.rs", "src/tls_buffered.rs"],
+      "implementation": ["src/engine.rs", "src/engine/reactor.rs", "src/engine/offline.rs", "src/engine/packets.rs", "src/engine/policy.rs", "src/packet.rs", "src/linux_batch.rs", "src/tun_coalesce.rs", "src/tls_unbuffered.rs", "src/tls_buffered.rs"],
       "checks": ["tests/steady_state.rs", "benches/packet_path.rs", "scripts/measure-baseline.py", "scripts/security/check_codegen.py", ".github/workflows/security.yml"]
     }
   ],
