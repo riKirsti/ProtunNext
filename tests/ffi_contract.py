@@ -6,6 +6,9 @@ import threading
 
 sys.path.insert(0, str(pathlib.Path(sys.argv[1]).resolve()))
 api = importlib.import_module("protun_next")
+from binding_contract import check_contract
+
+check_contract(api)
 
 
 class Cache:

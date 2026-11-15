@@ -1,10 +1,35 @@
 # Development
 
 ProtunNext is a Rust library and low-level CLI targeting the public functionality
-of Protun v3.0.5. Implementation coverage and live/device acceptance are separate.
+of [Protun v3.0.5](https://github.com/ProtonVPN/protun/tree/a498c38ae6ffb0e68e7190b2831ef985d73fa6da),
+commit a498c38ae6ffb0e68e7190b2831ef985d73fa6da. This pinned release is the
+authoritative upstream baseline; the upstream default branch is not a substitute.
+Implementation coverage and live/device acceptance are separate.
 The machine-readable ledger in `src/requirements.json` powers `status`,
 `verify-code-parity` and `verify-parity`; do not mark unverified requirements as
 complete to obtain a passing release gate.
+
+## Compatibility contract
+
+The [coverage index](../tests/fixtures/compatibility.json) maps every ledger
+requirement to implementation and verification locations, including ProtunNext's
+existing extensions. It is an inventory, not evidence that a test or live service
+was exercised. The ledger retains the actual acceptance status.
+
+[Frozen external-consumer contracts](../tests/contracts/api.rs) typecheck common
+connection methods, callback traits, 37 record/enum shapes, Unix ownership entry
+points and Windows constructors/settings. Exhaustive matches and explicit field
+destructuring catch accidental changes even when internal code still compiles.
+The downstream checker builds them outside this package with default features,
+no default features, and the no-account unix bundle. These checks complement the
+executable lifecycle, account, transport and FFI tests; compilation alone does
+not prove wire compatibility or live account/device acceptance.
+
+Retain existing module paths, generated binding contracts, feature combinations
+and host ownership rules. Review any contract fixture change explicitly; do not
+regenerate it merely to make an incompatible change pass. One refactor stage
+belongs in each PR, with scope and acceptance checks reviewed before starting
+the next stage.
 
 ## Architecture
 
@@ -63,6 +88,32 @@ bindings, Apple SDK slices and Android packaging. Release security CI checks
 linked erasure code on x64/ARM64 and rejects an isolated wipe-free control. That
 control is never deployed or used as a tunnel. The microbenchmark under
 `benches/` measures a local packet path and does not establish VPN throughput.
+
+## Repeatable measurements
+
+Record CPU, memory and framing measurements from an already-built portable
+benchmark:
+
+    cargo bench --locked --bench packet_path --no-run --message-format=json > target/bench-artifacts.json
+    python scripts/measure-baseline.py --cargo-artifacts target/bench-artifacts.json --output target/baseline/framing.json
+
+The runner discards a separate warmup process, then retains seven individual
+samples, dispersion, executable hash/size, compiler, lockfile hash and source
+commit/dirty state. CPU includes all process threads (100% means one core);
+memory is lifetime peak process RSS/working set, including setup. This measures
+framing and buffer recycling without encryption, sockets or a TUN. Its Mbps are
+not VPN download speed. Native host CI retains reports separately from platform
+build checks. The ARM64 measurement is native Linux, not execution of the
+musl/router artifact. Reports belong in ignored build output and CI artifacts.
+
+For runtime-changing PRs, also compare verified end-to-end downloads for UDP,
+TCP and Stealth, using matched toolchains/features, network conditions, repeated
+A/A controls and balanced baseline/candidate order. Include CPU, peak memory,
+download speed and test/build identities in the PR. Run temporary travel-router
+checks against that PR's code and restore prior state. Keep private configuration
+and device identifiers out of public reports. Establish workload-specific
+regression limits from measured variability; framing noise is not a VPN limit.
+Unavailable live/device evidence remains unverified.
 
 ## Changes and privacy
 
