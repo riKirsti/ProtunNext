@@ -5,7 +5,7 @@
 - Stable Rust with Cargo, rustfmt and Clippy, using the toolchain exercised in CI.
 - A native C compiler/linker and the platform SDK. Windows needs the Visual Studio
   C++ build tools and Windows SDK; Unix needs the usual native build toolchain.
-- Python 3 for repository, packaging and verification scripts.
+- Python 3.11+ for repository, packaging and verification scripts.
 - Network access to crates.io and the public Proton registry configured in
   `.cargo/config.toml`. Ordinary builds/tests require no account credentials.
 

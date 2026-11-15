@@ -1,0 +1,57 @@
+{
+  "upstream": {
+    "repository": "https://github.com/ProtonVPN/protun",
+    "tag": "v3.0.5",
+    "commit": "a498c38ae6ffb0e68e7190b2831ef985d73fa6da"
+  },
+  "scope": "Coverage index, not proof of execution or live acceptance. Status remains in src/requirements.json.",
+  "contracts": "tests/contracts/api.rs",
+  "groups": [
+    {
+      "requirements": ["wg-session", "key-generation"],
+      "implementation": ["src/session.rs", "src/api/keys.rs"],
+      "checks": ["src/session.rs", "src/api/keys.rs", "tests/steady_state.rs", "tests/public_api.rs"]
+    },
+    {
+      "requirements": ["tcp-framing", "udp-end-to-end", "tcp-end-to-end", "stealth-end-to-end", "sni-strategy"],
+      "implementation": ["src/framing.rs", "src/stream.rs", "src/network.rs", "src/stealth.rs", "src/tls.rs"],
+      "checks": ["tests/tcp_wireguard.rs", "tests/tls_framing.rs", "tests/linux_tun.rs", "src/stealth.rs"]
+    },
+    {
+      "requirements": ["candidate-selection", "connection-lifecycle", "peer-failover", "network-recovery", "tun-replacement", "socket-protection", "stats-events"],
+      "implementation": ["src/control.rs", "src/connection.rs", "src/api/supervisor.rs"],
+      "checks": ["tests/api_connection.rs", "tests/linux_tun.rs", "tests/public_api.rs", "src/control.rs"]
+    },
+    {
+      "requirements": ["capture-codec", "packet-capture-controls", "persistent-cache", "logging"],
+      "implementation": ["src/capture.rs", "src/api/capture.rs", "src/api/cache.rs", "src/api/logger.rs"],
+      "checks": ["tests/capture_controls.rs", "tests/public_api.rs", "src/api/logger.rs", "src/capture.rs"]
+    },
+    {
+      "requirements": ["local-agent", "api-fork", "certificate-renewal", "api-environments", "netshield", "port-forwarding", "split-tcp", "random-nat", "circumvention-routing", "jails-restrictions", "exit-labels", "agent-statistics"],
+      "implementation": ["src/api/account.rs", "src/api/account_material.rs", "src/api/agent_state.rs", "src/agent.rs"],
+      "checks": ["tests/account_api.rs", "src/api/account_material.rs", "src/api/agent_state.rs", "src/agent.rs", "tests/public_api.rs"]
+    },
+    {
+      "requirements": ["unix-bindings", "apple-adapter", "windows-adapter", "android-adapter", "ffi-contract"],
+      "implementation": ["src/api/mod.rs", "src/api/windows.rs", "src/tun_device.rs", "apple/Sources/ProtunNextPacketFlow/PacketFlowBridge.swift", "android/src/main/java/io/github/rikirsti/protunnext/android/ProtunVpnService.kt"],
+      "checks": ["tests/contracts/api.rs", "tests/binding_contract.py", "tests/ffi_contract.py", "tests/windows_ffi_contract.py", "tests/windows_network.rs", ".github/workflows/ci.yml"]
+    },
+    {
+      "requirements": ["virtual-network-policy", "connectivity-probes", "development-config", "development-auth"],
+      "implementation": ["src/virtual_policy.rs", "src/path_probe.rs", "src/api/internal.rs", "src/api/test_utils/test_config_parser.rs", "src/api/test_utils/muon_test_auth.rs"],
+      "checks": ["tests/internal_network.rs", "tests/api_connection.rs", "src/api/test_utils/test_config_parser.rs", "src/api/test_utils/muon_test_auth.rs"]
+    },
+    {
+      "requirements": ["performance-evidence"],
+      "implementation": ["src/engine.rs", "src/packet.rs", "src/linux_batch.rs", "src/tun_coalesce.rs", "src/tls_unbuffered.rs", "src/tls_buffered.rs"],
+      "checks": ["tests/steady_state.rs", "benches/packet_path.rs", "scripts/measure-baseline.py", "scripts/security/check_codegen.py", ".github/workflows/security.yml"]
+    }
+  ],
+  "extensions": [
+    "Bounded reusable packet ownership, tracked erasure and in-place WireGuard data crypto",
+    "Linux/Android batch-16 mmsg with negotiated GSO/GRO and explicit Linux TUN receive coalescing",
+    "Direct frame extraction and bounded TLS prefetch; OS-selected buffered/unbuffered TLS",
+    "Independent low-level Rust/CLI interfaces and public Apple packet-flow bridge"
+  ]
+}

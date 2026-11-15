@@ -56,6 +56,14 @@ jobs:
           fi
       - name: Build optimized runtime library and CLI
         run: cargo build --locked --release --lib --bin protun-next-cli
+      - name: Build and measure the portable framing baseline
+        shell: bash
+        run: |
+          python scripts/measure-baseline.py --build --output target/baseline/framing.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: framing-baseline-${{ matrix.os }}
+          path: target/baseline/framing.json
       - name: Call the native compatibility API through generated bindings
         if: runner.os == 'Linux'
         shell: bash
@@ -207,6 +215,14 @@ jobs:
         env:
           CC_aarch64_unknown_linux_musl: musl-gcc
         run: cargo build --locked --release --lib --bin protun-next-cli --target aarch64-unknown-linux-musl
+      - name: Measure native ARM64 framing baseline
+        shell: bash
+        run: |
+          python3 scripts/measure-baseline.py --build --output target/baseline/framing.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: framing-baseline-linux-arm64
+          path: target/baseline/framing.json
       - uses: actions/upload-artifact@v4
         with:
           name: linux-arm64-musl
