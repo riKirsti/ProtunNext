@@ -99,7 +99,7 @@
     "source": "https://github.com/ProtonVPN/protun/blob/a498c38ae6ffb0e68e7190b2831ef985d73fa6da/src/connection/network_recovery_handler.rs",
     "status": "needs-live-verification",
     "evidence": [
-      "src/api/supervisor.rs, src/connection.rs and src/engine.rs: shared persistent control network, offline TUN service, up/down/switch transport recreation and cancellation",
+      "src/api/supervisor.rs, src/connection.rs and src/engine/offline.rs and src/engine/reactor.rs: shared persistent control network, offline TUN service, up/down/switch transport recreation and cancellation",
       "tests/linux_tun.rs: real local HTTP TCP session survives worker replacement, including an unanswered SYN; full and no-account namespace checks passed in the Linux job of CI 41275189414 (host jobs in that run failed formatting)"
     ],
     "code_status": "complete"
@@ -110,7 +110,7 @@
     "source": "https://github.com/ProtonVPN/protun/blob/a498c38ae6ffb0e68e7190b2831ef985d73fa6da/src/api/connection_unix.rs",
     "status": "needs-live-verification",
     "evidence": [
-      "src/connection.rs and src/engine.rs: wakeable owned TUN replacement, optional interface, detach/error state and replacement validation; tests/api_connection.rs executes real descriptor ownership and replacement on Unix"
+      "src/connection.rs and src/engine/reactor.rs: wakeable owned TUN replacement, optional interface, detach/error state and replacement validation; tests/api_connection.rs executes real descriptor ownership and replacement on Unix"
     ],
     "code_status": "complete"
   },
@@ -405,7 +405,7 @@
     "status": "implemented-local",
     "code_status": "complete",
     "evidence": [
-      "src/path_probe.rs and src/engine.rs: published ICMP wire marker, 500/1000/2000/4000ms retries, authenticated decrypted data confirms path",
+      "src/path_probe.rs and src/engine/reactor.rs: published ICMP wire marker, 500/1000/2000/4000ms retries, authenticated decrypted data confirms path",
       "tests/api_connection.rs: handshake-only peer must fail over to a peer answering encrypted probes; passed CI 41251229331"
     ]
   },
