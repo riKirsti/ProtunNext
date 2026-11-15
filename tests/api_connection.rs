@@ -118,7 +118,7 @@ fn compatibility_supervisor_handshakes_without_tun_retains_peer_and_recovers_net
     let first_size = std::fs::metadata(&path).unwrap().len();
     assert!(first_size > 24);
     peer.peer_id = "retained".into();
-    connection.update_peers(vec![peer]);
+    connection.update_peers(vec![peer.clone()]);
     wait_for(
         &state_rx,
         |s| matches!(&s.connection_state, ConnectionState::Connected { peer, .. } if peer.peer_id == "retained"),
@@ -128,6 +128,19 @@ fn compatibility_supervisor_handshakes_without_tun_retains_peer_and_recovers_net
         1,
         "metadata update must retain socket/session"
     );
+    // A rejected descriptor must not partially apply the accompanying peers.
+    // The following statistics request is a FIFO command barrier.
+    use std::os::fd::AsRawFd;
+    let invalid = tempfile::tempfile().unwrap();
+    // SAFETY: duplicate a test-owned regular file at an otherwise unused high FD.
+    let transferred = unsafe { libc::fcntl(invalid.as_raw_fd(), libc::F_DUPFD_CLOEXEC, 128) };
+    assert!(transferred >= 128);
+    peer.peer_id = "must-not-apply".into();
+    connection.update(ConfigUpdate {
+        peers: Some(vec![peer]),
+        settings: None,
+        tun: Some(TunStreamInfo::TunFd(transferred)),
+    });
     connection.request_stats();
     let Event::ConnectionStats {
         mono_timestamp_ms: first_timestamp,
@@ -136,6 +149,17 @@ fn compatibility_supervisor_handshakes_without_tun_retains_peer_and_recovers_net
     else {
         unreachable!()
     };
+    // SAFETY: query only; the rejected ownership transfer must have closed this FD.
+    assert_eq!(unsafe { libc::fcntl(transferred, libc::F_GETFD) }, -1);
+    assert_eq!(
+        std::io::Error::last_os_error().raw_os_error(),
+        Some(libc::EBADF)
+    );
+    assert_eq!(protected.load(Ordering::Relaxed), 1);
+    assert!(state_rx.try_iter().all(|state| {
+        !matches!(state.connection_state, ConnectionState::Connected { peer, .. }
+            if peer.peer_id == "must-not-apply")
+    }));
     assert!(
         first_timestamp >= 0 && first_timestamp as u128 <= started.elapsed().as_millis() + 100,
         "API timestamp must be relative to the connection, not OS uptime"

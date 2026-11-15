@@ -19,8 +19,8 @@
     },
     {
       "requirements": ["candidate-selection", "connection-lifecycle", "peer-failover", "network-recovery", "tun-replacement", "socket-protection", "stats-events"],
-      "implementation": ["src/control.rs", "src/connection.rs", "src/api/supervisor.rs"],
-      "checks": ["tests/api_connection.rs", "tests/linux_tun.rs", "tests/public_api.rs", "src/control.rs"]
+      "implementation": ["src/control.rs", "src/connection.rs", "src/api/supervisor.rs", "src/api/supervisor/peers.rs", "src/api/supervisor/notifications.rs"],
+      "checks": ["tests/api_connection.rs", "tests/linux_tun.rs", "tests/public_api.rs", "src/control.rs", "src/api/supervisor/peers.rs", "src/api/supervisor/notifications.rs"]
     },
     {
       "requirements": ["capture-codec", "packet-capture-controls", "persistent-cache", "logging"],
@@ -29,8 +29,8 @@
     },
     {
       "requirements": ["local-agent", "api-fork", "certificate-renewal", "api-environments", "netshield", "port-forwarding", "split-tcp", "random-nat", "circumvention-routing", "jails-restrictions", "exit-labels", "agent-statistics"],
-      "implementation": ["src/api/account.rs", "src/api/account_material.rs", "src/api/agent_state.rs", "src/agent.rs"],
-      "checks": ["tests/account_api.rs", "src/api/account_material.rs", "src/api/agent_state.rs", "src/agent.rs", "tests/public_api.rs"]
+      "implementation": ["src/api/account.rs", "src/api/account_material.rs", "src/api/agent_state.rs", "src/agent.rs", "src/api/supervisor/account.rs"],
+      "checks": ["tests/account_api.rs", "src/api/account_material.rs", "src/api/agent_state.rs", "src/agent.rs", "tests/public_api.rs", "src/api/supervisor/account.rs"]
     },
     {
       "requirements": ["unix-bindings", "apple-adapter", "windows-adapter", "android-adapter", "ffi-contract"],
