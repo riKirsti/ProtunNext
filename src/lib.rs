@@ -27,8 +27,6 @@ pub mod framing;
 pub mod linux;
 #[cfg(any(target_os = "linux", target_os = "android"))]
 mod linux_batch;
-#[cfg(unix)]
-mod linux_network;
 #[cfg(any(unix, windows))]
 mod network;
 #[cfg(any(unix, windows))]
