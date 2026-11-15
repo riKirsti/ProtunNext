@@ -1,5 +1,9 @@
 //! Control commands execute on a supervisor thread, never in the packet loop.
 use super::{keys::Identity, types::*};
+#[cfg(feature = "local-agent")]
+mod account;
+mod notifications;
+mod peers;
 use crate::{
     Result,
     config::{PrivateKey, WireguardConfig},
@@ -7,6 +11,8 @@ use crate::{
     platform::{self, TunHandle},
     transport::Transport,
 };
+use notifications::Notifications;
+use peers::{Candidate, PeerPlan};
 use std::{
     sync::{Arc, Mutex, mpsc},
     thread::{self, JoinHandle},
@@ -103,34 +109,19 @@ impl Connection {
                     tun: None,
                     protector: socket_protector,
                     cache: Arc::from(cache),
-                    state_callback: state_change_callback,
-                    event_callback,
-                    state: None,
+                    notifications: Notifications::new(state_change_callback, event_callback),
                     worker: None,
-                    plan: Vec::new(),
+                    peers: PeerPlan::new(Instant::now()),
                     active: None,
-                    next: 0,
-                    retry_at: Instant::now(),
                     attempt_at: Instant::now(),
-                    attempts: 0,
-                    requested_stats: None,
-                    started_at: Duration::ZERO,
                     key: Zeroizing::new([0; 32]),
                     capture: Arc::new(CaptureState::default()),
                     #[cfg(feature = "local-agent")]
-                    account: None,
-                    #[cfg(feature = "local-agent")]
-                    account_peer: None,
+                    account: account::Account::default(),
                     #[cfg(feature = "control-plane")]
                     control: None,
                     #[cfg(all(feature = "control-plane", not(feature = "local-agent")))]
                     local_http: None,
-                    #[cfg(feature = "local-agent")]
-                    connector: None,
-                    #[cfg(feature = "local-agent")]
-                    agent_state: Default::default(),
-                    #[cfg(feature = "local-agent")]
-                    pending_fork: None,
                     fatal: false,
                 };
                 match owned_tun {
@@ -188,84 +179,29 @@ fn ownership_transfer_closes_even_a_rejected_non_tun_descriptor() {
         Some(libc::EBADF)
     );
 }
-#[derive(Clone)]
-struct Candidate {
-    peer: PeerInfo,
-    protocol: Protocol,
-    port: u16,
-}
-impl Candidate {
-    fn info(&self) -> PeerConnectionInfo {
-        PeerConnectionInfo {
-            peer_id: self.peer.peer_id.clone(),
-            entry_ip: self.peer.server_ip,
-            protocol: self.protocol,
-            port: self.port,
-        }
-    }
-    fn same_tunnel(&self, other: &Self) -> bool {
-        self.peer.server_ip == other.peer.server_ip
-            && self.peer.server_public_key == other.peer.server_public_key
-            && self.protocol == other.protocol
-            && self.port == other.port
-    }
-}
-pub(crate) fn sanitize(mut peers: Vec<PeerInfo>) -> Vec<PeerInfo> {
-    // Lower numbers win, matching the v3.0.5 sanitizer; stable ties keep first.
-    peers.sort_by_key(|p| p.priority);
-    let mut seen = std::collections::HashSet::new();
-    peers.retain(|p| seen.insert(p.server_ip));
-    for peer in &mut peers {
-        for ports in [
-            &mut peer.udp_ports,
-            &mut peer.tcp_ports,
-            &mut peer.tls_ports,
-        ] {
-            ports.retain(|p| *p != 0);
-            let mut seen = std::collections::HashSet::new();
-            ports.retain(|p| seen.insert(*p));
-        }
-    }
-    peers
-}
 struct Supervisor {
     config: InitialConnectionConfig,
     tun: Option<TunHandle>,
     protector: Option<Arc<dyn SocketProtector>>,
     cache: Arc<dyn PersistentCache>,
-    state_callback: Box<dyn StateChangedCallback>,
-    event_callback: Box<dyn EventCallback>,
-    state: Option<VpnState>,
+    notifications: Notifications,
     worker: Option<Worker>,
-    plan: Vec<Candidate>,
+    peers: PeerPlan,
     active: Option<Candidate>,
-    next: usize,
-    retry_at: Instant,
     attempt_at: Instant,
-    attempts: u32,
-    requested_stats: Option<u64>,
-    started_at: Duration,
     key: Zeroizing<[u8; 32]>,
     capture: Arc<CaptureState>,
     #[cfg(feature = "local-agent")]
-    account: Option<super::account::Service>,
-    #[cfg(feature = "local-agent")]
-    account_peer: Option<PeerInfo>,
+    account: account::Account,
     #[cfg(feature = "control-plane")]
     control: Option<Arc<crate::connection::ControlNetwork>>,
     #[cfg(all(feature = "control-plane", not(feature = "local-agent")))]
     local_http: Option<super::local_http::Service>,
-    #[cfg(feature = "local-agent")]
-    connector: Option<super::internal::InternalConnector>,
-    #[cfg(feature = "local-agent")]
-    agent_state: super::agent_state::AgentState,
-    #[cfg(feature = "local-agent")]
-    pending_fork: Option<Zeroizing<ForkSelectorInfo>>,
     fatal: bool,
 }
 impl Supervisor {
     fn initialize(&mut self) -> Result<()> {
-        self.started_at = platform::boottime()?;
+        self.notifications.start(platform::boottime()?);
         #[cfg(not(feature = "local-agent"))]
         if matches!(
             self.config.connection_mode,
@@ -282,7 +218,7 @@ impl Supervisor {
         if let Some(info) = self.config.pcap_file.clone() {
             self.capture.start(info)?;
         }
-        self.rebuild();
+        self.peers.rebuild(&mut self.config.peers);
         #[cfg(feature = "control-plane")]
         {
             let (control, connector) =
@@ -290,8 +226,8 @@ impl Supervisor {
             self.control = Some(control);
             #[cfg(feature = "local-agent")]
             {
-                self.connector = Some(connector);
-                self.start_account()?;
+                self.account
+                    .attach(connector, &self.config.connection_mode, &self.cache)?;
             }
             #[cfg(not(feature = "local-agent"))]
             {
@@ -299,26 +235,6 @@ impl Supervisor {
             }
         }
         Ok(())
-    }
-    fn rebuild(&mut self) {
-        self.config.peers = sanitize(std::mem::take(&mut self.config.peers));
-        self.plan.clear();
-        self.next = 0;
-        for peer in &self.config.peers {
-            for (protocol, ports) in [
-                (Protocol::WireguardUdp, &peer.udp_ports),
-                (Protocol::WireguardTcp, &peer.tcp_ports),
-                (Protocol::Stealth, &peer.tls_ports),
-            ] {
-                for &port in ports {
-                    self.plan.push(Candidate {
-                        peer: peer.clone(),
-                        protocol,
-                        port,
-                    });
-                }
-            }
-        }
     }
     fn publish(&mut self, connection_state: ConnectionState) {
         let interface_state = match self.worker.as_ref().map(Worker::snapshot) {
@@ -335,14 +251,8 @@ impl Supervisor {
             None if self.tun.is_some() => InterfaceState::Up { error: None },
             _ => InterfaceState::Down { last_error: None },
         };
-        let state = VpnState {
-            interface_state,
-            connection_state,
-        };
-        if self.state.as_ref() != Some(&state) {
-            self.state = Some(state.clone());
-            self.state_callback.on_state_changed(state);
-        }
+        self.notifications
+            .publish(interface_state, connection_state);
     }
     fn disconnected(&mut self, error: Option<String>) {
         self.publish(ConnectionState::Disconnected {
@@ -353,18 +263,16 @@ impl Supervisor {
         if let Some(mut worker) = self.worker.take() {
             let _ = worker.disconnect_and_wait();
             for event in worker.take_events() {
-                self.event_callback.on_event(event);
+                self.notifications.event(event);
             }
         }
         self.active = None;
-        self.requested_stats = None;
+        self.notifications.clear_stats_request();
     }
     fn start_next(&mut self) -> Result<()> {
-        if self.plan.is_empty() {
+        let Some(candidate) = self.peers.next() else {
             return Ok(());
-        }
-        let candidate = self.plan[self.next % self.plan.len()].clone();
-        self.next = self.next.wrapping_add(1);
+        };
         let transport = match candidate.protocol {
             Protocol::WireguardUdp => Transport::Udp,
             Protocol::WireguardTcp => Transport::Tcp,
@@ -387,7 +295,7 @@ impl Supervisor {
             keepalive: Some(25),
         };
         #[cfg(feature = "local-agent")]
-        self.update_account_peer(&candidate.peer);
+        self.account.update_peer(&candidate.peer);
         let worker = Worker::start_runtime(
             self.tun.as_ref().map(platform::clone_tun).transpose()?,
             Some((config, String::new(), transport)),
@@ -435,11 +343,11 @@ impl Supervisor {
                 break;
             }
             for event in self.capture.take_events() {
-                self.event_callback.on_event(event);
+                self.notifications.event(event);
             }
-            let ready = self.config.network_available
-                && !self.plan.is_empty()
-                && Instant::now() >= self.retry_at;
+            let ready = self
+                .peers
+                .ready(self.config.network_available, Instant::now());
             if self.active.is_none() && ready {
                 self.stop_worker();
                 if let Err(error) = self.start_next() {
@@ -454,29 +362,8 @@ impl Supervisor {
                 break;
             }
             let snapshot = self.worker.as_ref().map(Worker::snapshot);
-            if let Some(snapshot) = &snapshot
-                && self
-                    .requested_stats
-                    .is_some_and(|request| snapshot.stats_generation >= request)
-            {
-                self.requested_stats = None;
-                if let Some(stats) = &snapshot.statistics {
-                    self.event_callback.on_event(Event::ConnectionStats {
-                        // v3.0.5 API events.rs: milliseconds since this
-                        // connection began, preserving the origin on failover.
-                        mono_timestamp_ms: snapshot
-                            .mono_timestamp
-                            .saturating_sub(self.started_at)
-                            .as_millis()
-                            .min(i64::MAX as u128)
-                            as i64,
-                        received_bytes: stats.received_bytes,
-                        sent_bytes: stats.sent_bytes,
-                        time_since_last_handshake: stats.handshake_age.unwrap_or_default(),
-                        estimated_loss: stats.estimated_loss,
-                        estimated_round_trip_time: stats.handshake_rtt.unwrap_or_default(),
-                    });
-                }
+            if let Some(snapshot) = &snapshot {
+                self.notifications.observe_stats(snapshot);
             }
             if self.active.is_none() {
                 if let Some(WorkerState::Failed(error)) =
@@ -498,7 +385,7 @@ impl Supervisor {
             }
             match snapshot {
                 Some(snapshot) if snapshot.state == WorkerState::TunnelEstablished => {
-                    self.attempts = 0;
+                    self.peers.connected();
                     let peer = self.active.as_ref().expect("active worker").info();
                     match self.config.connection_mode {
                         ConnectionMode::NoLocalAgent { .. } => {
@@ -510,7 +397,7 @@ impl Supervisor {
                         ConnectionMode::LocalAgent { .. } => {
                             #[cfg(feature = "local-agent")]
                             {
-                                self.publish(self.agent_state.state(peer));
+                                self.publish(self.account.connection_state(peer));
                             }
                         }
                     }
@@ -535,8 +422,7 @@ impl Supervisor {
         self.stop_worker();
         #[cfg(feature = "local-agent")]
         {
-            self.account = None;
-            self.connector = None;
+            self.account.stop();
         }
         #[cfg(all(feature = "control-plane", not(feature = "local-agent")))]
         {
@@ -548,13 +434,12 @@ impl Supervisor {
         }
         let _ = self.capture.stop(true);
         for event in self.capture.take_events() {
-            self.event_callback.on_event(event);
+            self.notifications.event(event);
         }
         self.disconnected(None);
     }
     fn schedule_retry(&mut self) {
-        self.retry_at = Instant::now() + crate::control::Candidates::retry_delay(self.attempts);
-        self.attempts = self.attempts.saturating_add(1);
+        self.peers.retry(Instant::now());
     }
     fn command(&mut self, command: Command) -> Result<()> {
         match command {
@@ -568,22 +453,21 @@ impl Supervisor {
                     .transpose()?;
                 if let Some(peers) = update.peers {
                     self.config.peers = peers;
-                    self.rebuild();
+                    self.peers.rebuild(&mut self.config.peers);
                     let retained = self
                         .active
                         .as_ref()
-                        .and_then(|active| self.plan.iter().find(|new| new.same_tunnel(active)))
-                        .cloned();
+                        .and_then(|active| self.peers.retained(active));
                     if retained.is_none() {
                         self.stop_worker();
-                        self.retry_at = Instant::now();
+                        self.peers.retry_now(Instant::now());
                     } else {
                         self.active = retained;
                         #[cfg(feature = "local-agent")]
                         if let Some(peer) =
                             self.active.as_ref().map(|candidate| candidate.peer.clone())
                         {
-                            self.update_account_peer(&peer);
+                            self.account.update_peer(&peer);
                         }
                     }
                 }
@@ -595,14 +479,10 @@ impl Supervisor {
                     *current = settings;
                 }
                 #[cfg(feature = "local-agent")]
-                if let (Some(account), ConnectionMode::LocalAgent { settings, .. }) =
-                    (&self.account, &self.config.connection_mode)
-                {
-                    account.send(super::account::Command::Settings(
-                        settings.clone(),
-                        self.active.as_ref().and_then(|p| p.peer.exit_label.clone()),
-                    ));
-                }
+                self.account.settings(
+                    &self.config.connection_mode,
+                    self.active.as_ref().map(|p| &p.peer),
+                );
                 if let Some(tun) = replacement {
                     if let Some(worker) = &self.worker {
                         worker.replace_owned_tun(worker_tun.expect("prepared update"));
@@ -613,8 +493,7 @@ impl Supervisor {
             Command::Connectivity(event) => {
                 self.config.network_available = event != ConnectivityEvent::Down;
                 self.stop_worker();
-                self.retry_at = Instant::now();
-                self.next = 0;
+                self.peers.restart(Instant::now());
             }
             Command::Capture(info) => {
                 self.capture.start(info)?;
@@ -624,11 +503,11 @@ impl Supervisor {
             }
             Command::Stats => {
                 if let Some(worker) = &self.worker {
-                    self.requested_stats = Some(worker.request_stats());
+                    self.notifications.request_stats(worker.request_stats());
                 }
             }
             Command::Debug => {
-                log::debug!("connection state: {:?}", self.state);
+                log::debug!("connection state: {:?}", self.notifications.state());
                 if let Some(worker) = &self.worker {
                     log::debug!("packet worker: {:?}", worker.snapshot());
                 }
@@ -636,120 +515,60 @@ impl Supervisor {
             Command::InvalidateCertificate => {
                 self.cache.remove(CacheKey::Certificate);
                 #[cfg(feature = "local-agent")]
-                if let Some(account) = &self.account {
-                    account.send(super::account::Command::Invalidate);
-                }
+                self.account.invalidate();
             }
             Command::Fork(info) => {
                 #[cfg(feature = "local-agent")]
-                if let Some(account) = &self.account {
-                    account.send(super::account::Command::Fork(info));
-                } else {
-                    self.pending_fork = Some(info);
-                }
+                self.account.fork(info);
                 #[cfg(not(feature = "local-agent"))]
                 {
                     let _ = info;
                     return Err(crate::Error::Invalid("build requires local-agent feature"));
                 }
             }
-            Command::AgentStats =>
-            {
+            Command::AgentStats => {
                 #[cfg(feature = "local-agent")]
-                if let Some(account) = &self.account {
-                    account.send(super::account::Command::Stats);
-                }
+                self.account.request_stats();
             }
             Command::Disconnect => {}
         }
         Ok(())
     }
     #[cfg(feature = "local-agent")]
-    fn update_account_peer(&mut self, peer: &PeerInfo) {
-        if self.account_peer.as_ref().is_none_or(|previous| {
-            previous.server_ip != peer.server_ip
-                || previous.server_public_key != peer.server_public_key
-                || previous.server_name != peer.server_name
-        }) {
-            self.agent_state = Default::default();
-        }
-        self.account_peer = Some(peer.clone());
-        if let Some(account) = &self.account {
-            account.send(super::account::Command::Peer(peer.clone()));
-        }
-    }
-    #[cfg(feature = "local-agent")]
-    fn start_account(&mut self) -> Result<()> {
-        use super::account::{Command as AccountCommand, Service};
-        if self.account.is_none() {
-            let account = Service::start_waiting(
-                self.connector
-                    .as_ref()
-                    .expect("initialized control network")
-                    .clone(),
-                self.config.connection_mode.clone(),
-                self.cache.clone(),
-            )?;
-            if let Some(info) = self.pending_fork.take() {
-                account.send(AccountCommand::Fork(info));
-            }
-            self.account = Some(account);
-        }
-        Ok(())
-    }
-    #[cfg(feature = "local-agent")]
     fn poll_account(&mut self) -> Result<()> {
-        use super::account::{Notice, Service};
-        use proton_vpn_local_agent::managed::ManagedLocalAgentEvent as AgentEvent;
-        // Each pass is bounded; a noisy server cannot starve connectivity commands.
+        use account::Action;
+        // A noisy server must not starve connectivity commands.
         for _ in 0..64 {
-            let notice = self.account.as_ref().and_then(Service::try_recv);
-            let Some(notice) = notice else { break };
-            match notice {
-                Notice::Event(event) => self.event_callback.on_event(event),
-                Notice::CertificateUnavailable => self.agent_state.connected = false,
-                Notice::Fatal => {
-                    self.event_callback.on_event(Event::LocalAgentError {
+            let Some(action) = self.account.next_action() else {
+                break;
+            };
+            match action {
+                Action::Continue => {}
+                Action::Event(event) => self.notifications.event(event),
+                Action::Fatal => {
+                    self.notifications.event(Event::LocalAgentError {
                         error: ErrorEvent::CertificateRefreshFatalError,
                     });
                     self.fatal = true;
                     break;
                 }
-                Notice::Rekey => {
+                Action::Rekey => {
                     self.cache.remove(CacheKey::PrivateKey);
                     self.cache.remove(CacheKey::Certificate);
                     self.key = Zeroizing::new(
                         Identity::load_or_generate(self.cache.as_ref())?.wireguard_key(),
                     );
                     self.stop_worker();
-                    self.account = None;
-                    self.agent_state = Default::default();
-                    self.start_account()?;
-                    self.retry_at = Instant::now();
+                    self.account
+                        .restart(&self.config.connection_mode, &self.cache)?;
+                    self.peers.retry_now(Instant::now());
                     break;
                 }
-                Notice::Agent(event) => match event {
-                    AgentEvent::Value(value) => {
-                        if let Some(event) = self.agent_state.accept(value) {
-                            self.event_callback.on_event(event);
-                        }
-                    }
-                    AgentEvent::Connected => self.agent_state.connected = true,
-                    AgentEvent::Connecting | AgentEvent::NewCertificateNeeded(_) => {
-                        self.agent_state.connected = false
-                    }
-                    AgentEvent::ServerError(error) => {
-                        if let Some(event) = super::agent_state::AgentState::policy_error(&error) {
-                            self.event_callback.on_event(event);
-                        }
-                    }
-                    AgentEvent::ChangePeerNeeded | AgentEvent::ClientError(_) => {
-                        self.stop_worker();
-                        self.schedule_retry();
-                        break;
-                    }
-                    AgentEvent::NewKeyNeeded(_) => {} // Service emits Rekey before forwarding.
-                },
+                Action::Retry => {
+                    self.stop_worker();
+                    self.schedule_retry();
+                    break;
+                }
             }
         }
         Ok(())

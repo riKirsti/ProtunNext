@@ -55,6 +55,13 @@ Muon/RCRL/Local Agent SDKs. Private API/DNS/control sockets use a separate priva
 stack; normal customer traffic bypasses it. Requested paid settings are distinct
 from applied settings and server refusals. The host supplies secure persistence.
 
+Inside the supervisor, the private peer plan owns sanitized candidate order and
+retry backoff; notifications own state coalescing, statistics requests and the
+connection's timestamp origin; account coordination owns the service, pending
+fork and server-observed state. Account notices yield explicit retry/rekey/fatal
+actions to the supervisor, which retains worker and teardown ordering. These
+components do not run on the packet thread or change the public API.
+
 Platform adapters own only resources explicitly assigned to them. Unix attaches
 to a caller-owned descriptor/uplink; Android supplies VpnService protection and
 network binding; Apple bridges public packet-flow APIs; Windows uses native
