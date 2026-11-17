@@ -1,6 +1,6 @@
 [package]
 name = "protun-next"
-version = "0.1.0-dev.1"
+version = "3.0.5"
 edition = "2024"
 rust-version = "1.88"
 license = "GPL-3.0-or-later"

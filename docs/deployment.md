@@ -1,9 +1,7 @@
 # Deploy and integrate
 
-ProtunNext is a host-integrated runtime, not a standalone VPN installer. The
-release gate remains closed pending complete live service/device acceptance.
-Build/package success is not a production readiness claim. No release or real
-network change is made by ordinary builds/tests.
+ProtunNext is a runtime embedded in host applications. Qualify the intended
+live services, devices and host integration before deployment.
 
 ## Shared host responsibilities
 
@@ -108,10 +106,12 @@ disconnect/reconnect, network changes and teardown before deployment. Preserve
 portable compiler defaults; CPU-native/PGO artifacts require separate exact-target
 qualification and fresh representative training. No historical benchmark profile
 is a general deployment artifact. Keep dependencies locked and verify vendor
-provenance when updating. Broader live/device acceptance remains explicit through
-the runtime requirements ledger; do not bypass its gate to publish a release.
+provenance when updating. Use `cargo run --locked -- verify-parity` to check
+the requirements ledger for complete live service and device verification.
 
-The **Publish source release** workflow verifies the selected `main` commit.
-Run verification and linked erasure on that commit first. Use the workflow with
+The **Publish source release** workflow uses the stable Cargo version,
+`verify-code-parity`, the frozen API contract check, repository and vendor
+checks, and successful platform and linked-erasure runs on the exact `main`
+commit. Live parity is a deployment qualification. Use the workflow with
 publication disabled to check eligibility. Enable publication after reviewing
 the qualified commit and release version. GitHub supplies the tagged source archives.

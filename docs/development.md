@@ -6,8 +6,9 @@ commit a498c38ae6ffb0e68e7190b2831ef985d73fa6da. This pinned release is the
 authoritative upstream baseline; the upstream default branch is not a substitute.
 Implementation coverage and live/device acceptance are separate.
 The machine-readable ledger in `src/requirements.json` powers `status`,
-`verify-code-parity` and `verify-parity`; do not mark unverified requirements as
-complete to obtain a passing release gate.
+`verify-code-parity` for implementation coverage and `verify-parity` for live
+deployment qualification. Update live acceptance statuses only when evidence
+supports them.
 
 ## Compatibility contract
 
@@ -142,8 +143,9 @@ cargo run --locked -- verify-code-parity
 cargo run --locked -- verify-parity
 ```
 
-The last command deliberately fails until outstanding live/device acceptance is
-complete. Passing compilation or an offline fixture is not release approval.
+The last command checks live deployment qualification and continues to fail while
+requirements are open. Source release qualification uses the workflow documented
+in the [deployment guide](deployment.md#acceptance-and-updates).
 Default tests use synthetic data and do not configure host networking. Real TUN
 tests are opt-in; CI runs them in disposable namespaces. Account test helpers are
 opt-in and do not log in merely because a feature is enabled.

@@ -43,7 +43,8 @@ jobs:
           done
           python scripts/check_repository.py
           python scripts/verify-vendor.py
-          cargo run --locked -- verify-parity
+          python -m unittest discover -s scripts -p 'test_compatibility.py'
+          cargo run --locked -- verify-code-parity
           printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
           printf 'upstream=%s\n' "$upstream" >> "$GITHUB_OUTPUT"
   publish:
@@ -79,6 +80,8 @@ jobs:
 
           The source archives contain the qualified commit $GITHUB_SHA.
           See the repository's build and deployment guides for supported targets.
+          Live service and native-device deployment qualifications are tracked
+          separately in the requirements ledger.
           EOF
           gh release create "v$VERSION" --repo "$GITHUB_REPOSITORY" --verify-tag \
             --title "ProtunNext $VERSION" --notes-file release-notes.md
