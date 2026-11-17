@@ -69,3 +69,15 @@ class UpstreamMonitor(unittest.TestCase):
         with self.assertRaises(ValueError):
             upstream.check("test/repo", "fixture", NOW, call=api)
         self.assertEqual(api.issues, [])
+
+    def test_partial_update_remains_available_between_checks(self):
+        api = FakeGitHub()
+        update = upstream.check("test/repo", "fixture", NOW, call=api)
+        self.assertEqual(update["tag"], NEXT)
+        self.assertEqual(update["commit"], "b" * 40)
+        api.calls.clear()
+        retry_day = NOW + dt.timedelta(days=1)
+        self.assertEqual(upstream.check("test/repo", "fixture", retry_day, call=api), update)
+        self.assertEqual(len(api.calls), 1)
+        api.issues[0]["state"] = "closed"
+        self.assertIsNone(upstream.check("test/repo", "fixture", retry_day, call=api))

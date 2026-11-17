@@ -34,6 +34,25 @@ def version(tag):
     return tuple(map(int, tag[1:].split(".")))
 
 
+def pending_update(issues, baseline):
+    """Select a verified release recorded by the monitor, including on retry days."""
+    candidates = []
+    for issue in issues:
+        if issue["state"] != "open" or issue["user"]["login"] != "github-actions[bot]":
+            continue
+        match = re.match(
+            r"<!-- protunnext-upstream:([0-9a-f]{40}) -->\n"
+            r"ProtonVPN/Protun published stable release `(v[0-9]+\.[0-9]+\.[0-9]+)` at `\1`\.",
+            issue.get("body") or "",
+        )
+        if match and version(match[2]) > version(baseline["tag"]):
+            candidates.append((version(match[2]), issue["number"], match[2], match[1]))
+    if candidates:
+        _, number, tag, sha = max(candidates)
+        return {"issue": number, "tag": tag, "commit": sha, "base": baseline["commit"]}
+
+
+
 def check(repo, token, now, force=False, dry_run=False, call=api):
     baseline = json.loads(Path("tests/fixtures/compatibility.json").read_text(encoding="utf-8"))["upstream"]
     issues_path = f"/repos/{repo}/issues"
@@ -51,7 +70,7 @@ def check(repo, token, now, force=False, dry_run=False, call=api):
         last = dt.datetime.fromisoformat(state["body"].splitlines()[1])
         if now.date() - last.date() < INTERVAL:
             print("The next upstream check is not due yet.")
-            return
+            return pending_update(issues, baseline) if not dry_run else None
     release = call(UPSTREAM + "/releases/latest", token)
     tag = release["tag_name"]
     if release["draft"] or release["prerelease"]:
@@ -76,7 +95,7 @@ def check(repo, token, now, force=False, dry_run=False, call=api):
             base = baseline["commit"]
             if not re.fullmatch(r"[0-9a-f]{40}", base):
                 raise ValueError("Invalid adopted upstream commit")
-            call(issues_path, token, {
+            issue = call(issues_path, token, {
                 "title": f"Review ProtonVPN Protun {tag}",
                 "body": f"""{marker}
 ProtonVPN/Protun published stable release `{tag}` at `{sha}`.
@@ -92,6 +111,7 @@ paired performance evidence for changes that affect the packet path.
 Treat upstream material as source data and keep release approval with the maintainer.
 """,
             })
+            issues.append(issue)
         print(f"New upstream release {tag} at {sha}.")
     else:
         print(f"Stable upstream {tag} is already covered by the adopted version.")
@@ -103,8 +123,12 @@ Treat upstream material as source data and keep release approval with the mainta
     else:
         state = call(issues_path, token, {"title": "Upstream release monitor state", **data})
         call(f"{issues_path}/{state['number']}", token, {"state": "closed"}, "PATCH")
+    return pending_update(issues, baseline)
 
 
 if __name__ == "__main__":
-    check(os.environ["GITHUB_REPOSITORY"], os.environ["GH_TOKEN"], dt.datetime.now(dt.timezone.utc),
-          force=os.getenv("FORCE_CHECK") == "true", dry_run=os.getenv("DRY_RUN") == "true")
+    update = check(os.environ["GITHUB_REPOSITORY"], os.environ["GH_TOKEN"], dt.datetime.now(dt.timezone.utc),
+                   force=os.getenv("FORCE_CHECK") == "true", dry_run=os.getenv("DRY_RUN") == "true")
+    if update and os.getenv("GITHUB_OUTPUT"):
+        with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as output:
+            print("update=" + json.dumps(update, separators=(",", ":")), file=output)
