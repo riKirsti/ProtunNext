@@ -1,0 +1,84 @@
+name: Publish source release
+on:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish the verified source release
+        type: boolean
+        default: false
+permissions: {}
+concurrency:
+  group: publish-source-release
+  cancel-in-progress: false
+jobs:
+  qualify:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      version: ${{ steps.verify.outputs.version }}
+      upstream: ${{ steps.verify.outputs.upstream }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - uses: dtolnay/rust-toolchain@stable
+      - id: verify
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          version=$(python -c 'import tomllib; print(tomllib.load(open("Cargo.toml", "rb"))["package"]["version"])')
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          upstream=$(python -c 'import json; print(json.load(open("tests/fixtures/compatibility.json"))["upstream"]["commit"])')
+          [[ "$upstream" =~ ^[0-9a-f]{40}$ ]]
+          for workflow in ci.yml security.yml; do
+            result=$(gh run list --workflow "$workflow" --branch main --commit "$GITHUB_SHA" --limit 1 --json conclusion --jq '.[0].conclusion')
+            test "$result" = success
+          done
+          python scripts/check_repository.py
+          python scripts/verify-vendor.py
+          cargo run --locked -- verify-parity
+          printf 'version=%s\n' "$version" >> "$GITHUB_OUTPUT"
+          printf 'upstream=%s\n' "$upstream" >> "$GITHUB_OUTPUT"
+  publish:
+    needs: qualify
+    if: inputs.publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.qualify.outputs.version }}
+          UPSTREAM: ${{ needs.qualify.outputs.upstream }}
+        run: |
+          set -euo pipefail
+          git_main=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq .object.sha)
+          test "$git_main" = "$GITHUB_SHA"
+          if gh release view "v$VERSION" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release already exists."
+            exit 1
+          fi
+          ref="refs/tags/v$VERSION"
+          tags=$(git ls-remote "https://github.com/$GITHUB_REPOSITORY.git" "$ref" "$ref^{}")
+          if [[ -z "$tags" ]]; then
+            gh api "repos/$GITHUB_REPOSITORY/git/refs" -f ref="$ref" -f sha="$GITHUB_SHA" --silent
+            tags=$(git ls-remote "https://github.com/$GITHUB_REPOSITORY.git" "$ref" "$ref^{}")
+          fi
+          tag_sha=$(awk 'END { print $1 }' <<< "$tags")
+          test "$tag_sha" = "$GITHUB_SHA"
+          cat > release-notes.md <<EOF
+          ProtunNext $VERSION is an independent runtime based on the
+          [ProtonVPN Protun compatibility baseline](https://github.com/ProtonVPN/protun/tree/$UPSTREAM).
+
+          The source archives contain the qualified commit $GITHUB_SHA.
+          See the repository's build and deployment guides for supported targets.
+          EOF
+          gh release create "v$VERSION" --repo "$GITHUB_REPOSITORY" --verify-tag \
+            --title "ProtunNext $VERSION" --notes-file release-notes.md

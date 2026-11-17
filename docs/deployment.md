@@ -63,17 +63,43 @@ an adapter must remain an explicit application action. The runtime tracks owned
 resources; do not remove other applications' routes or adapters during cleanup.
 See [packaging commands](building.md#windows).
 
-## Android and Apple
+## Android
 
 Android applications supply VpnService consent, notifications, network selection,
 cache policy and lifecycle handling. Do not pass account configurations/tokens
 through Intents. Test handover, always-on, revocation and process restoration on
-real devices. See [Android integration](../android/README.md).
+real devices. See [building for Android](building.md#android) for the AAR and
+the pinned toolchain.
+
+Initialize one `ProtunNextCore` in `Application.onCreate`, including process
+restoration. Supply a notification factory and system event handler in
+`Dependencies`. Create the notification channel before returning a notification.
+Use the process-restored and always-on callbacks to select the configuration and
+connect. Call `connectionManager.prepare()` from the UI and launch any returned
+consent intent before connecting. Observe `state`, `events`, `connectionStats`
+and `localAgentStats`. Use explicit cache and certificate clearing when switching
+accounts.
+
+The Android package is `io.github.rikirsti.protunnext.android`. Generated records
+are in `io.github.rikirsti.protunnext.generated`. Use `PersistentCacheCipher` for
+encrypted application-private persistence. Without a cipher, values are plaintext
+in private application preferences. Cipher failures retain memory state and remove
+stale persisted bytes.
+
+## Apple
 
 Apple applications supply NetworkExtension entitlements, provider lifecycle and
 packet tunnel settings before connecting. Use the public packet-flow bridge;
 do not extract a private utun FD through undocumented APIs. Stop/join native
-work before releasing the bridge. See [Apple integration](../apple/README.md).
+work before releasing the bridge. See [building for Apple](building.md#apple)
+for supported SDK slices.
+
+Transfer `PacketFlowBridge.takeNativeDescriptor()` to `Connection.unixConnect`,
+which consumes it. Retain the bridge for the connection lifetime and call
+`start()` after transferring the descriptor. The bridge retains one outstanding
+read, pauses under backpressure and delivers replies in batches of at most 64.
+Handle the failure callback by recovering or disconnecting. Stop and join the
+native connection before calling `bridge.stop()`.
 
 ## Acceptance and updates
 
@@ -84,3 +110,8 @@ qualification and fresh representative training. No historical benchmark profile
 is a general deployment artifact. Keep dependencies locked and verify vendor
 provenance when updating. Broader live/device acceptance remains explicit through
 the runtime requirements ledger; do not bypass its gate to publish a release.
+
+The **Publish source release** workflow verifies the selected `main` commit.
+Run verification and linked erasure on that commit first. Use the workflow with
+publication disabled to check eligibility. Enable publication after reviewing
+the qualified commit and release version. GitHub supplies the tagged source archives.

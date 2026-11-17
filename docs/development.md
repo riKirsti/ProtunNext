@@ -31,6 +31,36 @@ reviewed fixture; a deliberate contract change requires explicit compatibility
 review and a matching checksum update. Line-ending differences between hosts do
 not change its identity.
 
+## Upstream release updates
+
+The **Upstream release monitor** runs daily and checks ProtonVPN five days
+after the last successful check. A closed workflow-owned issue records that
+date. Manual dispatch checks immediately and defaults to a dry run. Each new
+stable upstream commit gets one tracking issue, even when the check is retried.
+
+The monitor can prepare a draft on GitHub-hosted runners. Enable **Allow GitHub
+Actions to create and approve pull requests** under repository Actions settings
+and add an OpenRouter API key as the Actions secret `OPENROUTER_API_KEY`. The
+workflow uses its repository token to open drafts. GitHub may require a
+maintainer to approve running the draft's CI. With the secret unset, the
+tracking issue still records the update.
+
+The proposal job uses the OpenRouter Free Models Router and allows at most
+35 model requests per run. If quota or time runs out, usable edits become a
+draft patch. The next daily run can resume from that branch, even between
+release checks. Closing the tracking issue stops retries. The proposal and
+draft-writing jobs have separate credentials. Review code, dependencies,
+upstream coverage and CI before merging. The source publisher is a separate
+workflow.
+
+Review the upstream-to-upstream diff and map each change against ProtunNext.
+Record implemented changes, behavior already covered, platform-specific
+differences and outstanding work in the update PR. Update the adopted tag,
+commit and compatibility contracts together after reviewing the applicable
+changes. Run the platform and erasure checks and use paired measurements for
+packet-path changes. See the [release procedure](deployment.md#acceptance-and-updates)
+after merging.
+
 Retain existing module paths, generated binding contracts, feature combinations
 and host ownership rules. Review any contract fixture change explicitly; do not
 regenerate it merely to make an incompatible change pass. One refactor stage
