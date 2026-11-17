@@ -1,5 +1,6 @@
 import datetime as dt
 import importlib.util
+import json
 from pathlib import Path
 import unittest
 
@@ -9,10 +10,13 @@ SPEC.loader.exec_module(upstream)
 
 NOW = dt.datetime(2026, 12, 2, 12, tzinfo=dt.timezone.utc)
 BOT = {"login": "github-actions[bot]"}
+ADOPTED = json.loads(Path("tests/fixtures/compatibility.json").read_text(encoding="utf-8"))["upstream"]["tag"]
+MAJOR, MINOR, PATCH = upstream.version(ADOPTED)
+NEXT = f"v{MAJOR}.{MINOR}.{PATCH + 1}"
 
 
 class FakeGitHub:
-    def __init__(self, tag="v3.0.6"):
+    def __init__(self, tag=NEXT):
         self.tag = tag
         self.issues = []
         self.calls = []
@@ -43,7 +47,7 @@ class FakeGitHub:
 
 class UpstreamMonitor(unittest.TestCase):
     def test_five_day_interval_across_month_boundary(self):
-        api = FakeGitHub("v3.0.5")
+        api = FakeGitHub(ADOPTED)
         upstream.check("test/repo", "fixture", NOW, call=api)
         self.assertEqual(api.issues[0]["state"], "closed")
         api.calls.clear()
@@ -64,7 +68,7 @@ class UpstreamMonitor(unittest.TestCase):
         self.assertEqual(sum(path.endswith("/assignees") for path, _, _ in api.calls), 1)
 
     def test_invalid_release_does_not_advance_schedule(self):
-        api = FakeGitHub("v3.0.6-rc.1")
+        api = FakeGitHub(NEXT + "-rc.1")
         with self.assertRaises(ValueError):
             upstream.check("test/repo", "fixture", NOW, call=api)
         self.assertEqual(api.issues, [])
