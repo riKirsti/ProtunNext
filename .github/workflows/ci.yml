@@ -47,11 +47,11 @@ jobs:
         run: cargo clippy --locked --all-targets --no-default-features --features unix -- -D warnings
       - name: Check v3.0.5 implementation coverage separately from live acceptance
         run: cargo run --locked -- verify-code-parity
-      - name: Assert incomplete parity cannot be reported as release-ready
+      - name: Assert incomplete live parity fails deployment verification
         shell: bash
         run: |
           if cargo run --locked -- verify-parity; then
-            echo "Unexpected parity approval; review this gate before releasing"
+            echo "Unexpected live parity approval; review deployment qualification"
             exit 1
           fi
       - name: Build optimized runtime library and CLI

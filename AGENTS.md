@@ -1,8 +1,8 @@
 # Repository guidance
 
 - Read `docs/development.md`, `docs/building.md` and `docs/deployment.md`.
-- Preserve public APIs, platform contracts, account features and release gates.
-  Cleanup must not remove supported functionality or fabricate release readiness.
+- Preserve public APIs, platform contracts, account features and verification gates.
+  Source releases use the publishing workflow. Report live deployment evidence separately.
 - Preserve bounded ownership, authentication/replay checks, erasure, descriptor
   contracts and platform-specific I/O behavior.
 - Run `python scripts/verify-vendor.py`. Keep the complete pinned vendor snapshot,

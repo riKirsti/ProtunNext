@@ -3,10 +3,9 @@
 Cross-platform Rust VPN runtime with WireGuard UDP, framed TCP and Stealth
 transports, account integration and native application bindings.
 
-**Development software.** Offline implementation and platform checks do not
-establish complete live service or device acceptance. The release verification
-gate remains closed. ProtunNext is an independent project and is not affiliated
-with or endorsed by Proton AG.
+Source releases are verified through implementation coverage, platform CI and
+linked-erasure checks. The [deployment guide](docs/deployment.md) describes the
+additional checks for live services and devices. ProtunNext is independent of Proton AG.
 
 ## Features
 
