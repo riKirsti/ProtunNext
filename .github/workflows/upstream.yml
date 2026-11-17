@@ -1,0 +1,34 @@
+name: Upstream release monitor
+on:
+  schedule:
+    - cron: '23 14 * * *'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Check now without writing issues or assigning Copilot
+        type: boolean
+        default: true
+permissions:
+  contents: read
+  issues: write
+concurrency:
+  group: upstream-release-monitor
+  cancel-in-progress: false
+jobs:
+  check:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: python scripts/check-upstream.py
+        env:
+          GH_TOKEN: ${{ github.token }}
+          COPILOT_ASSIGNMENT_TOKEN: ${{ secrets.COPILOT_ASSIGNMENT_TOKEN }}
+          FORCE_CHECK: ${{ github.event_name == 'workflow_dispatch' }}
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}

@@ -96,7 +96,7 @@ The helper compiles native code, generates Kotlin from the Android library,
 runs library tests and assembles `android/build/outputs/aar/`. Native libraries
 are copied under `target/android-jni/`. CI covers arm64-v8a; other helper targets
 are not device-qualified. The consuming app sets target SDK 37 and supplies the
-required 16 KB deployment environment. See [Android integration](../android/README.md).
+required 16 KB deployment environment. See [Android integration](deployment.md#android).
 
 ## Apple
 
@@ -110,4 +110,4 @@ swift build --package-path apple
 
 The helper builds ARM64 macOS, iOS and simulator libraries, generates Swift into
 `target/apple-bindings/`, and typechecks the adapter. Compiling SDK slices does
-not verify an entitled VPN provider. See [Apple integration](../apple/README.md).
+not verify an entitled VPN provider. See [Apple integration](deployment.md#apple).

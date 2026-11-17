@@ -361,7 +361,7 @@
     "status": "needs-live-verification",
     "evidence": [
       "android/: executable core/manager/VpnService, TUN/DNS/routes/IPv6/per-app policy, socket protection/network binding, user cache/cipher, account/capture/stats and process/always-on/revoke lifecycle",
-      "Actual arm64 API25 ELF, Kotlin bindings, service, unit tests and AAR passed CI 41274301445; android/README.md documents API migration and deferred device/other-ABI acceptance"
+      "Actual arm64 API25 ELF, Kotlin bindings, service, unit tests and AAR passed CI 41274301445; docs/building.md and docs/deployment.md describe current build and device acceptance"
     ],
     "code_status": "complete"
   },
