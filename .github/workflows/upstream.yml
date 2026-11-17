@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
     inputs:
       dry_run:
-        description: Check now without writing issues or assigning Copilot
+        description: Check now without writing issues
         type: boolean
         default: true
 permissions:
@@ -29,6 +29,5 @@ jobs:
       - run: python scripts/check-upstream.py
         env:
           GH_TOKEN: ${{ github.token }}
-          COPILOT_ASSIGNMENT_TOKEN: ${{ secrets.COPILOT_ASSIGNMENT_TOKEN }}
           FORCE_CHECK: ${{ github.event_name == 'workflow_dispatch' }}
           DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}

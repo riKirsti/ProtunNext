@@ -31,16 +31,12 @@ class FakeGitHub:
             return {"object": {"type": "commit", "sha": "b" * 40}}
         if "?state=all" in path:
             return list(self.issues)
-        if path.endswith("/assignees"):
-            issue = self.issues[int(path.split("/")[-2]) - 1]
-            issue["assignees"] = [{"login": login} for login in data["assignees"]]
-            return issue
         if method == "PATCH":
             issue = self.issues[int(path.split("/")[-1]) - 1]
             issue.update(data)
             return issue
         issue = {"number": len(self.issues) + 1, "state": "open",
-                 "user": BOT, "assignees": [], **data}
+                 "user": BOT, **data}
         self.issues.append(issue)
         return issue
 
@@ -57,15 +53,16 @@ class UpstreamMonitor(unittest.TestCase):
         self.assertTrue(any(path.endswith("/releases/latest") for path, _, _ in api.calls))
         self.assertEqual(len(api.issues), 1)
 
-    def test_dry_run_then_annotated_release_and_idempotent_assignment(self):
+    def test_dry_run_then_annotated_release_and_idempotent_issue_creation(self):
         api = FakeGitHub()
         upstream.check("test/repo", "fixture", NOW, force=True, dry_run=True, call=api)
         self.assertTrue(all(data is None for _, data, _ in api.calls))
         for _ in range(2):
-            upstream.check("test/repo", "fixture", NOW, force=True, copilot_token="fixture", call=api)
+            upstream.check("test/repo", "fixture", NOW, force=True, call=api)
         self.assertEqual(len(api.issues), 2)
         self.assertIn("b" * 40, api.issues[0]["body"])
-        self.assertEqual(sum(path.endswith("/assignees") for path, _, _ in api.calls), 1)
+        self.assertEqual(sum(path == "/repos/test/repo/issues" and data.get("title", "").startswith("Review ProtonVPN")
+                             for path, data, _ in api.calls), 1)
 
     def test_invalid_release_does_not_advance_schedule(self):
         api = FakeGitHub(NEXT + "-rc.1")

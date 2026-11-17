@@ -38,12 +38,6 @@ after the last successful check. A closed workflow-owned issue records that
 date. Manual dispatch checks immediately and defaults to a dry run. Each new
 stable upstream commit gets one tracking issue, even when the check is retried.
 
-The issue can be assigned to GitHub Copilot. Automatic assignment requires
-Copilot cloud agent access and a supported user token stored as
-`COPILOT_ASSIGNMENT_TOKEN`. Without it, the issue remains available for a
-maintainer to assign. Use a token scoped to this repository and follow GitHub's
-[Copilot API permissions](https://docs.github.com/en/copilot/how-tos/use-copilot-agents/cloud-agent/use-cloud-agent-via-the-api).
-
 Review the upstream-to-upstream diff and map each change against ProtunNext.
 Record implemented changes, behavior already covered, platform-specific
 differences and outstanding work in the update PR. Update the adopted tag,

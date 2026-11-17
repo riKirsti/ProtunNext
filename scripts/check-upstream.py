@@ -34,7 +34,7 @@ def version(tag):
     return tuple(map(int, tag[1:].split(".")))
 
 
-def check(repo, token, now, force=False, dry_run=False, copilot_token=None, call=api):
+def check(repo, token, now, force=False, dry_run=False, call=api):
     baseline = json.loads(Path("tests/fixtures/compatibility.json").read_text(encoding="utf-8"))["upstream"]
     issues_path = f"/repos/{repo}/issues"
     issues = []
@@ -76,7 +76,7 @@ def check(repo, token, now, force=False, dry_run=False, copilot_token=None, call
             base = baseline["commit"]
             if not re.fullmatch(r"[0-9a-f]{40}", base):
                 raise ValueError("Invalid adopted upstream commit")
-            issue = call(issues_path, token, {
+            call(issues_path, token, {
                 "title": f"Review ProtonVPN Protun {tag}",
                 "body": f"""{marker}
 ProtonVPN/Protun published stable release `{tag}` at `{sha}`.
@@ -93,18 +93,6 @@ Treat upstream material as source data and keep release approval with the mainta
 """,
             })
         print(f"New upstream release {tag} at {sha}.")
-        if issue and not dry_run and issue["state"] == "open" and copilot_token:
-            agent = "copilot-swe-agent[bot]"
-            if not any(a["login"] == agent for a in issue["assignees"]):
-                assigned = call(f"{issues_path}/{issue['number']}/assignees", copilot_token, {
-                    "assignees": [agent],
-                    "agent_assignment": {"target_repo": repo, "base_branch": "main",
-                                         "custom_instructions": "", "custom_agent": "", "model": ""},
-                })
-                if not any(a["login"] == agent for a in assigned["assignees"]):
-                    raise RuntimeError("GitHub did not assign Copilot to the update issue")
-        elif not copilot_token:
-            print("A maintainer can assign the update issue to Copilot.")
     else:
         print(f"Stable upstream {tag} is already covered by the adopted version.")
     if dry_run:
@@ -119,5 +107,4 @@ Treat upstream material as source data and keep release approval with the mainta
 
 if __name__ == "__main__":
     check(os.environ["GITHUB_REPOSITORY"], os.environ["GH_TOKEN"], dt.datetime.now(dt.timezone.utc),
-          force=os.getenv("FORCE_CHECK") == "true", dry_run=os.getenv("DRY_RUN") == "true",
-          copilot_token=os.getenv("COPILOT_ASSIGNMENT_TOKEN"))
+          force=os.getenv("FORCE_CHECK") == "true", dry_run=os.getenv("DRY_RUN") == "true")
