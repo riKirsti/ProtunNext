@@ -47,10 +47,12 @@ workflow uses its repository token to open drafts. With the secret unset,
 the tracking issue still records the update.
 
 The proposal job pins `opencode/deepseek-v4.1-flash-free` through OpenCode's
-built-in provider and allows only that model. If the free model is unavailable
-or time runs out, any usable edits become a draft patch. The next daily run
-can resume from that branch, even between release checks. Closing the tracking
-issue stops proposal retries. The proposal job has read-only repository
+built-in provider. It uses OpenCode's inference limits and the GitHub-hosted
+runner's standard job limit. The agent reads the upstream diff from a temporary
+file in sections. If OpenCode returns with usable edits, those edits become a
+draft patch. The next daily run can resume from that branch, even between
+release checks. Closing the tracking issue stops proposal retries. The
+proposal job has read-only repository
 permissions. A separate completion job dispatches platform and linked-erasure
 checks on the bot PR's exact head. Once version alignment and both checks pass,
 it marks the PR ready and merges it through GitHub. Failed checks leave the
@@ -80,6 +82,8 @@ UTC trigger checks the date of the last completed cycle. Manual dispatch
 defaults to preview, which runs the stages without opening draft PRs or
 changing the cycle date. It uses the package version from `Cargo.toml`, the
 upstream pin from the compatibility index and the existing `OPENCODE_API_KEY`.
+Proposal generation uses OpenCode's inference limits and the GitHub-hosted
+runner's standard job limit.
 
 The workflow reviews public release notes for performance ideas, then
 reviews the codebase for refactoring and obsolete files. DeepSeek V4.1 Flash

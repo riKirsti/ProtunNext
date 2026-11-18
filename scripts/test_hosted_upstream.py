@@ -1,5 +1,8 @@
+from contextlib import chdir
 import importlib.util
 from pathlib import Path
+from tempfile import TemporaryDirectory
+import subprocess
 import unittest
 from unittest.mock import patch
 
@@ -16,7 +19,7 @@ class HostedUpstream(unittest.TestCase):
         for role in ("model", "small_model"):
             self.assertEqual(config[role], "opencode/deepseek-v4.1-flash-free")
         self.assertEqual(config["permission"]["*"], "deny")
-        self.assertGreater(config["agent"][config["default_agent"]]["steps"], 0)
+        self.assertNotIn("agent", config)
 
     def test_generated_patch_excludes_workflow_and_publication_paths(self):
         for path in (".github/workflows/release.yml", "scripts/hosted-upstream.py",
@@ -24,6 +27,17 @@ class HostedUpstream(unittest.TestCase):
             self.assertFalse(hosted.allowed(path), path)
         for path in ("src/packet.rs", "tests/transport_test.rs", "Cargo.lock"):
             self.assertTrue(hosted.allowed(path), path)
+
+    def test_agent_uses_open_code_defaults_and_removes_prompt_after_exit(self):
+        def complete(argv, **options):
+            self.assertEqual(Path(argv[argv.index("--file") + 1]).read_text(), "Synthetic task")
+            self.assertNotIn("timeout", options)
+            return subprocess.CompletedProcess(argv, 0)
+
+        with TemporaryDirectory() as folder, chdir(folder):
+            with patch.object(hosted.subprocess, "run", side_effect=complete):
+                self.assertTrue(hosted.run_agent("synthetic", "Synthetic task"))
+            self.assertFalse(Path(".upstream-context.txt").exists())
 
     def test_draft_adopts_only_the_release_selected_by_the_monitor(self):
         baseline = {"tag": "v99.1.1", "commit": "a" * 40}

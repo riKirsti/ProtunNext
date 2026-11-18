@@ -39,7 +39,6 @@ jobs:
     needs: plan
     if: needs.plan.outputs.cycle != ''
     runs-on: ubuntu-latest
-    timeout-minutes: 50
     permissions:
       contents: read
     steps:
