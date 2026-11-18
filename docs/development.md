@@ -98,15 +98,29 @@ against the same commit. The performance stage can propose changes only to
 the framing and packet paths covered by the portable benchmark. Other
 performance ideas are recorded in the research notes.
 
-Candidate validation records paired A/A and baseline/candidate samples on
-Linux x64 and ARM64, Windows and macOS. Reports distinguish portable framing,
-CPU time per payload byte and peak process memory from sustained VPN
-download speed. Performance proposals must repeat a gain on every measured
-host. Runtime refactors must stay within the measured non-regression bounds.
-Candidates also run relevant offline tests. A separate completion job runs
-the full platform and linked-erasure workflows against the proposal commit,
-then merges qualified bot PRs through GitHub. A stale proposal with overlapping
-changes or invalidated benchmarks waits for a fresh maintenance cycle.
+Candidate validation checks portable framing on Linux x64 and ARM64, Windows
+and macOS. Linux additionally compares verified 2 GiB kernel TCP downloads
+through the production WireGuard UDP, TCP and Stealth worker in disposable
+network namespaces. Each transport runs one IPv4 HTTP flow and eight IPv6 HTTPS
+flows. The baseline peer and load generator are reused across both builds.
+Reports include download speed, CPU time per payload byte, CPU use and peak
+worker memory. The samples represent synthetic Linux traffic.
+
+Both benchmark layers collect four A/A controls and eight alternating A/B
+pairs. The fixed regression margins are 5% for throughput and CPU per byte
+and 10% for peak memory. A performance proposal must show a repeatable gain
+of at least 5% in download throughput or CPU per byte on each Linux runner,
+with the measured gain also clearing twice the A/A spread. Every tested
+platform has to pass the non-regression checks. Short, unstable, or
+auxiliary-limited measurements are inconclusive. An inconclusive measurement
+or operational failure gets one retry on a fresh runner with the same patch.
+An incomplete cycle stays due for the next scheduled attempt.
+
+The completion job runs the full platform and linked-erasure workflows against
+the proposal commit and publishes the required verification status. GitHub
+also requires each eligible PR to include current `main`. If `main` moves
+after runtime measurements, the proposal needs fresh evidence. A disjoint
+documentation-only cleanup may refresh and run verification again.
 Maintenance preserves the package version. The upstream monitor publishes
 when a new upstream version has been adopted.
 

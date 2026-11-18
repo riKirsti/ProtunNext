@@ -165,7 +165,7 @@ jobs:
         with:
           python-version: '3.13'
       - uses: dtolnay/rust-toolchain@stable
-      - run: python scripts/measure-download.py
+      - run: python scripts/measure-download.py --sustained
   linux-tun:
     runs-on: ubuntu-latest
     steps:

@@ -124,7 +124,8 @@ def smoke():
             binary = build(work, path / "target")
             for protocol in TRANSPORTS:
                 for family, app, flows in (("v4", "http", 1), ("v6", "https", 8)):
-                    row = sample(binary, binary, protocol, family, app, flows, 64)
+                    blocks = 32768 // flows if "--sustained" in sys.argv[1:] else 64
+                    row = sample(binary, binary, protocol, family, app, flows, blocks)
                     print(protocol, family, app, flows, json.dumps(row), flush=True)
         finally:
             subprocess.run(["git", "worktree", "remove", "--force", str(work)], cwd=ROOT, check=True)
