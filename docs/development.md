@@ -43,17 +43,20 @@ The monitor can prepare a draft on GitHub-hosted runners. Enable **Allow GitHub
 Actions to create and approve pull requests** under repository Actions settings
 and add an [OpenCode Console API key](https://opencode.ai/docs/console/api#api-keys)
 as the repository Actions secret `OPENCODE_API_KEY`. The
-workflow uses its repository token to open drafts. GitHub may require a
-maintainer to approve running the draft's CI. With the secret unset, the
-tracking issue still records the update.
+workflow uses its repository token to open drafts. With the secret unset,
+the tracking issue still records the update.
 
 The proposal job pins `opencode/deepseek-v4.1-flash-free` through OpenCode's
 built-in provider and allows only that model. If the free model is unavailable
 or time runs out, any usable edits become a draft patch. The next daily run
 can resume from that branch, even between release checks. Closing the tracking
-issue stops retries. The proposal and draft-writing jobs have separate
-credentials. Review code, dependencies, upstream coverage and CI before
-merging. The source publisher is a separate workflow.
+issue stops proposal retries. The proposal job has read-only repository
+permissions. A separate completion job dispatches platform and linked-erasure
+checks on the bot PR's exact head. Once version alignment and both checks pass,
+it marks the PR ready and merges it through GitHub. Failed checks leave the
+proposal pending. The monitor dispatches checks again on the merged main
+commit before starting the source publisher. If publication fails after the
+merge, a later monitor run retries the missing release.
 
 Review the upstream-to-upstream diff and map each change against ProtunNext.
 Record implemented changes, behavior already covered, platform-specific

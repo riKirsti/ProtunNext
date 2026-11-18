@@ -112,6 +112,18 @@ def check_proposal_version(update, baseline):
     return True
 
 
+def failed_checks(branch, head):
+    failures = []
+    for workflow in ("ci.yml", "security.yml"):
+        runs = json.loads(subprocess.check_output(
+            ["gh", "run", "list", "--workflow", workflow, "--branch", branch,
+             "--commit", head, "--event", "workflow_dispatch", "--limit", "1",
+             "--json", "conclusion"]))
+        if runs and runs[0]["conclusion"] == "failure":
+            failures.append(workflow)
+    return failures
+
+
 def propose():
     key = os.environ.pop("OPENCODE_API_KEY", "")
     if not key:
@@ -119,14 +131,13 @@ def propose():
         return
     update, branch = target()
     pr = open_draft_for_branch(branch)
-    if pr and not pr["isDraft"]:
-        print("The maintainer moved this draft to review. Skipping model requests.")
-        return
     baseline = adopted_release()
     old = load_branch(branch)
-    if old and check_proposal_version(update, baseline):
-        print("An adoption candidate is already available for maintainer review.")
-        if not pr:
+    complete = old and check_proposal_version(update, baseline)
+    failures = failed_checks(branch, old) if complete else []
+    if complete and not failures:
+        print("An adoption candidate is available for automated verification.")
+        if not pr or git("merge-base", "HEAD", old) != git("rev-parse", "HEAD"):
             save_proposal(old)
         return
     # Fetch upstream as Git data. Neither its checkout nor generated code is executed.
@@ -148,6 +159,8 @@ Keep all of those version identifiers at their existing baseline while the
 port is partial. Preserve unverified deployment statuses and test requirements.
 Keep the system and workflow files untouched. Explain completed and outstanding
 items in your response. Write changes incrementally so the draft can be resumed.
+Prior failed verification workflows for this proposal: {', '.join(failures) or 'none'}.
+If repairing verification, preserve the checks and fix the implementation.
 
 Upstream change summary:
 {stat}
@@ -202,9 +215,6 @@ def publish():
     patch = (source / "proposal.patch").read_bytes()
     repo = os.environ["GITHUB_REPOSITORY"]
     pr = open_draft_for_branch(branch)
-    if pr and not pr["isDraft"]:
-        print("The maintainer moved this draft to review. Leaving its branch untouched.")
-        return
     baseline = adopted_release()
     apply_patch(patch)
     check_proposal_version(update, baseline)
@@ -238,8 +248,8 @@ def publish():
                         f"Tracks #{update['issue']}. Upstream commit: `{update['commit']}`.\n\n"
                         f"[Upstream comparison](https://github.com/ProtonVPN/protun/compare/"
                         f"{update['base']}...{update['commit']}).\n\n"
-                        "This proposal may be partial. Review upstream coverage and CI before merging. "
-                        "Platform qualification and publication run through the repository workflows."],
+                        "A partial proposal remains a draft. The monitor verifies version alignment, runs "
+                        "platform and erasure checks, and merges and publishes only after qualification."],
                        check=True)
 
 
