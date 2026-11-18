@@ -514,6 +514,8 @@ def publish():
     repo = os.environ["GITHUB_REPOSITORY"]
     run_url = f"https://github.com/{repo}/actions/runs/{os.environ['GITHUB_RUN_ID']}"
     main = hosted.git("ls-remote", "--exit-code", "origin", "refs/heads/main").decode().split()[0]
+    if not preview and completed and main == head:
+        load_script("finish-automation.py").require_merge_rule()
     inventory_counts = inventory()
     summary = [f"# Maintenance cycle {cycle}", "",
                f"ProtunNext {report['version']} · Protun {report['upstream']['tag']} · `{head}`",
