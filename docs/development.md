@@ -66,10 +66,37 @@ packet-path changes. See the [release procedure](deployment.md#acceptance-and-up
 after merging.
 
 Retain existing module paths, generated binding contracts, feature combinations
-and host ownership rules. Review any contract fixture change explicitly; do not
-regenerate it merely to make an incompatible change pass. One refactor stage
-belongs in each PR, with scope and acceptance checks reviewed before starting
-the next stage.
+and host ownership rules. Review any contract fixture change explicitly. One
+refactor stage belongs in each PR, with scope and acceptance checks reviewed
+before starting the next stage.
+
+## Scheduled maintenance
+
+The **31-day maintenance** workflow runs on GitHub-hosted runners. A daily
+UTC trigger checks the date of the last completed cycle. Manual dispatch
+defaults to preview, which runs the stages without opening draft PRs or
+changing the cycle date. It uses the package version from `Cargo.toml`, the
+upstream pin from the compatibility index and the existing `OPENCODE_API_KEY`.
+
+The workflow reviews public release notes for performance ideas, then
+reviews the codebase for refactoring and obsolete files. DeepSeek V4.1 Flash
+Free can prepare one patch per stage. Each patch is independently checked
+against the same commit. The performance stage can propose changes only to
+the framing and packet paths covered by the portable benchmark. Other
+performance ideas are recorded in the research notes.
+
+Candidate validation records paired A/A and baseline/candidate samples on
+Linux x64 and ARM64, Windows and macOS. Reports distinguish portable framing,
+CPU time per payload byte and peak process memory from sustained VPN
+download speed. Performance proposals must repeat a gain on every measured
+host. Runtime refactors must stay within the measured non-regression bounds.
+Candidates also run relevant offline tests. Full platform and linked-erasure
+CI and maintainer review still apply before merging.
+
+The report counts merged branches without open PRs and possible historical
+author addresses without printing the values. Branch removal and history
+rewrites require maintainer review. Keep private findings and real device or
+account data out of proposal prompts, logs and artifacts.
 
 ## Architecture
 

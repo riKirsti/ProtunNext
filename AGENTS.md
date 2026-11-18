@@ -12,7 +12,7 @@
   credentials belong only in clearly marked synthetic fixtures.
 - Run formatting, relevant tests, Clippy and repository checks. Preserve linked
   erasure verification and its isolated insecure negative control.
-- Performance research is closed. Do not add experiments or stage reports unless
-  the user explicitly reopens it.
+- Use the scheduled maintenance workflow for recurring performance research.
+  Keep generated measurements and stage reports in Actions artifacts.
 - Ordinary builds/tests must not change real device settings, install a VPN or
   publish a release. Deployment requires explicit host integration.

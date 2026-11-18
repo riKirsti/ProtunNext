@@ -55,7 +55,7 @@ def allowed(path):
     ) and all(part and not part.startswith(".") for part in path.split("/"))
 
 
-def validate_staged():
+def validate_staged(path_allowed=allowed):
     for record in git("diff", "--cached", "--raw", "-z", "--no-renames").split(b"\0")[:-1][::2]:
         modes = record.split()[:2]
         if any(mode.lstrip(b":") not in (b"000000", b"100644", b"100755") for mode in modes):
@@ -63,7 +63,7 @@ def validate_staged():
     changed = git("diff", "--cached", "--name-only", "-z", "--no-renames").split(b"\0")[:-1]
     for raw in changed:
         path = raw.decode()
-        if not re.fullmatch(r"[A-Za-z0-9_./+\-]+", path) or not allowed(path):
+        if not re.fullmatch(r"[A-Za-z0-9_./+\-]+", path) or not path_allowed(path):
             raise ValueError("Proposal changes a path outside the permitted source scope")
         if Path(path).is_file():
             content = Path(path).read_text(encoding="utf-8")
@@ -71,12 +71,12 @@ def validate_staged():
                 raise ValueError("Proposal contains binary data or a privacy finding")
 
 
-def apply_patch(patch):
+def apply_patch(patch, path_allowed=allowed):
     if len(patch) > MAX_PATCH:
         raise ValueError("Proposal patch exceeds the review size limit")
     if patch:
         subprocess.run(["git", "apply", "--index", "--whitespace=error-all", "-"], input=patch, check=True)
-    validate_staged()
+    validate_staged(path_allowed)
 
 
 def agent_config():
@@ -110,6 +110,30 @@ def check_proposal_version(update, baseline):
         raise ValueError("proposal must adopt the exact upstream release selected by the monitor")
     validate_checkout()
     return True
+
+
+def run_agent(key, prompt):
+    # Only OpenCode receives the inference credential. GitHub credentials stay
+    # in the wrapper, and shell, subagent and external tools are disabled.
+    child = {k: os.environ[k] for k in ("PATH", "HOME", "USER", "CI") if k in os.environ}
+    child.update(OPENCODE_API_KEY=key, OPENCODE_CONFIG_CONTENT=json.dumps(agent_config()),
+                 OPENCODE_DISABLE_LSP="true", OPENCODE_DISABLE_DEFAULT_PLUGINS="true")
+    context = Path(".upstream-context.txt")
+    with context.open("x", encoding="utf-8") as file:
+        file.write(prompt)
+    try:
+        result = subprocess.run(
+            ["opencode", "run", "--model", MODEL, "--file", str(context), "--",
+             "Read the attached task and prepare the scoped proposal."],
+            env=child, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            timeout=900, check=False)
+        print(f"OpenCode exit status: {result.returncode}")
+        return result.returncode == 0
+    except subprocess.TimeoutExpired:
+        print("OpenCode timed out. Preserving available edits.")
+        return False
+    finally:
+        context.unlink()
 
 
 def propose():
@@ -155,25 +179,7 @@ Upstream change summary:
 Upstream diff:
 {diff.decode(errors="replace")}
 """
-    # Only OpenCode receives the inference credential. GitHub credentials stay
-    # in the wrapper, and shell, subagent and external tools are disabled.
-    child = {k: os.environ[k] for k in ("PATH", "HOME", "USER", "CI") if k in os.environ}
-    child.update(OPENCODE_API_KEY=key, OPENCODE_CONFIG_CONTENT=json.dumps(agent_config()),
-                 OPENCODE_DISABLE_LSP="true", OPENCODE_DISABLE_DEFAULT_PLUGINS="true")
-    # Keep the upstream diff off argv. OpenCode reads it as project data.
-    context = Path(".upstream-context.txt")
-    context.write_text(prompt, encoding="utf-8")
-    try:
-        result = subprocess.run(
-            ["opencode", "run", "--model", MODEL, "--file", str(context), "--",
-             "Read the attached update task and prepare the scoped proposal."],
-            env=child, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-            timeout=900, check=False)
-        print(f"OpenCode exit status: {result.returncode}")
-    except subprocess.TimeoutExpired:
-        print("OpenCode timed out. Preserving available edits.")
-    finally:
-        context.unlink(missing_ok=True)
+    run_agent(key, prompt)
     git("add", "-A")
     check_proposal_version(update, baseline)
     save_proposal(old)
