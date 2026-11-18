@@ -49,14 +49,30 @@ class Autocomplete(unittest.TestCase):
     def test_failed_proposal_checks_leave_draft_and_main_untouched(self):
         head, base = "a" * 40, "b" * 40
         pr = {"number": 1, "head": {"ref": "upstream/v99.1.2-" + head, "sha": head}}
-        with (patch.object(finish, "fetch", return_value=head),
+        with (patch.object(finish, "require_merge_rule"),
+              patch.object(finish, "git", return_value=base),
+              patch.object(finish, "fetch", return_value=head),
               patch.object(finish, "main_sha", return_value=base),
               patch.object(finish, "check", side_effect=finish.WorkflowFailed("rejected")),
+              patch.object(finish, "verification_status") as status,
               patch.object(finish, "api") as api, patch.object(finish.subprocess, "run") as run):
             with self.assertRaises(finish.WorkflowFailed):
                 finish.merge(pr, base, finish.UPSTREAM_BRANCH)
             api.assert_not_called()
             run.assert_not_called()
+            self.assertEqual([call.args[:2] for call in status.call_args_list],
+                             [(head, "pending"), (head, "failure")])
+
+    def test_unprotected_or_loosely_protected_main_blocks_auto_merge(self):
+        rule = {"type": "required_status_checks", "parameters": {
+            "strict_required_status_checks_policy": True,
+            "required_status_checks": [{"context": finish.MERGE_STATUS, "integration_id": finish.ACTIONS_APP}],
+        }}
+        with patch.object(finish, "api", return_value=[rule, {"type": "pull_request"}]):
+            finish.require_merge_rule()
+            rule["parameters"]["strict_required_status_checks_policy"] = False
+            with self.assertRaisesRegex(RuntimeError, "strict GitHub Actions"):
+                finish.require_merge_rule()
 
     def test_unreleased_main_is_checked_before_publishing(self):
         sha = "a" * 40

@@ -101,6 +101,21 @@ native connection before calling `bridge.stop()`.
 
 ## Acceptance and updates
 
+Automated merges require the strict `protunnext/verified-merge` status from
+GitHub Actions on current `main`. The repository ruleset is defined in
+`.github/main-ruleset.json`. When enabling it on a new repository, first
+land the verification workflows on its default branch, then apply the ruleset
+with repository administration access:
+
+```sh
+gh api --method POST repos/OWNER/REPO/rulesets --input .github/main-ruleset.json
+```
+
+Enable GitHub Actions to create pull requests in the repository's Actions
+settings. The ruleset requires zero approving reviews. The five-day monitor
+uses the gated merge for qualifying upstream adoptions. The 31-day workflow
+also uses it for maintenance patches.
+
 Validate the actual target OS/CPU, transport, account feature set, persistence,
 disconnect/reconnect, network changes and teardown before deployment. Preserve
 portable compiler defaults; CPU-native/PGO artifacts require separate exact-target

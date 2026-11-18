@@ -5,6 +5,7 @@ import datetime as dt
 import hashlib
 import importlib.util
 import json
+import math
 import os
 from pathlib import Path
 import platform
@@ -29,10 +30,23 @@ def load_script(filename):
 
 hosted = load_script("hosted-upstream.py")
 framing = load_script("measure-baseline.py")
+download = load_script("measure-download.py")
 MARKER = "<!-- protunnext-31-day-maintenance -->"
 STAGES = ("performance", "refactor", "cleanup")
 PERF_PATHS = {"src/framing.rs", "src/packet.rs"}
 METRICS = {"framing_payload_mbps": 1, "cpu_ns_per_payload_byte": -1, "peak_rss_bytes": -1}
+MARGINS = {"framing_payload_mbps": .05, "download_mbps": .05,
+           "cpu_ns_per_payload_byte": .05, "peak_rss_bytes": .10}
+MIN_GAIN = .05
+DOWNLOAD_RSS_FLOOR = 2 * 2**20
+RETRY_DECISIONS = {"measurement inconclusive", "operational failure"}
+WORKLOADS = (("v4", "http", 1), ("v6", "https", 8))
+RUNNERS = [
+    {"platform": "linux-x64", "runner": "ubuntu-24.04"},
+    {"platform": "linux-arm64", "runner": "ubuntu-24.04-arm"},
+    {"platform": "windows", "runner": "windows-latest"},
+    {"platform": "macos", "runner": "macos-26"},
+]
 SOURCES = {
     "Rust": "https://api.github.com/repos/rust-lang/rust/releases/latest",
     "mio": "https://api.github.com/repos/tokio-rs/mio/releases/latest",
@@ -66,6 +80,7 @@ def plan():
         return
     with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as output:
         print(f"cycle={today.isoformat()}", file=output)
+        print(f"matrix={json.dumps(RUNNERS, separators=(',', ':'))}", file=output)
 
 
 def sources():
@@ -203,6 +218,9 @@ Primary source excerpts:
                     if not privacy_findings(text):
                         result["notes"] = text
                 notes.unlink(missing_ok=True)
+                if not ok:
+                    result["status"] = "no verified agent output"
+                    continue
                 hosted.git("add", "-A")
                 try:
                     paths = changed(stage)
@@ -221,40 +239,94 @@ Primary source excerpts:
     (out / "report.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
 
 
-def compare_samples(control, pairs, require_gain):
+def compare_samples(control, pairs, directions, *, rss_floor=0):
+    if len(control) != 4 or len(pairs) != 8:
+        raise ValueError("incomplete paired measurements")
     measurements = {}
-    for metric, direction in METRICS.items():
+    for metric, direction in directions.items():
+        values = (sample[metric] for pair in control + pairs for sample in pair)
+        if not all(type(value) in (float, int) and math.isfinite(value) and value > 0 for value in values):
+            raise ValueError(f"invalid paired measurements for {metric}")
         aa = [abs(right[metric] / left[metric] - 1) for left, right in control]
-        ab = [direction * (right[metric] / left[metric] - 1) for left, right in pairs]
+        ab = sorted(direction * (right[metric] / left[metric] - 1) for left, right in pairs)
         noise = max(aa)
-        margin = max(0.03, noise)
+        margin = MARGINS[metric]
+        if metric == "peak_rss_bytes" and rss_floor:
+            control_rss = statistics.median(sample[metric] for pair in control for sample in pair)
+            margin = max(margin, rss_floor / control_rss)
+        # The middle six of eight pairs must clear the practical margin.
+        # A failed control never makes a regression more acceptable.
+        low, high = ab[1], ab[-2]
         measurements[metric] = {
             "baseline_median": statistics.median(left[metric] for left, _ in pairs),
             "candidate_median": statistics.median(right[metric] for _, right in pairs),
             "relative_improvement": statistics.median(ab),
             "control_spread": noise,
-            "guard_passed": noise <= 0.05 and min(ab) >= -margin,
-            "repeatable_gain": min(ab) >= max(0.05, 2 * noise),
+            "margin": margin, "low": low, "high": high,
+            "decision": ("measurement inconclusive" if noise > margin else
+                         "regression" if high < -margin else
+                         "measurement inconclusive" if low < -margin else "passed"),
+            "repeatable_gain": noise <= margin and low >= max(MIN_GAIN, 2 * noise),
         }
-    guarded = all(item["guard_passed"] for item in measurements.values())
-    benefit = any(measurements[metric]["repeatable_gain"] for metric in
-                  ("framing_payload_mbps", "cpu_ns_per_payload_byte"))
-    return guarded and (benefit or not require_gain), measurements
+    return measurements
 
 
-def measure_pair(baseline, candidate, require_gain):
-    framing.measure(baseline)
-    framing.measure(candidate)
+def paired_samples(measure, baseline, candidate, *, warmup=True):
+    if warmup:
+        measure(baseline)
+        measure(candidate)
     control, pairs = [], []
     for _ in range(4):
-        control.append((framing.measure(baseline), framing.measure(baseline)))
-        pairs.append((framing.measure(baseline), framing.measure(candidate)))
-        right, left = framing.measure(candidate), framing.measure(baseline)
+        control.append((measure(baseline), measure(baseline)))
+        pairs.append((measure(baseline), measure(candidate)))
+        right, left = measure(candidate), measure(baseline)
         pairs.append((left, right))
-    passed, summary = compare_samples(control, pairs, require_gain)
-    return {"passed": passed, "metrics": summary, "aa": control, "ab": pairs,
+    return control, pairs
+
+
+def measure_pair(baseline, candidate):
+    control, pairs = paired_samples(framing.measure, baseline, candidate)
+    return {"metrics": compare_samples(control, pairs, METRICS), "aa": control, "ab": pairs,
             "baseline_binary_sha256": hashlib.sha256(baseline.read_bytes()).hexdigest(),
             "candidate_binary_sha256": hashlib.sha256(candidate.read_bytes()).hexdigest()}
+
+
+def measure_tunnels(baseline, candidate):
+    results = {}
+    for protocol in download.TRANSPORTS:
+        for family, app, flows in WORKLOADS:
+            def measure(build):
+                return download.sample(build, baseline, protocol, family, app, flows, 32768 // flows)
+
+            control, pairs = paired_samples(measure, baseline, candidate, warmup=False)
+            samples = [row for pair in control + pairs for row in pair]
+            results[f"{protocol}/{family}/{app}/{flows}"] = {
+                "sample_quality_passed": all(row["seconds"] >= 2 and row["interval_skew"] <= .02
+                                             for row in samples),
+                "throughput_headroom": all(row["auxiliary_core_fraction"] < .85 for row in samples),
+                "aa": control, "ab": pairs,
+                "metrics": compare_samples(control, pairs, download.METRICS, rss_floor=DOWNLOAD_RSS_FLOOR),
+                "baseline_binary_sha256": baseline[2], "candidate_binary_sha256": candidate[2],
+            }
+    return results
+
+
+def measurement_decision(framing_result, tunnels, require_gain):
+    metrics = list(framing_result["metrics"].values())
+    metrics.extend(metric for row in tunnels.values() if row["sample_quality_passed"]
+                   for metric in row["metrics"].values())
+    if any(item["decision"] == "regression" for item in metrics):
+        return "regression"
+    if (any(item["decision"] != "passed" for item in metrics)
+            or any(not row["sample_quality_passed"] for row in tunnels.values())):
+        return "measurement inconclusive"
+    if require_gain and tunnels and not any(
+        row["metrics"]["cpu_ns_per_payload_byte"]["repeatable_gain"]
+        or (row["throughput_headroom"] and row["metrics"]["download_mbps"]["repeatable_gain"])
+        for row in tunnels.values()
+    ):
+        return "no demonstrated download gain"
+    return "passed"
 
 
 def verify_candidate(work, run_cargo):
@@ -281,37 +353,73 @@ def qualify():
     report = json.loads((drafts / "report.json").read_text(encoding="utf-8"))
     if report["commit"] != hosted.git("rev-parse", "HEAD").decode().strip():
         raise ValueError("proposal baseline does not match the validation checkout")
-    results = {"commit": report["commit"], "platform": os.environ["VALIDATION_PLATFORM"],
+    retry = os.environ.get("QUALIFICATION_RETRY") == "true"
+    validation_platform = os.environ["VALIDATION_PLATFORM"]
+    results = {"commit": report["commit"], "platform": validation_platform,
                "architecture": platform.machine(), "stages": {}}
+    selected = STAGES
+    if retry:
+        previous = read_result("maintenance-first-results", validation_platform)
+        if previous["commit"] != report["commit"]:
+            raise ValueError("retry baseline does not match the proposal")
+        selected = [stage for stage in STAGES
+                    if previous["stages"].get(stage, {}).get("decision") in RETRY_DECISIONS]
     if any((drafts / f"{stage}.patch").is_file() for stage in STAGES):
         subprocess.run(["cargo", "fetch", "--locked"], cwd=ROOT, check=True, timeout=300)
     with tempfile.TemporaryDirectory(dir=os.environ["RUNNER_TEMP"]) as folder:
         temp = Path(folder)
-        base_binary = None
-        for stage in STAGES:
+        base_binary = base_download = None
+        for stage in selected:
             if not (drafts / f"{stage}.patch").is_file():
                 continue
-            row = results["stages"][stage] = {"accepted": False}
+            row = results["stages"][stage] = {"sha256": report["stages"][stage]["sha256"]}
             with checkout(temp, stage) as work:
                 try:
                     hosted.apply_patch(read_proposal(stage, report), permitted_path)
                     paths = changed(stage)
                     runtime = any(not path.endswith(".md") for path in paths)
                     verify_candidate(work, runtime)
+                except (ValueError, subprocess.CalledProcessError):
+                    row["decision"] = "source or correctness checks failed"
+                    continue
+                except (OSError, RuntimeError, subprocess.TimeoutExpired):
+                    row["decision"] = "operational failure"
+                    continue
+                try:
                     if runtime:
                         if base_binary is None:
                             base_binary, _ = framing.build_executable(ROOT, temp / "baseline-target")
                         binary, _ = framing.build_executable(work, work / "target")
-                        row["framing"] = measure_pair(base_binary, binary, stage == "performance")
-                        if not row["framing"]["passed"]:
-                            row["decision"] = "framing gain or non-regression gate was inconclusive"
-                            continue
-                    row.update(accepted=True, decision="passed")
-                except (OSError, RuntimeError, ValueError, subprocess.SubprocessError):
-                    row["decision"] = "build, test, or measurement failed"
+                        row["framing"] = measure_pair(base_binary, binary)
+                        if validation_platform in {"linux-x64", "linux-arm64"}:
+                            if base_download is None:
+                                with checkout(temp, "download-baseline") as baseline_work:
+                                    base_download = download.build(baseline_work, temp / "baseline-target")
+                            candidate = download.build(work, work / "target")
+                            row["downloads"] = measure_tunnels(base_download, candidate)
+                        row["decision"] = measurement_decision(
+                            row["framing"], row.get("downloads", {}), stage == "performance")
+                    else:
+                        row["decision"] = "passed"
+                except (OSError, RuntimeError, ValueError, KeyError, subprocess.SubprocessError):
+                    row["decision"] = "operational failure"
     out = data_dir("maintenance-results")
     out.mkdir(exist_ok=True)
     (out / f"{results['platform']}.json").write_text(json.dumps(results, indent=2), encoding="utf-8")
+
+
+def read_result(directory, platform_name):
+    return json.loads((data_dir(directory) / f"{platform_name}.json").read_text(encoding="utf-8"))
+
+
+def retry_plan():
+    selected = []
+    for runner in RUNNERS:
+        result = read_result("maintenance-first-results", runner["platform"])
+        if any(row["decision"] in RETRY_DECISIONS for row in result["stages"].values()):
+            selected.append(runner)
+    with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as output:
+        print(f"matrix={json.dumps(selected, separators=(',', ':')) if selected else ''}", file=output)
 
 
 def record_cycle(cycle):
@@ -327,11 +435,13 @@ def record_cycle(cycle):
 
 def evidence_rows(results, stage):
     rows = []
+    downloads = []
     for result in sorted(results, key=lambda r: r["platform"]):
         stage_result = result["stages"].get(stage)
         if not stage_result:
             continue
-        row = f"| {result['platform']} / {result['architecture']} | {stage_result['decision']} |"
+        attempt = " (fresh retry)" if stage_result.get("retried") else ""
+        row = f"| {result['platform']} / {result['architecture']} | {stage_result['decision']}{attempt} |"
         for metric in METRICS:
             values = stage_result.get("framing", {}).get("metrics", {}).get(metric)
             if values:
@@ -340,31 +450,82 @@ def evidence_rows(results, stage):
             else:
                 row += " — |"
         rows.append(row)
+        for workload, measured in stage_result.get("downloads", {}).items():
+            state = ("inconclusive" if not measured["sample_quality_passed"] else
+                     "valid" if measured["throughput_headroom"] else "auxiliary limited")
+            aa, ab = measured["aa"], measured["ab"]
+            cpu = [statistics.median(pair[i]["cpu_percent_one_core"] for pair in ab) for i in (0, 1)]
+            mbps, ns, rss = [[measured["metrics"][metric][key]
+                             for key in ("baseline_median", "candidate_median")]
+                            for metric in download.METRICS]
+            downloads.append(
+                f"| {result['platform']} | {workload} | {state} | {len(aa)}/{len(ab)} | "
+                f"{mbps[0]:.2f} → {mbps[1]:.2f} | {ns[0]:.2f} → {ns[1]:.2f} | "
+                f"{cpu[0]:.2f} → {cpu[1]:.2f} | {rss[0] / 2**20:.2f} → {rss[1] / 2**20:.2f} |")
     if not rows:
         return ""
-    return "\n".join(["| Platform | Gate | Framing Mb/s | CPU ns/payload byte | Peak RSS bytes |",
-                      "|---|---|---:|---:|---:|", *rows])
+    evidence = ["| Platform | Gate | Framing Mb/s | CPU ns/payload byte | Peak RSS bytes |",
+                "|---|---|---:|---:|---:|", *rows]
+    if downloads:
+        evidence.extend(("", "| Linux runner | Workload | Samples | A/A and A/B pairs | "
+                         "Download Mb/s | CPU ns/payload byte | CPU % of one core | Peak RSS MiB |",
+                         "|---|---|---|---:|---:|---:|---:|---:|", *downloads))
+    return "\n".join(evidence)
+
+
+def merge_retries(report, results):
+    for result in results:
+        platform_name = result["platform"]
+        expected = {stage: proposal["sha256"] for stage, proposal in report["stages"].items()
+                    if "sha256" in proposal}
+        rows = result["stages"]
+        if expected != {stage: row["sha256"] for stage, row in rows.items()}:
+            raise ValueError("platform results do not match proposal identities")
+        selected = {stage for stage, row in rows.items() if row["decision"] in RETRY_DECISIONS}
+        if selected:
+            retry = read_result("maintenance-retry-results", platform_name)
+            retry_rows = retry["stages"]
+            if (retry["commit"] != result["commit"] or retry["platform"] != platform_name
+                    or retry["architecture"] != result["architecture"] or set(retry_rows) != selected
+                    or any(row["sha256"] != expected[stage] for stage, row in retry_rows.items())):
+                raise ValueError("retry results do not match the original qualification")
+            for stage, row in retry_rows.items():
+                rows[stage] = {**row, "retried": True}
+
+
+def cycle_complete(report, results):
+    completed_statuses = {"candidate", "no change", "proposal rejected by source or privacy policy"}
+    return (report["stages"].keys() == set(STAGES)
+            and all(row["status"] in completed_statuses for row in report["stages"].values())
+            and all(row["decision"] not in RETRY_DECISIONS for result in results
+                    for row in result["stages"].values()))
 
 
 def publish():
     report = json.loads((data_dir("maintenance-proposals") / "report.json").read_text(encoding="utf-8"))
     results = [json.loads(file.read_text(encoding="utf-8"))
-               for file in data_dir("maintenance-results").glob("*.json")]
+               for file in data_dir("maintenance-first-results").glob("*.json")]
     head = hosted.git("rev-parse", "HEAD").decode().strip()
     if report["commit"] != head or any(result["commit"] != head for result in results):
         raise ValueError("measurement baseline mismatch")
-    namespaces = set(os.environ["VALIDATION_PLATFORMS"].split())
+    namespaces = {runner["platform"] for runner in RUNNERS}
     if {result["platform"] for result in results} != namespaces or len(results) != len(namespaces):
         raise ValueError("missing or duplicate validation results")
+    merge_retries(report, results)
+    completed = cycle_complete(report, results)
     cycle = dt.date.fromisoformat(os.environ["MAINTENANCE_CYCLE"]).isoformat()
     preview = os.environ["PREVIEW"] == "true"
     repo = os.environ["GITHUB_REPOSITORY"]
     run_url = f"https://github.com/{repo}/actions/runs/{os.environ['GITHUB_RUN_ID']}"
     main = hosted.git("ls-remote", "--exit-code", "origin", "refs/heads/main").decode().split()[0]
+    if not preview and completed and main == head:
+        load_script("finish-automation.py").require_merge_rule()
     inventory_counts = inventory()
     summary = [f"# Maintenance cycle {cycle}", "",
                f"ProtunNext {report['version']} · Protun {report['upstream']['tag']} · `{head}`",
-               "", "Paired results cover portable framing and process resources. Sustained VPN downloads were not measured.",
+               "", "Portable framing and Linux kernel TCP downloads are measured independently. "
+               "Linux downloads run through the production WireGuard UDP, TCP and Stealth worker, "
+               "with verified synthetic payloads in disposable namespaces.",
                "", f"Merged branches for review: {inventory_counts['merged_branches_for_review']}.",
                f"Historical author addresses flagged for review: {inventory_counts['historical_addresses_for_review']}.",
                f"Historical commit messages with possible local paths: {inventory_counts['historical_messages_with_paths']}.",
@@ -375,7 +536,7 @@ def publish():
             evidence = evidence_rows(results, stage)
             summary.extend(("", f"## {stage.capitalize()}", "", proposal["status"], "", evidence))
             if "sha256" not in proposal or not all(
-                result["stages"].get(stage, {}).get("accepted") is True for result in results
+                result["stages"][stage]["decision"] == "passed" for result in results
             ):
                 continue
             with checkout(Path(folder), stage):
@@ -385,8 +546,8 @@ def publish():
                     summary.append("Deferred because an earlier qualified stage modifies the same paths.")
                     continue
                 covered.update(paths)
-                if preview or main != head:
-                    summary.append("Qualified; draft creation skipped for preview or a newer main commit.")
+                if preview or main != head or not completed:
+                    summary.append("Qualified. Draft deferred for preview, a newer main or an incomplete cycle.")
                     continue
                 branch = f"maintenance/review/{cycle}/{stage}-{head[:12]}"
                 existing = hosted.open_draft_for_branch(branch)
@@ -411,21 +572,23 @@ def publish():
                 body = (f"Maintenance proposal for ProtunNext {report['version']} with adopted upstream "
                         f"{report['upstream']['tag']}.\n\n"
                         f"{evidence}\n\n[Cycle and measurement artifacts]({run_url})\n\n"
-                        "Framing measurements do not establish VPN download speed. The completion job "
+                        "Download results describe the isolated Linux workload. The completion job "
                         "runs platform and linked-erasure checks before attempting the merge.")
                 url = subprocess.check_output(
                     ["gh", "pr", "create", "--repo", repo, "--base", "main", "--head", branch,
                      "--draft", "--title", f"Maintenance: {stage} ({cycle})", "--body", body],
                     text=True).strip()
                 summary.append(f"[Draft PR]({url})")
+    if not completed:
+        summary.extend(("", "The cycle remains due after an operational failure or inconclusive measurement."))
     with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a", encoding="utf-8") as file:
         file.write("\n".join(summary) + "\n")
-    if not preview and main == head:
+    if not preview and main == head and completed:
         record_cycle(cycle)
 
 
 def can_refresh(stage, touched, drift):
-    return stage != "performance" and not (
+    return stage == "cleanup" and all(path.endswith(".md") for path in touched) and not (
         touched & drift or CHECKOUT_DRIFT_PATHS & drift
         or any(path.startswith((".github/", "vendor/", "benches/")) for path in drift)
     )
@@ -491,4 +654,4 @@ def finish_maintenance():
 
 if __name__ == "__main__":
     {"plan": plan, "propose": propose, "qualify": qualify, "publish": publish,
-     "complete": finish_maintenance}[sys.argv[1]]()
+     "retry-plan": retry_plan, "complete": finish_maintenance}[sys.argv[1]]()
