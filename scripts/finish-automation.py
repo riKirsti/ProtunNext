@@ -12,6 +12,7 @@ from urllib.parse import quote, urlencode
 from urllib.request import Request, urlopen
 
 from compatibility import INDEX, validate_versions
+import upstream_coverage
 
 CHECKS = ("ci.yml", "security.yml")
 BOT = "github-actions[bot]"
@@ -156,6 +157,7 @@ def release_main():
     tag = upstream["tag"]
     if api(f"releases/tags/{quote(tag, safe='')}", missing=True) is not None:
         return
+    verify_release_coverage(sha, upstream)
     check("main", sha)
     if main_sha() != sha:
         raise RuntimeError("main changed after release checks")
@@ -165,6 +167,18 @@ def release_main():
     if release["tag_name"] != tag or release["draft"] or release["prerelease"]:
         raise RuntimeError("GitHub did not publish the expected stable release")
     print(f"Published {tag}.")
+
+
+def verify_release_coverage(sha, upstream):
+    adoption = git("log", "--first-parent", "--diff-merges=first-parent", "--no-patch", "-1", "--format=%H",
+                   f"-S{upstream['commit']}", sha, "--", INDEX.as_posix())
+    if not adoption or upstream_coverage.read_record(sha) != upstream_coverage.read_record(adoption):
+        raise RuntimeError("release commit does not preserve its upstream adoption record")
+    base = git("rev-parse", f"{adoption}^1")
+    previous = release_identity(base)["commit"]
+    expected = upstream_coverage.upstream_files(previous, upstream["commit"])
+    if upstream_coverage.problems(previous, upstream["commit"], expected, base, adoption):
+        raise RuntimeError("merged release commit lacks complete upstream coverage")
 
 
 def finish_upstream(update):
@@ -188,6 +202,13 @@ def finish_upstream(update):
             return
         if git("merge-base", base, head) != base:
             print("The upstream proposal is based on older main. The next proposal run will refresh it.")
+            return
+        if release_identity(base)["commit"] != update["base"]:
+            raise RuntimeError("main adopted a different upstream baseline")
+        expected = upstream_coverage.upstream_files(update["base"], update["commit"])
+        outstanding = upstream_coverage.problems(update["base"], update["commit"], expected, base, head)
+        if outstanding:
+            print("Upstream coverage is pending: " + "; ".join(dict.fromkeys(outstanding)))
             return
         merge(pr, base, UPSTREAM_BRANCH)
         release_main()
