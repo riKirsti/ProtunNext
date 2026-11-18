@@ -1,6 +1,7 @@
 import importlib.util
 from pathlib import Path
 import unittest
+from unittest.mock import patch
 
 SPEC = importlib.util.spec_from_file_location("hosted", Path(__file__).with_name("hosted-upstream.py"))
 hosted = importlib.util.module_from_spec(SPEC)
@@ -15,7 +16,7 @@ class HostedUpstream(unittest.TestCase):
         for role in ("model", "small_model"):
             self.assertEqual(config[role], "opencode/deepseek-v4.1-flash-free")
         self.assertEqual(config["permission"]["*"], "deny")
-        self.assertGreater(config["agent"][config["default_agent"]]["steps"], 0)
+        self.assertNotIn("agent", config)
 
     def test_generated_patch_excludes_workflow_and_publication_paths(self):
         for path in (".github/workflows/release.yml", "scripts/hosted-upstream.py",
@@ -23,3 +24,17 @@ class HostedUpstream(unittest.TestCase):
             self.assertFalse(hosted.allowed(path), path)
         for path in ("src/packet.rs", "tests/transport_test.rs", "Cargo.lock"):
             self.assertTrue(hosted.allowed(path), path)
+
+    def test_draft_adopts_only_the_release_selected_by_the_monitor(self):
+        baseline = {"tag": "v99.1.1", "commit": "a" * 40}
+        target = {"tag": "v99.1.2", "commit": "b" * 40}
+        with (patch.object(hosted, "adopted_release", return_value=baseline) as release,
+              patch.object(hosted, "check_versions"),
+              patch.object(hosted, "validate_checkout") as coverage):
+            self.assertFalse(hosted.check_proposal_version(target, baseline))
+            release.return_value = target
+            self.assertTrue(hosted.check_proposal_version(target, baseline))
+            coverage.assert_called_once()
+            release.return_value = {**target, "commit": "c" * 40}
+            with self.assertRaisesRegex(ValueError, "exact upstream release"):
+                hosted.check_proposal_version(target, baseline)

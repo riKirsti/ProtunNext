@@ -21,6 +21,7 @@ jobs:
           python-version: '3.13'
       - run: python scripts/check_repository.py
       - run: python -m unittest discover -s scripts -p 'test_*.py' -v
+      - run: python scripts/compatibility.py --verify-tag
   host:
     strategy:
       fail-fast: false
@@ -45,7 +46,7 @@ jobs:
       - run: cargo clippy --locked --all-targets --all-features -- -D warnings
       - name: Check no-account runtime retains its private network services
         run: cargo clippy --locked --all-targets --no-default-features --features unix -- -D warnings
-      - name: Check v3.0.5 implementation coverage separately from live acceptance
+      - name: Check adopted release implementation coverage
         run: cargo run --locked -- verify-code-parity
       - name: Assert incomplete live parity fails deployment verification
         shell: bash

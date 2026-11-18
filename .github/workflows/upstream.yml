@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
     inputs:
       dry_run:
-        description: Check now without writing issues or drafts
+        description: Check now without writing issues, merging or publishing
         type: boolean
         default: true
 permissions:
@@ -40,8 +40,8 @@ jobs:
     needs: check
     if: needs.check.outputs.update != ''
     runs-on: ubuntu-latest
-    timeout-minutes: 25
     permissions:
+      actions: read
       contents: read
       pull-requests: read
     outputs:
@@ -95,6 +95,34 @@ jobs:
           name: upstream-proposal
           path: ${{ runner.temp }}/upstream-draft/
       - run: python scripts/hosted-upstream.py publish
+        env:
+          UPDATE: ${{ needs.check.outputs.update }}
+          GH_TOKEN: ${{ github.token }}
+  complete:
+    needs: [check, propose, draft]
+    if: >-
+      always() && needs.check.result == 'success' &&
+      (needs.propose.result == 'success' || needs.propose.result == 'skipped') &&
+      (needs.draft.result == 'success' || needs.draft.result == 'skipped') &&
+      !(github.event_name == 'workflow_dispatch' && inputs.dry_run)
+    concurrency:
+      group: protunnext-automated-merge
+      cancel-in-progress: false
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    permissions:
+      actions: write
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: python scripts/finish-automation.py
         env:
           UPDATE: ${{ needs.check.outputs.update }}
           GH_TOKEN: ${{ github.token }}

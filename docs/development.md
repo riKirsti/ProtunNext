@@ -43,24 +43,37 @@ The monitor can prepare a draft on GitHub-hosted runners. Enable **Allow GitHub
 Actions to create and approve pull requests** under repository Actions settings
 and add an [OpenCode Console API key](https://opencode.ai/docs/console/api#api-keys)
 as the repository Actions secret `OPENCODE_API_KEY`. The
-workflow uses its repository token to open drafts. GitHub may require a
-maintainer to approve running the draft's CI. With the secret unset, the
-tracking issue still records the update.
+workflow uses its repository token to open drafts. With the secret unset,
+the tracking issue still records the update.
 
 The proposal job pins `opencode/deepseek-v4.1-flash-free` through OpenCode's
-built-in provider and allows only that model. If the free model is unavailable
-or time runs out, any usable edits become a draft patch. The next daily run
-can resume from that branch, even between release checks. Closing the tracking
-issue stops retries. The proposal and draft-writing jobs have separate
-credentials. Review code, dependencies, upstream coverage and CI before
-merging. The source publisher is a separate workflow.
+built-in provider. It uses OpenCode's inference limits and the GitHub-hosted
+runner's standard job limit. The agent reads the upstream diff from a temporary
+file in sections. If OpenCode returns with usable edits, those edits become a
+draft patch. The next daily run can resume from that branch, even between
+release checks. Closing the tracking issue stops proposal retries. The
+proposal job has read-only repository
+permissions. A separate completion job dispatches platform and linked-erasure
+checks on the bot PR's exact head. Once version alignment and both checks pass,
+it marks the PR ready and merges it through GitHub. Failed checks leave the
+proposal pending. The monitor dispatches checks again on the merged main
+commit before starting the source publisher. If publication fails after the
+merge, a later monitor run retries the missing release.
 
 Review the upstream-to-upstream diff and map each change against ProtunNext.
 Record implemented changes, behavior already covered, platform-specific
 differences and outstanding work in the update PR. Update the adopted tag,
 commit and compatibility contracts together after reviewing the applicable
-changes. Run the platform and erasure checks and use paired measurements for
-packet-path changes. See the [release procedure](deployment.md#acceptance-and-updates)
+changes. Set the Cargo package and lockfile to the adopted tag's version.
+CI verifies that the three version records agree and that the tag resolves to
+the recorded upstream commit. For unattended adoption, the monitor enumerates
+changed upstream files from the two Git commits. The draft records one
+disposition for each file in `tests/fixtures/upstream-adoption.json`, with a
+reason and downstream file references. Ported entries cite a file changed
+by the proposal. Version metadata cannot serve as evidence. Incomplete
+coverage keeps the proposal pending, and the monitor rechecks the record
+before automatic publication. Run platform and erasure checks and use paired
+measurements for packet-path changes. See the [release procedure](deployment.md#acceptance-and-updates)
 after merging.
 
 Retain existing module paths, generated binding contracts, feature combinations
