@@ -108,7 +108,8 @@ worker memory. The samples represent synthetic Linux traffic.
 
 Both benchmark layers collect four A/A controls and eight alternating A/B
 pairs. The fixed regression margins are 5% for throughput and CPU per byte
-and 10% for peak memory. A performance proposal must show a repeatable gain
+and 10% for peak memory, with a 2 MiB minimum margin for Linux download RSS
+to account for process-to-process variation. A performance proposal must show a repeatable gain
 of at least 5% in download throughput or CPU per byte on each Linux runner,
 with the measured gain also clearing twice the A/A spread. Every tested
 platform has to pass the non-regression checks. A throughput gain also needs

@@ -62,6 +62,20 @@ class Maintenance(unittest.TestCase):
         workload["sample_quality_passed"] = False
         self.assertEqual(decide(framing, tunnels, True), "measurement inconclusive")
 
+    def test_linux_rss_floor_clears_launch_spread_and_still_detects_growth(self):
+        mib = 2**20
+        baseline = {"peak_rss_bytes": 10 * mib}
+        launch_spread = {"peak_rss_bytes": 11.5 * mib}
+        higher_usage = {"peak_rss_bytes": 13 * mib}
+        control = [(baseline, launch_spread)] + [(baseline, baseline)] * 3
+        directions = {"peak_rss_bytes": -1}
+        stable = maintenance.compare_samples(control, [(baseline, launch_spread)] * 8, directions,
+                                             rss_floor=maintenance.DOWNLOAD_RSS_FLOOR)
+        regression = maintenance.compare_samples(control, [(baseline, higher_usage)] * 8, directions,
+                                                 rss_floor=maintenance.DOWNLOAD_RSS_FLOOR)
+        self.assertEqual(stable["peak_rss_bytes"]["decision"], "passed")
+        self.assertEqual(regression["peak_rss_bytes"]["decision"], "regression")
+
     def test_retryable_results_do_not_consume_cycle(self):
         report = {"stages": {stage: {"status": "no change"} for stage in maintenance.STAGES}}
         self.assertTrue(maintenance.cycle_complete(report, []))

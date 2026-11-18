@@ -38,6 +38,7 @@ METRICS = {"framing_payload_mbps": 1, "cpu_ns_per_payload_byte": -1, "peak_rss_b
 MARGINS = {"framing_payload_mbps": .05, "download_mbps": .05,
            "cpu_ns_per_payload_byte": .05, "peak_rss_bytes": .10}
 MIN_GAIN = .05
+DOWNLOAD_RSS_FLOOR = 2 * 2**20
 RETRY_DECISIONS = {"measurement inconclusive", "operational failure"}
 WORKLOADS = (("v4", "http", 1), ("v6", "https", 8))
 RUNNERS = [
@@ -238,7 +239,7 @@ Primary source excerpts:
     (out / "report.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
 
 
-def compare_samples(control, pairs, directions):
+def compare_samples(control, pairs, directions, *, rss_floor=0):
     if len(control) != 4 or len(pairs) != 8:
         raise ValueError("incomplete paired measurements")
     measurements = {}
@@ -250,6 +251,9 @@ def compare_samples(control, pairs, directions):
         ab = sorted(direction * (right[metric] / left[metric] - 1) for left, right in pairs)
         noise = max(aa)
         margin = MARGINS[metric]
+        if metric == "peak_rss_bytes" and rss_floor:
+            control_rss = statistics.median(sample[metric] for pair in control for sample in pair)
+            margin = max(margin, rss_floor / control_rss)
         # The middle six of eight pairs must clear the practical margin.
         # A failed control never makes a regression more acceptable.
         low, high = ab[1], ab[-2]
@@ -301,7 +305,7 @@ def measure_tunnels(baseline, candidate):
                                              for row in samples),
                 "throughput_headroom": all(row["auxiliary_core_fraction"] < .85 for row in samples),
                 "aa": control, "ab": pairs,
-                "metrics": compare_samples(control, pairs, download.METRICS),
+                "metrics": compare_samples(control, pairs, download.METRICS, rss_floor=DOWNLOAD_RSS_FLOOR),
                 "baseline_binary_sha256": baseline[2], "candidate_binary_sha256": candidate[2],
             }
     return results
