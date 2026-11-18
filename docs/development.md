@@ -66,8 +66,14 @@ differences and outstanding work in the update PR. Update the adopted tag,
 commit and compatibility contracts together after reviewing the applicable
 changes. Set the Cargo package and lockfile to the adopted tag's version.
 CI verifies that the three version records agree and that the tag resolves to
-the recorded upstream commit. Run the platform and erasure checks and use paired measurements for
-packet-path changes. See the [release procedure](deployment.md#acceptance-and-updates)
+the recorded upstream commit. For unattended adoption, the monitor enumerates
+changed upstream files from the two Git commits. The draft records one
+disposition for each file in `tests/fixtures/upstream-adoption.json`, with a
+reason and downstream file references. Ported entries cite a file changed
+by the proposal. Version metadata cannot serve as evidence. Incomplete
+coverage keeps the proposal pending, and the monitor rechecks the record
+before automatic publication. Run platform and erasure checks and use paired
+measurements for packet-path changes. See the [release procedure](deployment.md#acceptance-and-updates)
 after merging.
 
 Retain existing module paths, generated binding contracts, feature combinations
