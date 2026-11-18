@@ -44,6 +44,18 @@ class Autocomplete(unittest.TestCase):
             check.assert_not_called()
             dispatch.assert_not_called()
 
+    def test_failed_proposal_checks_leave_draft_and_main_untouched(self):
+        head, base = "a" * 40, "b" * 40
+        pr = {"number": 1, "head": {"ref": "upstream/v99.1.2-" + head, "sha": head}}
+        with (patch.object(finish, "fetch", return_value=head),
+              patch.object(finish, "main_sha", return_value=base),
+              patch.object(finish, "check", side_effect=finish.WorkflowFailed("rejected")),
+              patch.object(finish, "api") as api, patch.object(finish.subprocess, "run") as run):
+            with self.assertRaises(finish.WorkflowFailed):
+                finish.merge(pr, base, finish.UPSTREAM_BRANCH)
+            api.assert_not_called()
+            run.assert_not_called()
+
     def test_unreleased_main_is_checked_before_publishing(self):
         sha = "a" * 40
         expected = {"tag_name": "v99.1.2", "draft": False, "prerelease": False}

@@ -22,6 +22,10 @@ MAINTENANCE_BRANCH = (
 )
 
 
+class WorkflowFailed(RuntimeError):
+    """An exact-commit check completed without qualifying its candidate."""
+
+
 def api(path, body=None, method="GET", missing=False):
     url = f"https://api.github.com/repos/{os.environ['GITHUB_REPOSITORY']}/{path}"
     request = Request(url, method=method, data=None if body is None else json.dumps(body).encode(),
@@ -97,7 +101,7 @@ def wait_for_runs(runs, branch, expected_sha):
                 raise RuntimeError("dispatched run does not match the expected branch and commit")
             if run["status"] == "completed":
                 if run["conclusion"] != "success":
-                    raise RuntimeError(f"workflow run {run_id} concluded {run['conclusion']}")
+                    raise WorkflowFailed(f"workflow run {run_id} concluded {run['conclusion']}")
                 pending.remove(run_id)
         if pending:
             time.sleep(20)
@@ -117,11 +121,6 @@ def fetch(branch):
 
 def changed_paths(base, head):
     return set(git("diff", "--name-only", "--no-renames", "-z", base, head).strip("\0").split("\0")) - {""}
-
-
-def single_parent(sha):
-    parents = git("show", "-s", "--format=%P", sha).split()
-    return parents[0] if len(parents) == 1 else None
 
 
 def merge(pr, base, pattern):
