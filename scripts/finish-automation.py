@@ -15,6 +15,8 @@ from compatibility import INDEX, validate_versions
 import upstream_coverage
 
 CHECKS = ("ci.yml", "security.yml")
+MERGE_STATUS = "protunnext/verified-merge"
+ACTIONS_APP = 15368
 BOT = "github-actions[bot]"
 SHA = r"[0-9a-f]{40}"
 UPSTREAM_BRANCH = rf"upstream/v[0-9]+\.[0-9]+\.[0-9]+-{SHA}"
@@ -124,11 +126,71 @@ def changed_paths(base, head):
     return set(git("diff", "--name-only", "--no-renames", "-z", base, head).strip("\0").split("\0")) - {""}
 
 
+def require_merge_rule():
+    rules = api("rules/branches/main")
+    checks = any(
+        rule["type"] == "required_status_checks"
+        and rule["parameters"]["strict_required_status_checks_policy"] is True
+        and {"context": MERGE_STATUS, "integration_id": ACTIONS_APP}
+        in rule["parameters"]["required_status_checks"]
+        for rule in rules
+    )
+    if not checks or not any(rule["type"] == "pull_request" for rule in rules):
+        raise RuntimeError("main requires an active, strict GitHub Actions merge status and pull requests")
+
+
+def verification_status(head, state, description):
+    api(f"statuses/{head}", {"state": state, "context": MERGE_STATUS, "description": description,
+                            "target_url": f"https://github.com/{os.environ['GITHUB_REPOSITORY']}"
+                                          f"/actions/runs/{os.environ['GITHUB_RUN_ID']}"}, "POST")
+
+
+def pr_verification():
+    with open(os.environ["GITHUB_EVENT_PATH"], encoding="utf-8") as file:
+        trigger = json.load(file)["workflow_run"]
+    head, branch = trigger["head_sha"], trigger["head_branch"]
+    source = trigger["head_repository"]
+    if trigger["event"] != "pull_request" or not source or not re.fullmatch(SHA, head):
+        return
+    prs = [pr for pr in open_pulls(head=f"{source['owner']['login']}:{branch}", base="main")
+           if pr["user"]["login"] != BOT and pr["head"]["sha"] == head
+           and (pr["head"]["repo"] or {}).get("id") == source["id"]]
+    if len(prs) != 1:
+        return
+    pr = prs[0]
+    base = main_sha()
+    if api(f"compare/{base}...{head}")["merge_base_commit"]["sha"] != base:
+        return
+    query = urlencode(dict(event="pull_request", head_sha=head, per_page=30))
+    conclusions = []
+    for workflow in CHECKS:
+        runs = api(f"actions/workflows/{workflow}/runs?{query}")["workflow_runs"]
+        run = next((row for row in runs if row["head_sha"] == head
+                    and row["head_branch"] == branch
+                    and (row["head_repository"] or {}).get("id") == source["id"]
+                    and (not row["pull_requests"] or any(item["number"] == pr["number"]
+                                                         for item in row["pull_requests"]))), None)
+        if run is None or run["status"] != "completed":
+            return
+        conclusions.append(run["conclusion"])
+    if main_sha() == base and api(f"pulls/{pr['number']}")["head"]["sha"] == head:
+        success = all(value == "success" for value in conclusions)
+        verification_status(head, "success" if success else "failure",
+                            "Platform and linked erasure checks passed" if success
+                            else "Platform or linked erasure verification failed")
+
+
 def merge(pr, base, pattern):
+    require_merge_rule()
     branch, head, number = pr["head"]["ref"], pr["head"]["sha"], pr["number"]
-    if fetch(branch) != head or main_sha() != base:
+    if fetch(branch) != head or main_sha() != base or git("merge-base", base, head) != base:
         raise RuntimeError("proposal or main changed before validation")
-    check(branch, head)
+    verification_status(head, "pending", "Checking the exact proposal")
+    try:
+        check(branch, head)
+    except WorkflowFailed:
+        verification_status(head, "failure", "Platform or linked erasure verification failed")
+        raise
     current = api(f"pulls/{number}")
     if not owned(current, pattern) or current["head"]["sha"] != head or main_sha() != base:
         raise RuntimeError("proposal or main changed during validation")
@@ -137,6 +199,7 @@ def merge(pr, base, pattern):
                        check=True, timeout=60)
     if main_sha() != base:
         raise RuntimeError("main changed before merge")
+    verification_status(head, "success", "Platform and linked erasure checks passed")
     merged = api(f"pulls/{number}/merge", {"sha": head, "merge_method": "merge"}, "PUT")
     if not merged.get("merged"):
         raise RuntimeError(f"GitHub did not merge PR #{number}")
@@ -215,4 +278,7 @@ def finish_upstream(update):
 
 
 if __name__ == "__main__":
-    finish_upstream(json.loads(os.environ["UPDATE"]) if os.environ.get("UPDATE") else None)
+    if sys.argv[1:] == ["pr-verification"]:
+        pr_verification()
+    else:
+        finish_upstream(json.loads(os.environ["UPDATE"]) if os.environ.get("UPDATE") else None)

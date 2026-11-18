@@ -4,8 +4,13 @@ on:
     branches: [main]
     paths-ignore: ['**/*.md']
   pull_request:
-    paths-ignore: ['**/*.md']
+    branches: [main]
   workflow_dispatch:
+    inputs:
+      download_fixture:
+        description: Exercise the synthetic Linux download fixture
+        type: boolean
+        default: false
 permissions:
   contents: read
 concurrency:
@@ -145,6 +150,22 @@ jobs:
             target/aarch64-linux-android/release/libprotun_next.so
             target/android-bindings/
             android/build/outputs/aar/
+  linux-download-fixture:
+    if: github.event_name == 'workflow_dispatch' && inputs.download_fixture
+    strategy:
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - uses: dtolnay/rust-toolchain@stable
+      - run: python scripts/measure-download.py
   linux-tun:
     runs-on: ubuntu-latest
     steps:
