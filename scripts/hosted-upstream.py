@@ -1,19 +1,15 @@
 """Run and publish bounded upstream proposals on separate GitHub runners."""
-import contextlib
-import http.client
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
 from pathlib import Path
 import re
 import subprocess
 import sys
-import threading
 
 from check_repository import privacy_findings
 
-FREE_MODEL = "openrouter/free"
-REQUEST_LIMIT = 35
+FREE_MODEL = "deepseek-v4.1-flash-free"
+MODEL = f"opencode/{FREE_MODEL}"
 MAX_PATCH = 512 * 1024
 MAX_DIFF = 256 * 1024
 
@@ -83,88 +79,18 @@ def apply_patch(patch):
     validate_staged()
 
 
-@contextlib.contextmanager
-def free_gateway(key):
-    """Only the loopback gateway gets the provider credential."""
-    calls = 0
-    limited = False
-    lock = threading.Lock()
-
-    class Handler(BaseHTTPRequestHandler):
-        def log_message(self, *_args):
-            pass
-
-        def error(self, status, message):
-            body = json.dumps({"error": {"message": message}}).encode()
-            self.send_response(status)
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
-
-        def do_POST(self):
-            nonlocal calls, limited
-            if self.path != "/v1/chat/completions":
-                return self.error(404, "Unsupported model endpoint")
-            try:
-                length = int(self.headers.get("Content-Length", "0"))
-                if not 0 < length <= 4 * 1024 * 1024:
-                    raise ValueError("Invalid body length")
-                body = json.loads(self.rfile.read(length))
-                body["model"] = FREE_MODEL
-                for name in ("models", "route", "provider", "plugins", "transforms"):
-                    body.pop(name, None)
-            except (ValueError, TypeError):
-                return self.error(400, "Invalid model request")
-            with lock:
-                if limited or calls >= REQUEST_LIMIT:
-                    return self.error(429, "Request budget reached. Resume on the next scheduled run.")
-                calls += 1
-            upstream = http.client.HTTPSConnection("openrouter.ai", timeout=120)
-            try:
-                upstream.request("POST", "/api/v1/chat/completions", json.dumps(body),
-                                 {"Authorization": "Bearer " + key, "Content-Type": "application/json"})
-                response = upstream.getresponse()
-                if response.status == 429:
-                    with lock:
-                        limited = True
-                self.send_response(response.status)
-                self.send_header("Content-Type", response.getheader("Content-Type", "application/json"))
-                self.end_headers()
-                while chunk := response.read1(8192):
-                    self.wfile.write(chunk)
-            except (OSError, http.client.HTTPException):
-                self.close_connection = True
-            finally:
-                upstream.close()
-
-    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    try:
-        yield server.server_port
-    finally:
-        server.shutdown()
-        server.server_close()
-        thread.join()
-        print(f"Free model requests used: {calls}/{REQUEST_LIMIT}")
-
-
-def agent_config(port):
+def agent_config():
     return {
-        "enabled_providers": ["budgeted"],
-        "model": "budgeted/openrouter/free",
-        "small_model": "budgeted/openrouter/free",
+        "enabled_providers": ["opencode"],
+        "provider": {"opencode": {"whitelist": [FREE_MODEL]}},
+        "model": MODEL,
+        "small_model": MODEL,
+        "default_agent": "build",
+        "agent": {"build": {"steps": 35}},
         "share": "disabled",
         "autoupdate": False,
         "permission": {"*": "deny", "read": "allow", "glob": "allow",
                        "grep": "allow", "edit": "allow", "todowrite": "allow"},
-        "provider": {"budgeted": {
-            "npm": "@ai-sdk/openai-compatible", "name": "Free model gateway",
-            "options": {"baseURL": f"http://127.0.0.1:{port}/v1", "apiKey": "local"},
-            "models": {FREE_MODEL: {"name": "OpenRouter Free",
-                                   "limit": {"context": 65536, "output": 8192}}},
-        }},
     }
 
 
@@ -176,9 +102,9 @@ def open_draft_for_branch(branch):
 
 
 def propose():
-    key = os.environ.pop("OPENROUTER_API_KEY", "")
+    key = os.environ.pop("OPENCODE_API_KEY", "")
     if not key:
-        print("OpenRouter secret is unset. The tracking issue is available for review.")
+        print("OpenCode secret is unset. The tracking issue is available for review.")
         return
     update, branch = target()
     pr = open_draft_for_branch(branch)
@@ -215,26 +141,25 @@ Upstream change summary:
 Upstream diff:
 {diff.decode(errors="replace")}
 """
-    # Provider key and GitHub write permissions are absent from the agent process.
-    with free_gateway(key) as port:
-        child = {k: os.environ[k] for k in ("PATH", "HOME", "USER", "CI") if k in os.environ}
-        child.update(OPENCODE_CONFIG_CONTENT=json.dumps(agent_config(port)), OPENCODE_DISABLE_LSP="true",
-                     OPENCODE_DISABLE_DEFAULT_PLUGINS="true")
-        # Keep the upstream diff off argv. OpenCode reads the attachment as project data.
-        context = Path(".upstream-context.txt")
-        context.write_text(prompt, encoding="utf-8")
-        try:
-            try:
-                result = subprocess.run(
-                    ["opencode", "run", "--file", str(context), "--",
-                     "Read the attached update task and prepare the scoped proposal."],
-                    env=child, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                    timeout=900, check=False)
-                print(f"OpenCode exit status: {result.returncode}")
-            except subprocess.TimeoutExpired:
-                print("OpenCode timed out. Preserving available edits.")
-        finally:
-            context.unlink(missing_ok=True)
+    # Only OpenCode receives the inference credential. GitHub credentials stay
+    # in the wrapper, and shell, subagent and external tools are disabled.
+    child = {k: os.environ[k] for k in ("PATH", "HOME", "USER", "CI") if k in os.environ}
+    child.update(OPENCODE_API_KEY=key, OPENCODE_CONFIG_CONTENT=json.dumps(agent_config()),
+                 OPENCODE_DISABLE_LSP="true", OPENCODE_DISABLE_DEFAULT_PLUGINS="true")
+    # Keep the upstream diff off argv. OpenCode reads it as project data.
+    context = Path(".upstream-context.txt")
+    context.write_text(prompt, encoding="utf-8")
+    try:
+        result = subprocess.run(
+            ["opencode", "run", "--model", MODEL, "--file", str(context), "--",
+             "Read the attached update task and prepare the scoped proposal."],
+            env=child, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            timeout=900, check=False)
+        print(f"OpenCode exit status: {result.returncode}")
+    except subprocess.TimeoutExpired:
+        print("OpenCode timed out. Preserving available edits.")
+    finally:
+        context.unlink(missing_ok=True)
     git("add", "-A")
     save_proposal(old)
 
