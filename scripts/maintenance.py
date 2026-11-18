@@ -442,6 +442,7 @@ def finish_maintenance():
         branch = pr["head"]["ref"]
         return branch.split("/")[2], STAGES.index(re.fullmatch(pattern, branch)[1])
 
+    rejected = []
     for pr in sorted(managed, key=order):
         branch, expected, number = pr["head"]["ref"], pr["head"]["sha"], pr["number"]
         stage = re.fullmatch(pattern, branch)[1]
@@ -478,7 +479,14 @@ def finish_maintenance():
             if (not finish.owned(pr, pattern) or pr["head"]["sha"] != head or before != after
                     or finish.git("merge-base", base, head) != base):
                 raise RuntimeError("refresh changed the approved maintenance patch")
-        finish.merge(pr, base, pattern)
+        try:
+            finish.merge(pr, base, pattern)
+        except finish.WorkflowFailed as error:
+            print(f"PR #{number} remains unmerged: {error}")
+            rejected.append(number)
+    if rejected:
+        raise finish.WorkflowFailed("Maintenance proposals failed verification: " +
+                                    ", ".join(f"#{number}" for number in rejected))
 
 
 if __name__ == "__main__":
