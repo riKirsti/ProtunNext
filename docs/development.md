@@ -59,7 +59,9 @@ Review the upstream-to-upstream diff and map each change against ProtunNext.
 Record implemented changes, behavior already covered, platform-specific
 differences and outstanding work in the update PR. Update the adopted tag,
 commit and compatibility contracts together after reviewing the applicable
-changes. Run the platform and erasure checks and use paired measurements for
+changes. Set the Cargo package and lockfile to the adopted tag's version.
+CI verifies that the three version records agree and that the tag resolves to
+the recorded upstream commit. Run the platform and erasure checks and use paired measurements for
 packet-path changes. See the [release procedure](deployment.md#acceptance-and-updates)
 after merging.
 

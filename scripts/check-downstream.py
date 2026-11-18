@@ -11,7 +11,7 @@ import tempfile
 
 from compatibility import ROOT, validate_checkout
 
-validate_checkout()
+upstream = validate_checkout()
 root = ROOT
 output = root / 'target'
 output.mkdir(exist_ok=True)
@@ -36,4 +36,4 @@ for mode, options in [
         (consumer / 'src/main.rs').write_text('mod contracts;\nfn main() {}\n', encoding='utf-8')
         subprocess.run([os.environ.get('CARGO', 'cargo'), 'check', '--offline', '--manifest-path',
                         str(consumer / 'Cargo.toml')], cwd=consumer, env=env, check=True)
-        print(f'External v3.0.5/public API contracts compiled: {mode}', flush=True)
+        print(f"External {upstream['tag']}/public API contracts compiled: {mode}", flush=True)

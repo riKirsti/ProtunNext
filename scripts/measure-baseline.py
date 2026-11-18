@@ -144,9 +144,10 @@ def main():
         values = [sample[name] for sample in samples]
         summary[name] = {"mean": statistics.mean(values), "median": statistics.median(values),
                          "stdev": statistics.stdev(values), "min": min(values), "max": max(values)}
+    upstream = json.loads((ROOT / "tests/fixtures/compatibility.json").read_text(encoding="utf-8"))["upstream"]
     result = {
-        "schema_version": 1, "upstream": "Protun v3.0.5",
-        "upstream_commit": "a498c38ae6ffb0e68e7190b2831ef985d73fa6da",
+        "schema_version": 1, "upstream": f"Protun {upstream['tag']}",
+        "upstream_commit": upstream["commit"],
         "commit": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
         "tracked_changes": bool(subprocess.check_output(["git", "status", "--porcelain", "--untracked-files=no"], cwd=ROOT)),
         "system": platform.system(), "architecture": platform.machine(),

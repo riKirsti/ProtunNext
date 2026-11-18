@@ -2,8 +2,9 @@
 import copy
 import json
 import unittest
+from unittest.mock import patch
 
-from compatibility import ROOT, PIN, validate, validate_checkout
+from compatibility import ROOT, validate, validate_checkout, validate_versions, verify_tag
 
 
 class CompatibilityIndex(unittest.TestCase):
@@ -50,9 +51,30 @@ class CompatibilityIndex(unittest.TestCase):
         with self.assertRaises(ValueError):
             validate(self.index, self.ledger)
         self.setUp()
-        self.ledger[0]["source"] = self.ledger[0]["source"].replace(PIN, "master")
+        self.ledger[0]["source"] = self.ledger[0]["source"].replace(self.index["upstream"]["commit"], "master")
         with self.assertRaises(ValueError):
             validate(self.index, self.ledger)
+
+    def test_future_adoption_requires_matching_package_and_lock_versions(self):
+        upstream = {**self.index["upstream"], "tag": "v99.1.2", "commit": "b" * 40}
+        package = {"name": "protun-next", "version": "99.1.2"}
+        validate_versions(upstream, package, [package])
+        with self.assertRaisesRegex(ValueError, "must agree"):
+            validate_versions(upstream, package, [{**package, "version": "99.1.1"}])
+        with self.assertRaisesRegex(ValueError, "must agree"):
+            validate_versions({**upstream, "tag": "v99.1.1"}, package, [package])
+
+    def test_published_annotated_tag_is_checked_at_its_peeled_commit(self):
+        upstream = self.index["upstream"]
+        ref = "refs/tags/" + upstream["tag"]
+        object_id = "f" * 40
+        with patch("compatibility.subprocess.check_output", return_value=(
+            f"{object_id}\t{ref}\n{upstream['commit']}\t{ref}^{{}}\n"
+        )):
+            verify_tag(upstream)
+        with patch("compatibility.subprocess.check_output", return_value=f"{object_id}\t{ref}\n"):
+            with self.assertRaisesRegex(ValueError, "published upstream tag"):
+                verify_tag(upstream)
 
     def test_missing_check_is_rejected(self):
         self.index["groups"][0]["checks"] = ["tests/missing.rs"]
