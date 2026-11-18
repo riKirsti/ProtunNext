@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
     inputs:
       preview:
-        description: Run all stages without opening drafts or advancing the schedule
+        description: Run all stages without opening drafts, merging or advancing the schedule
         type: boolean
         default: true
 permissions: {}
@@ -133,3 +133,29 @@ jobs:
           MAINTENANCE_CYCLE: ${{ needs.plan.outputs.cycle }}
           PREVIEW: ${{ github.event_name == 'workflow_dispatch' && inputs.preview }}
         run: python scripts/maintenance.py publish
+  complete:
+    needs: [plan, report]
+    if: >-
+      always() && needs.plan.result == 'success' &&
+      (needs.report.result == 'success' || needs.report.result == 'skipped') &&
+      !(github.event_name == 'workflow_dispatch' && inputs.preview)
+    concurrency:
+      group: protunnext-automated-merge
+      cancel-in-progress: false
+    runs-on: ubuntu-latest
+    timeout-minutes: 170
+    permissions:
+      actions: write
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: python scripts/maintenance.py complete
+        env:
+          GH_TOKEN: ${{ github.token }}

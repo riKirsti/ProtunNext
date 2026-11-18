@@ -124,6 +124,10 @@ Only remove source files or edit existing user-facing Markdown. Do not rewrite
 history or expose personal information.""",
 }
 
+CHECKOUT_DRIFT_PATHS = {
+    "Cargo.toml", "Cargo.lock", "benches/packet_path.rs", "scripts/measure-baseline.py",
+}
+
 
 def permitted(stage, path, status):
     if stage == "performance":
@@ -407,8 +411,8 @@ def publish():
                 body = (f"Maintenance proposal for ProtunNext {report['version']} with adopted upstream "
                         f"{report['upstream']['tag']}.\n\n"
                         f"{evidence}\n\n[Cycle and measurement artifacts]({run_url})\n\n"
-                        "Framing measurements do not establish VPN download speed. "
-                        "Review the scope and approve the repository CI before merging.")
+                        "Framing measurements do not establish VPN download speed. The completion job "
+                        "runs platform and linked-erasure checks before attempting the merge.")
                 url = subprocess.check_output(
                     ["gh", "pr", "create", "--repo", repo, "--base", "main", "--head", branch,
                      "--draft", "--title", f"Maintenance: {stage} ({cycle})", "--body", body],
@@ -420,5 +424,63 @@ def publish():
         record_cycle(cycle)
 
 
+def can_refresh(stage, touched, drift):
+    return stage != "performance" and not (
+        touched & drift or CHECKOUT_DRIFT_PATHS & drift
+        or any(path.startswith((".github/", "vendor/", "benches/")) for path in drift)
+    )
+
+
+def finish_maintenance():
+    import time
+
+    finish = load_script("finish-automation.py")
+    pattern = finish.MAINTENANCE_BRANCH
+    managed = [pr for pr in finish.open_pulls(base="main") if finish.owned(pr, pattern)]
+
+    def order(pr):
+        branch = pr["head"]["ref"]
+        return branch.split("/")[2], STAGES.index(re.fullmatch(pattern, branch)[1])
+
+    for pr in sorted(managed, key=order):
+        branch, expected, number = pr["head"]["ref"], pr["head"]["sha"], pr["number"]
+        stage = re.fullmatch(pattern, branch)[1]
+        base = finish.fetch("main")
+        head = finish.fetch(branch)
+        if head != expected:
+            print(f"PR #{number} changed. A later run will inspect its new head.")
+            continue
+        fork = finish.git("merge-base", base, head)
+        if finish.release_identity(head) != finish.release_identity(base):
+            print(f"PR #{number} was prepared against an older adoption and will be reconsidered in a new cycle.")
+            continue
+        records = finish.git("diff", "--name-status", "--no-renames", "-z", fork, head).split("\0")
+        touched = dict(zip(records[1::2], records[:-1:2]))
+        if not touched or any(not permitted(stage, path, status) or not permitted_path(path)
+                              for path, status in touched.items()):
+            print(f"PR #{number} exceeded its original maintenance scope.")
+            continue
+        if fork != base:
+            if not can_refresh(stage, set(touched), finish.changed_paths(fork, base)):
+                print(f"PR #{number} needs fresh measurements or overlaps main. A new cycle can replace it.")
+                continue
+            before = finish.git("diff", "--raw", "--no-renames", "--no-abbrev", "-z", fork, head)
+            finish.api(f"pulls/{number}/update-branch", {"expected_head_sha": head}, "PUT")
+            for _ in range(30):
+                pr = finish.api(f"pulls/{number}")
+                if pr["head"]["sha"] != head:
+                    break
+                time.sleep(5)
+            else:
+                raise TimeoutError(f"GitHub did not refresh PR #{number}")
+            head = finish.fetch(branch)
+            after = finish.git("diff", "--raw", "--no-renames", "--no-abbrev", "-z", base, head)
+            if (not finish.owned(pr, pattern) or pr["head"]["sha"] != head or before != after
+                    or finish.git("merge-base", base, head) != base):
+                raise RuntimeError("refresh changed the approved maintenance patch")
+        finish.merge(pr, base, pattern)
+
+
 if __name__ == "__main__":
-    {"plan": plan, "propose": propose, "qualify": qualify, "publish": publish}[sys.argv[1]]()
+    {"plan": plan, "propose": propose, "qualify": qualify, "publish": publish,
+     "complete": finish_maintenance}[sys.argv[1]]()

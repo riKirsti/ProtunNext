@@ -42,6 +42,13 @@ class Maintenance(unittest.TestCase):
                                                       [(baseline, baseline)], True)[0])
         self.assertTrue(maintenance.compare_samples(control, [(baseline, baseline)] * 8, False)[0])
 
+    def test_refresh_requires_disjoint_changes_and_unchanged_benchmark(self):
+        files = {"src/engine.rs"}
+        self.assertTrue(maintenance.can_refresh("refactor", files, {"src/framing.rs"}))
+        for drift in (files, {"Cargo.lock"}, {"vendor/snapshot.rs"}, {".github/workflows/ci.yml"}):
+            self.assertFalse(maintenance.can_refresh("refactor", files, drift))
+        self.assertFalse(maintenance.can_refresh("performance", files, {"README.md"}))
+
 
 if __name__ == "__main__":
     unittest.main()
