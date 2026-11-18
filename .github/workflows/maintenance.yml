@@ -1,0 +1,160 @@
+name: 31-day maintenance
+on:
+  schedule:
+    - cron: '41 15 * * *'
+  workflow_dispatch:
+    inputs:
+      preview:
+        description: Run all stages without opening drafts, merging or advancing the schedule
+        type: boolean
+        default: true
+permissions: {}
+concurrency:
+  group: protunnext-31-day-maintenance
+  cancel-in-progress: false
+env:
+  VALIDATION_PLATFORMS: linux-x64 linux-arm64 windows macos
+jobs:
+  plan:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: read
+    outputs:
+      cycle: ${{ steps.schedule.outputs.cycle }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - id: schedule
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python scripts/maintenance.py plan
+  propose:
+    needs: plan
+    if: needs.plan.outputs.cycle != ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: npm install --global opencode-ai@1.19.6
+      - env:
+          OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
+        run: python scripts/maintenance.py propose
+      - uses: actions/upload-artifact@v4
+        with:
+          name: maintenance-proposals
+          path: ${{ runner.temp }}/maintenance-proposals/
+          if-no-files-found: error
+          retention-days: 7
+  qualify:
+    needs: propose
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux-x64
+            runner: ubuntu-24.04
+          - platform: linux-arm64
+            runner: ubuntu-24.04-arm
+          - platform: windows
+            runner: windows-latest
+          - platform: macos
+            runner: macos-26
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 55
+    permissions:
+      contents: read
+    env:
+      VALIDATION_PLATFORM: ${{ matrix.platform }}
+      MACOSX_DEPLOYMENT_TARGET: '26.0'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: actions/download-artifact@v4
+        with:
+          name: maintenance-proposals
+          path: ${{ runner.temp }}/maintenance-proposals/
+      - run: python scripts/maintenance.py qualify
+      - uses: actions/upload-artifact@v4
+        with:
+          name: maintenance-result-${{ matrix.platform }}
+          path: ${{ runner.temp }}/maintenance-results/
+          if-no-files-found: error
+          retention-days: 7
+  report:
+    needs: [plan, qualify]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - uses: actions/download-artifact@v4
+        with:
+          name: maintenance-proposals
+          path: ${{ runner.temp }}/maintenance-proposals/
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: maintenance-result-*
+          merge-multiple: true
+          path: ${{ runner.temp }}/maintenance-results/
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          MAINTENANCE_CYCLE: ${{ needs.plan.outputs.cycle }}
+          PREVIEW: ${{ github.event_name == 'workflow_dispatch' && inputs.preview }}
+        run: python scripts/maintenance.py publish
+  complete:
+    needs: [plan, report]
+    if: >-
+      always() && needs.plan.result == 'success' &&
+      (needs.report.result == 'success' || needs.report.result == 'skipped') &&
+      !(github.event_name == 'workflow_dispatch' && inputs.preview)
+    concurrency:
+      group: protunnext-automated-merge
+      cancel-in-progress: false
+    runs-on: ubuntu-latest
+    timeout-minutes: 170
+    permissions:
+      actions: write
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: python scripts/maintenance.py complete
+        env:
+          GH_TOKEN: ${{ github.token }}

@@ -93,6 +93,40 @@ def metrics(record, cpu, rss, elapsed):
             "framing_payload_mbps": total * 8 / record["seconds"] / 1e6}
 
 
+def build_executable(root, target):
+    target.mkdir(parents=True, exist_ok=True)
+    # A normal external Cargo consumer keeps native link paths and panic
+    # strategy consistent across this rlib/cdylib/staticlib package.
+    with tempfile.TemporaryDirectory(prefix="framing-consumer-", dir=target) as folder:
+        consumer = Path(folder)
+        (consumer / "src").mkdir()
+        (consumer / ".cargo").mkdir()
+        shutil.copyfile(root / ".cargo/config.toml", consumer / ".cargo/config.toml")
+        shutil.copyfile(root / "Cargo.lock", consumer / "Cargo.lock")
+        shutil.copyfile(root / "benches/packet_path.rs", consumer / "src/main.rs")
+        (consumer / "Cargo.toml").write_text(
+            '[package]\nname = "protun-next-framing-baseline"\nversion = "0.0.0"\nedition = "2024"\n'
+            '[workspace]\n[dependencies]\nprotun-next = { path = ' + json.dumps(str(root)) + ' }\n'
+            '[profile.release]\nlto = "thin"\ncodegen-units = 1\npanic = "abort"\n', encoding="utf-8")
+        cargo = os.environ.get("CARGO", "cargo")
+        # Add only the temporary workspace package to the copied lockfile;
+        # registry dependency identities must still match the root lock.
+        subprocess.run([cargo, "update", "--workspace", "--offline"], cwd=consumer, check=True)
+        def packages(path):
+            return {(p["name"], p["version"], p.get("source"), p.get("checksum"))
+                    for p in tomllib.loads(path.read_text())["package"]}
+        if packages(consumer / "Cargo.lock") - packages(root / "Cargo.lock") != {
+            ("protun-next-framing-baseline", "0.0.0", None, None)
+        }:
+            raise ValueError("baseline consumer changed the pinned dependency resolution")
+        consumer_lock_hash = hashlib.sha256((consumer / "Cargo.lock").read_bytes()).hexdigest()
+        subprocess.run([cargo, "build", "--locked", "--offline", "--release", "--target-dir",
+                        str(target / "framing-build")], cwd=consumer, check=True)
+    binary = target / "framing-build/release" / (
+        "protun-next-framing-baseline.exe" if os.name == "nt" else "protun-next-framing-baseline")
+    return binary, consumer_lock_hash
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("executable", type=Path, nargs="?")
@@ -106,36 +140,7 @@ def main():
         parser.error("supply an executable or --build, not both")
     if args.build:
         target = Path(os.environ.get("CARGO_TARGET_DIR", ROOT / "target")).resolve()
-        target.mkdir(parents=True, exist_ok=True)
-        # A normal external Cargo consumer keeps native link paths and panic
-        # strategy consistent across this rlib/cdylib/staticlib package.
-        with tempfile.TemporaryDirectory(prefix="framing-consumer-", dir=target) as folder:
-            consumer = Path(folder)
-            (consumer / "src").mkdir()
-            (consumer / ".cargo").mkdir()
-            shutil.copyfile(ROOT / ".cargo/config.toml", consumer / ".cargo/config.toml")
-            shutil.copyfile(ROOT / "Cargo.lock", consumer / "Cargo.lock")
-            shutil.copyfile(ROOT / "benches/packet_path.rs", consumer / "src/main.rs")
-            (consumer / "Cargo.toml").write_text(
-                '[package]\nname = "protun-next-framing-baseline"\nversion = "0.0.0"\nedition = "2024"\n'
-                '[workspace]\n[dependencies]\nprotun-next = { path = ' + json.dumps(str(ROOT)) + ' }\n'
-                '[profile.release]\nlto = "thin"\ncodegen-units = 1\npanic = "abort"\n', encoding="utf-8")
-            cargo = os.environ.get("CARGO", "cargo")
-            # Add only the temporary workspace package to the copied lockfile;
-            # registry dependency identities must still match the root lock.
-            subprocess.run([cargo, "update", "--workspace", "--offline"], cwd=consumer, check=True)
-            def packages(path):
-                return {(p["name"], p["version"], p.get("source"), p.get("checksum"))
-                        for p in tomllib.loads(path.read_text())["package"]}
-            if packages(consumer / "Cargo.lock") - packages(ROOT / "Cargo.lock") != {
-                ("protun-next-framing-baseline", "0.0.0", None, None)
-            }:
-                raise ValueError("baseline consumer changed the pinned dependency resolution")
-            consumer_lock_hash = hashlib.sha256((consumer / "Cargo.lock").read_bytes()).hexdigest()
-            subprocess.run([cargo, "build", "--locked", "--offline", "--release", "--target-dir",
-                            str(target / "framing-build")], cwd=consumer, check=True)
-        args.executable = target / "framing-build/release" / (
-            "protun-next-framing-baseline.exe" if os.name == "nt" else "protun-next-framing-baseline")
+        args.executable, consumer_lock_hash = build_executable(ROOT, target)
     binary = args.executable.resolve(strict=True)
     measure(binary)  # Separate-process warmup, excluded from saved samples.
     samples = [measure(binary) for _ in range(args.samples)]
