@@ -16,7 +16,7 @@ class HostedUpstream(unittest.TestCase):
         for role in ("model", "small_model"):
             self.assertEqual(config[role], "opencode/deepseek-v4.1-flash-free")
         self.assertEqual(config["permission"]["*"], "deny")
-        self.assertGreater(config["agent"][config["default_agent"]]["steps"], 0)
+        self.assertNotIn("agent", config)
 
     def test_generated_patch_excludes_workflow_and_publication_paths(self):
         for path in (".github/workflows/release.yml", "scripts/hosted-upstream.py",
