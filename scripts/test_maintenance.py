@@ -2,6 +2,8 @@
 
 import datetime as dt
 import unittest
+from copy import deepcopy
+from unittest.mock import patch
 
 import maintenance
 
@@ -47,11 +49,13 @@ class Maintenance(unittest.TestCase):
 
     def test_framing_cannot_supply_the_linux_download_benefit(self):
         framing = {"metrics": {"framing_payload_mbps": {"decision": "passed", "repeatable_gain": True}}}
-        workload = {"sample_quality_passed": True, "metrics": {
+        workload = {"sample_quality_passed": True, "throughput_headroom": False, "metrics": {
             metric: {"decision": "passed", "repeatable_gain": False} for metric in maintenance.download.METRICS
         }}
         tunnels = {"udp/v4/http/1": workload}
         decide = maintenance.measurement_decision
+        self.assertEqual(decide(framing, tunnels, True), "no demonstrated download gain")
+        workload["metrics"]["download_mbps"]["repeatable_gain"] = True
         self.assertEqual(decide(framing, tunnels, True), "no demonstrated download gain")
         workload["metrics"]["cpu_ns_per_payload_byte"]["repeatable_gain"] = True
         self.assertEqual(decide(framing, tunnels, True), "passed")
@@ -65,6 +69,44 @@ class Maintenance(unittest.TestCase):
         self.assertFalse(maintenance.cycle_complete(report, [first]))
         report["stages"]["performance"]["status"] = "no verified agent output"
         self.assertFalse(maintenance.cycle_complete(report, []))
+
+    def test_retry_reuses_the_original_patch_identity(self):
+        report = {"stages": {"cleanup": {"sha256": "patch"}}}
+        first = {"commit": "baseline", "platform": "linux-x64", "architecture": "x86_64",
+                 "stages": {"cleanup": {"sha256": "patch", "decision": "operational failure"}}}
+        retry = deepcopy(first)
+        retry["stages"]["cleanup"]["decision"] = "passed"
+        with patch.object(maintenance, "read_result", return_value=retry):
+            candidate = deepcopy(first)
+            maintenance.merge_retries(report, [candidate])
+            self.assertTrue(candidate["stages"]["cleanup"]["retried"])
+            retry["stages"]["cleanup"]["sha256"] = "different patch"
+            with self.assertRaisesRegex(ValueError, "retry results do not match"):
+                maintenance.merge_retries(report, [first])
+
+    def test_download_metrics_reject_wrong_fixed_peer_or_bypassed_tunnel(self):
+        record = {"role": "download-client", "effective_sources_sha256": "candidate",
+                  "protocol": "stealth", "family": "v4", "application": "http",
+                  "flows": 1, "blocks_per_flow": 32768, "seconds": 8, "client_cpu_seconds": 7,
+                  "client_rss_kib": 8000, "namespace": "client",
+                  "before": {"state": "TunnelEstablished"}, "after": {"state": "TunnelEstablished"},
+                  "counters": {"invalid_packets": 0, "outer_io_errors": 0, "outer_eof": 0,
+                               "decrypted_packets": 10, "tun_reads": 10},
+                  "peer": {"effective_sources_sha256": "baseline", "outer_namespace": "client",
+                           "namespace": "peer", "handshakes": 1, "tls": "Some(TLSv1_3)",
+                           "seconds": 8, "wire_cpu_seconds": 6, "server_cpu_seconds": 1},
+                  "load": {"effective_sources_sha256": "baseline", "namespace": "client",
+                           "verified": True, "bytes": 2**31, "seconds": 8, "cpu_seconds": 2}}
+        args = ("candidate", "baseline", "stealth", "v4", "http", 1, 32768)
+        metrics = maintenance.download.metrics
+        self.assertEqual(metrics(record, *args)["verified_payload_bytes"], 2**31)
+        bad = deepcopy(record)
+        bad["peer"]["effective_sources_sha256"] = "candidate"
+        with self.assertRaisesRegex(ValueError, "identity"):
+            metrics(bad, *args)
+        record["peer"]["namespace"] = "client"
+        with self.assertRaisesRegex(ValueError, "routing"):
+            metrics(record, *args)
 
     def test_refresh_is_for_disjoint_documentation_cleanup_only(self):
         files = {"README.md"}

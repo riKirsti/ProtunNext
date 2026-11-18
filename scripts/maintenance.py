@@ -267,9 +267,10 @@ def compare_samples(control, pairs, directions):
     return measurements
 
 
-def paired_samples(measure, baseline, candidate):
-    measure(baseline)
-    measure(candidate)
+def paired_samples(measure, baseline, candidate, *, warmup=True):
+    if warmup:
+        measure(baseline)
+        measure(candidate)
     control, pairs = [], []
     for _ in range(4):
         control.append((measure(baseline), measure(baseline)))
@@ -293,12 +294,13 @@ def measure_tunnels(baseline, candidate):
             def measure(build):
                 return download.sample(build, baseline, protocol, family, app, flows, 32768 // flows)
 
-            control, pairs = paired_samples(measure, baseline, candidate)
-            healthy = all(row["seconds"] >= 2 and row["interval_skew"] <= .02
-                          and row["auxiliary_core_fraction"] < .85
-                          for pair in control + pairs for row in pair)
+            control, pairs = paired_samples(measure, baseline, candidate, warmup=False)
+            samples = [row for pair in control + pairs for row in pair]
             results[f"{protocol}/{family}/{app}/{flows}"] = {
-                "sample_quality_passed": healthy, "aa": control, "ab": pairs,
+                "sample_quality_passed": all(row["seconds"] >= 2 and row["interval_skew"] <= .02
+                                             for row in samples),
+                "throughput_headroom": all(row["auxiliary_core_fraction"] < .85 for row in samples),
+                "aa": control, "ab": pairs,
                 "metrics": compare_samples(control, pairs, download.METRICS),
                 "baseline_binary_sha256": baseline[2], "candidate_binary_sha256": candidate[2],
             }
@@ -315,8 +317,9 @@ def measurement_decision(framing_result, tunnels, require_gain):
             or any(not row["sample_quality_passed"] for row in tunnels.values())):
         return "measurement inconclusive"
     if require_gain and tunnels and not any(
-        row["metrics"][metric]["repeatable_gain"]
-        for row in tunnels.values() for metric in ("download_mbps", "cpu_ns_per_payload_byte")
+        row["metrics"]["cpu_ns_per_payload_byte"]["repeatable_gain"]
+        or (row["throughput_headroom"] and row["metrics"]["download_mbps"]["repeatable_gain"])
+        for row in tunnels.values()
     ):
         return "no demonstrated download gain"
     return "passed"
@@ -433,7 +436,8 @@ def evidence_rows(results, stage):
         stage_result = result["stages"].get(stage)
         if not stage_result:
             continue
-        row = f"| {result['platform']} / {result['architecture']} | {stage_result['decision']} |"
+        attempt = " (fresh retry)" if stage_result.get("retried") else ""
+        row = f"| {result['platform']} / {result['architecture']} | {stage_result['decision']}{attempt} |"
         for metric in METRICS:
             values = stage_result.get("framing", {}).get("metrics", {}).get(metric)
             if values:
@@ -443,12 +447,13 @@ def evidence_rows(results, stage):
                 row += " — |"
         rows.append(row)
         for workload, measured in stage_result.get("downloads", {}).items():
-            state = "valid" if measured["sample_quality_passed"] else "inconclusive"
+            state = ("inconclusive" if not measured["sample_quality_passed"] else
+                     "valid" if measured["throughput_headroom"] else "auxiliary limited")
             aa, ab = measured["aa"], measured["ab"]
             cpu = [statistics.median(pair[i]["cpu_percent_one_core"] for pair in ab) for i in (0, 1)]
-            before_after = [values[key] for values in measured["metrics"].values()
-                            for key in ("baseline_median", "candidate_median")]
-            mbps, ns, rss = (before_after[i:i + 2] for i in (0, 2, 4))
+            mbps, ns, rss = [[measured["metrics"][metric][key]
+                             for key in ("baseline_median", "candidate_median")]
+                            for metric in download.METRICS]
             downloads.append(
                 f"| {result['platform']} | {workload} | {state} | {len(aa)}/{len(ab)} | "
                 f"{mbps[0]:.2f} → {mbps[1]:.2f} | {ns[0]:.2f} → {ns[1]:.2f} | "
@@ -481,7 +486,7 @@ def merge_retries(report, results):
                     or any(row["sha256"] != expected[stage] for stage, row in retry_rows.items())):
                 raise ValueError("retry results do not match the original qualification")
             for stage, row in retry_rows.items():
-                rows[stage] = {**row, "decision": row["decision"], "retried": True}
+                rows[stage] = {**row, "retried": True}
 
 
 def cycle_complete(report, results):

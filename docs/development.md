@@ -111,9 +111,11 @@ pairs. The fixed regression margins are 5% for throughput and CPU per byte
 and 10% for peak memory. A performance proposal must show a repeatable gain
 of at least 5% in download throughput or CPU per byte on each Linux runner,
 with the measured gain also clearing twice the A/A spread. Every tested
-platform has to pass the non-regression checks. Short, unstable, or
-auxiliary-limited measurements are inconclusive. An inconclusive measurement
-or operational failure gets one retry on a fresh runner with the same patch.
+platform has to pass the non-regression checks. A throughput gain also needs
+headroom in the fixed peer and load generator. That headroom does not affect
+CPU time per verified byte. Short or unstable measurements are inconclusive.
+An inconclusive measurement or operational failure gets one retry on a fresh
+runner with the same patch.
 An incomplete cycle stays due for the next scheduled attempt.
 
 The completion job runs the full platform and linked-erasure workflows against
