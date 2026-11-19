@@ -11,8 +11,8 @@ from check_repository import privacy_findings
 from compatibility import adopted_release, check_versions, validate_checkout
 import upstream_coverage
 
-FREE_MODEL = "deepseek-v4.1-flash-free"
-MODEL = f"opencode/{FREE_MODEL}"
+MODEL_ID = "deepseek-v4.1-flash"
+MODEL = f"opencode/{MODEL_ID}"
 MAX_PATCH = 512 * 1024
 
 
@@ -84,7 +84,7 @@ def apply_patch(patch, path_allowed=allowed):
 def agent_config():
     return {
         "enabled_providers": ["opencode"],
-        "provider": {"opencode": {"whitelist": [FREE_MODEL]}},
+        "provider": {"opencode": {"whitelist": [MODEL_ID]}},
         "model": MODEL,
         "small_model": MODEL,
         "default_agent": "build",
