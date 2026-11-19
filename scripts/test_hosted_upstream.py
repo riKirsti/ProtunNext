@@ -15,9 +15,9 @@ class HostedUpstream(unittest.TestCase):
     def test_agent_uses_only_the_pinned_free_console_model(self):
         config = hosted.agent_config()
         self.assertEqual(config["enabled_providers"], ["opencode"])
-        self.assertEqual(config["provider"], {"opencode": {"whitelist": ["deepseek-v4.1-flash-free"]}})
+        self.assertEqual(config["provider"], {"opencode": {"whitelist": ["deepseek-v4.1-flash"]}})
         for role in ("model", "small_model"):
-            self.assertEqual(config[role], "opencode/deepseek-v4.1-flash-free")
+            self.assertEqual(config[role], "opencode/deepseek-v4.1-flash")
         self.assertEqual(config["permission"]["*"], "deny")
         self.assertNotIn("agent", config)
 

@@ -46,8 +46,9 @@ as the repository Actions secret `OPENCODE_API_KEY`. The
 workflow uses its repository token to open drafts. With the secret unset,
 the tracking issue still records the update.
 
-The proposal job pins `opencode/deepseek-v4.1-flash-free` through OpenCode's
-built-in provider. It uses OpenCode's inference limits and the GitHub-hosted
+The proposal job pins `opencode/deepseek-v4.1-flash` through OpenCode's
+built-in provider. Inference is billed to the OpenCode Console account. It uses
+OpenCode's inference limits and the GitHub-hosted
 runner's standard job limit. The agent reads the upstream diff from a temporary
 file in sections. If OpenCode returns with usable edits, those edits become a
 draft patch. The next daily run can resume from that branch, even between
@@ -93,7 +94,7 @@ runner's standard job limit.
 
 The workflow reviews public release notes for performance ideas, then
 reviews the codebase for refactoring and obsolete files. DeepSeek V4.1 Flash
-Free can prepare one patch per stage. Each patch is independently checked
+can prepare one patch per stage. Each patch is independently checked
 against the same commit. The performance stage can propose changes only to
 the framing and packet paths covered by the portable benchmark. Other
 performance ideas are recorded in the research notes.
