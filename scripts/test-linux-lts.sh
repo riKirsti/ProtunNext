@@ -3,8 +3,14 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 version=${1:?kernel version required}
-case "$version" in 6.12.*|6.18.*) ;; *) echo 'Unsupported kernel family' >&2; exit 1;; esac
-[[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || exit 1
+# Values from https://cdn.kernel.org/pub/linux/kernel/v6.x/sha256sums.asc
+case "$version" in
+  6.12.115) source_sha=0ec90fe4b20422b1b664b77e6d2dde22b40bd41e7eb2cad8ac8739a4749cb1bb ;;
+  6.12.118) source_sha=08308460320e852ac0745b2be3c7ae1cd81bdad713506ed7d817ba1ec9e1a5a5 ;;
+  6.18.60) source_sha=3c2f44ef6acc021a7ad444d9a2e6ec1ef488ff09368793d0004a6080f69d621e ;;
+  6.18.64) source_sha=020d45510c539972e6f14c5c71566878d3b7ef56fb082b3e09134f2ebaade562 ;;
+  *) echo 'Kernel release has no reviewed source hash' >&2; exit 1 ;;
+esac
 mkdir -p target
 stage=$(mktemp -d "$PWD/target/lts.XXXXXX")
 # This directory contains only this run's kernel sources, initramfs and logs.
@@ -12,6 +18,7 @@ trap 'rm -rf -- "$stage"' EXIT
 image="$PWD/target/lts-kernels/$version/bzImage"
 if [[ ! -s "$image" ]]; then
 curl --fail --location --retry 2 "https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-$version.tar.xz" -o "$stage/linux.tar.xz"
+printf '%s  %s\n' "$source_sha" "$stage/linux.tar.xz" | sha256sum --check --status
 tar -xJf "$stage/linux.tar.xz" -C "$stage"
 kernel="$stage/linux-$version"
 make -C "$kernel" defconfig
