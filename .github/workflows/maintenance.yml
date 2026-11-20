@@ -14,7 +14,7 @@ on:
         default: false
 permissions: {}
 concurrency:
-  group: protunnext-31-day-maintenance
+  group: ${{ inputs.opencode_smoke && 'protunnext-opencode-smoke' || 'protunnext-31-day-maintenance' }}
   cancel-in-progress: false
 jobs:
   opencode-smoke:
