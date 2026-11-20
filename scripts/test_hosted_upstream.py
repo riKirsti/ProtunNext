@@ -40,7 +40,8 @@ class HostedUpstream(unittest.TestCase):
             else:
                 self.assertNotIn("OPENCODE_API_KEY", options["env"])
                 output = {"info": {"id": "fixture"}, "messages": [{
-                    "type": "assistant", "model": {"providerID": "opencode", "id": model[0]},
+                    "type": "assistant",
+                    "model": {"providerID": "opencode", "id": model[0], "variant": "default"},
                 }]}
             return subprocess.CompletedProcess(argv, 0, json.dumps(output))
 
