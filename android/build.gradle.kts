@@ -1,5 +1,5 @@
 plugins {
-    id("com.android.library") version "9.1.1"
+    id("com.android.library") version "9.5.0"
 }
 android {
     namespace = "io.github.rikirsti.protunnext.android"
