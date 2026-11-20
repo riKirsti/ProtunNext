@@ -1,5 +1,6 @@
 from contextlib import chdir
 import importlib.util
+import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import subprocess
@@ -12,14 +13,14 @@ SPEC.loader.exec_module(hosted)
 
 
 class HostedUpstream(unittest.TestCase):
-    def test_agent_uses_only_the_pinned_free_console_model(self):
-        config = hosted.agent_config()
-        self.assertEqual(config["enabled_providers"], ["opencode"])
-        self.assertEqual(config["provider"], {"opencode": {"whitelist": ["deepseek-v4.1-flash"]}})
-        for role in ("model", "small_model"):
-            self.assertEqual(config[role], "opencode/deepseek-v4.1-flash")
-        self.assertEqual(config["permission"]["*"], "deny")
-        self.assertNotIn("agent", config)
+    def test_agent_uses_only_the_pinned_console_model(self):
+        config = hosted.opencode_ci.configuration(["src/packet.rs"])
+        self.assertEqual(config["model"], "opencode/deepseek-v4.1-flash")
+        self.assertEqual(config["permissions"][0], {"action": "*", "resource": "*", "effect": "deny"})
+        self.assertIn({"action": "tool.use", "resource": "external_directory:*", "effect": "deny"},
+                      config["policies"])
+        self.assertEqual([rule["resource"] for rule in config["permissions"]
+                          if rule["action"] == "edit"], ["src/packet.rs"])
 
     def test_generated_patch_excludes_workflow_and_publication_paths(self):
         for path in (".github/workflows/release.yml", "scripts/hosted-upstream.py",
@@ -28,16 +29,28 @@ class HostedUpstream(unittest.TestCase):
         for path in ("src/packet.rs", "tests/transport_test.rs", "Cargo.lock"):
             self.assertTrue(hosted.allowed(path), path)
 
-    def test_agent_uses_open_code_defaults_and_removes_prompt_after_exit(self):
+    def test_agent_verifies_model_and_removes_configuration_after_exit(self):
         def complete(argv, **options):
-            self.assertEqual(Path(argv[argv.index("--file") + 1]).read_text(), "Synthetic task")
-            self.assertNotIn("timeout", options)
-            return subprocess.CompletedProcess(argv, 0)
+            self.assertIn("--standalone", argv)
+            self.assertNotIn("GH_TOKEN", options["env"])
+            if argv[1] == "run":
+                self.assertEqual(Path(argv[argv.index("--file") + 1]).read_text(), "Synthetic task")
+                self.assertEqual(options["env"]["OPENCODE_API_KEY"], "synthetic")
+                output = {"type": "step_finish", "sessionID": "fixture"}
+            else:
+                self.assertNotIn("OPENCODE_API_KEY", options["env"])
+                output = {"info": {"id": "fixture"}, "messages": [{
+                    "type": "assistant", "model": {"providerID": "opencode", "id": model[0]},
+                }]}
+            return subprocess.CompletedProcess(argv, 0, json.dumps(output))
 
+        model = ["deepseek-v4.1-flash"]
         with TemporaryDirectory() as folder, chdir(folder):
             with patch.object(hosted.subprocess, "run", side_effect=complete):
                 self.assertTrue(hosted.run_agent("synthetic", "Synthetic task"))
-            self.assertFalse(Path(".upstream-context.txt").exists())
+                model[0] = "wrong-model"
+                self.assertFalse(hosted.run_agent("synthetic", "Synthetic task"))
+            self.assertFalse(Path("opencode.json").exists())
 
     def test_draft_adopts_only_the_release_selected_by_the_monitor(self):
         baseline = {"tag": "v99.1.1", "commit": "a" * 40}

@@ -10,10 +10,11 @@ import tempfile
 from check_repository import privacy_findings
 from compatibility import adopted_release, check_versions, validate_checkout
 import upstream_coverage
+import opencode_ci
 
-MODEL_ID = "deepseek-v4.1-flash"
-MODEL = f"opencode/{MODEL_ID}"
 MAX_PATCH = 512 * 1024
+EDITABLE = ("src/*", "tests/*", "android/src/*", "apple/Sources/*",
+            "docs/*", "Cargo.toml", "Cargo.lock")
 
 
 def git(*args, **kwargs):
@@ -81,20 +82,6 @@ def apply_patch(patch, path_allowed=allowed):
     validate_staged(path_allowed)
 
 
-def agent_config():
-    return {
-        "enabled_providers": ["opencode"],
-        "provider": {"opencode": {"whitelist": [MODEL_ID]}},
-        "model": MODEL,
-        "small_model": MODEL,
-        "default_agent": "build",
-        "share": "disabled",
-        "autoupdate": False,
-        "permission": {"*": "deny", "read": "allow", "glob": "allow",
-                       "grep": "allow", "edit": "allow", "todowrite": "allow"},
-    }
-
-
 def open_draft_for_branch(branch):
     prs = json.loads(subprocess.check_output(
         ["gh", "pr", "list", "--repo", os.environ["GITHUB_REPOSITORY"], "--head", branch,
@@ -113,24 +100,14 @@ def check_proposal_version(update, baseline):
     return True
 
 
-def run_agent(key, prompt):
-    # Only OpenCode receives the inference credential. GitHub credentials stay
-    # in the wrapper, and shell, subagent and external tools are disabled.
-    child = {k: os.environ[k] for k in ("PATH", "HOME", "USER", "CI") if k in os.environ}
-    child.update(OPENCODE_API_KEY=key, OPENCODE_CONFIG_CONTENT=json.dumps(agent_config()),
-                 OPENCODE_DISABLE_LSP="true", OPENCODE_DISABLE_DEFAULT_PLUGINS="true")
-    context = Path(".upstream-context.txt")
-    with context.open("x", encoding="utf-8") as file:
-        file.write(prompt)
+def run_agent(key, prompt, editable=EDITABLE):
     try:
-        result = subprocess.run(
-            ["opencode", "run", "--model", MODEL, "--file", str(context), "--",
-             "Read the attached task and prepare the scoped proposal."],
-            env=child, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
-        print(f"OpenCode exit status: {result.returncode}")
-        return result.returncode == 0
-    finally:
-        context.unlink()
+        opencode_ci.run(key, prompt, Path.cwd(), editable)
+    except (ValueError, KeyError, TypeError, OSError, subprocess.CalledProcessError):
+        print("OpenCode proposal failed or its model could not be verified.")
+        return False
+    print(f"OpenCode proposal completed with verified model {opencode_ci.MODEL}.")
+    return True
 
 
 def failed_checks(branch, head):
@@ -202,11 +179,12 @@ Upstream change summary:
         with diff.open("wb") as output:
             subprocess.run(["git", "diff", "--no-ext-diff", update["base"], update["commit"]],
                            stdout=output, check=True)
-        run_agent(
+        if not run_agent(
             key,
             prompt + f"Read the complete upstream diff in {diff.relative_to(Path.cwd()).as_posix()}.\n"
             "Use the read tool in sections and account for each changed file.\n",
-        )
+        ):
+            return
     git("add", "-A")
     check_proposal_version(update, baseline)
     save_proposal(old)

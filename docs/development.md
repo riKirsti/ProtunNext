@@ -47,7 +47,12 @@ workflow uses its repository token to open drafts. With the secret unset,
 the tracking issue still records the update.
 
 The proposal job pins `opencode/deepseek-v4.1-flash` through OpenCode's
-built-in provider. Inference is billed to the OpenCode Console account. It uses
+built-in provider. Both scheduled workflows install the same
+[locked OpenCode v2 CLI](../.github/opencode/package-lock.json) and use the
+[standalone CI mode](https://opencode.ai/docs/cli/commands/#ci).
+The job verifies the model from a private session export before accepting edits.
+For an isolated fixture, dispatch **31-day maintenance** with **preview** and
+**opencode_smoke** enabled. Inference is billed to the OpenCode Console account. It uses
 OpenCode's inference limits and the GitHub-hosted
 runner's standard job limit. The agent reads the upstream diff from a temporary
 file in sections. If OpenCode returns with usable edits, those edits become a
