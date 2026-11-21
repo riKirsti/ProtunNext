@@ -19,6 +19,11 @@ class RepositoryPrivacy(unittest.TestCase):
     def test_synthetic_contact_and_portable_paths_are_allowed(self):
         self.assertFalse(privacy_findings("test@example.com /path/to/config $HOME/cache"))
 
+    def test_key_blocks_and_access_token_formats_are_rejected(self):
+        self.assertIn("private key block", privacy_findings("-----BEGIN " + "OPENSSH PRIVATE KEY-----"))
+        self.assertIn("GitHub access token format", privacy_findings("ghp_" + "x" * 36))
+        self.assertFalse(privacy_findings("-----BEGIN CERTIFICATE-----"))
+
     def test_links_distinguish_local_files_and_external_urls(self):
         with tempfile.TemporaryDirectory() as folder:
             root = Path(folder).resolve()

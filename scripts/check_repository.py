@@ -11,6 +11,8 @@ from urllib.parse import unquote, urlsplit
 ROOT = Path(__file__).resolve().parent.parent
 EMAIL = re.compile(r"\b[A-Z0-9._%+-]+@([A-Z0-9.-]+\.[A-Z]{2,})\b", re.I)
 HOME = re.compile(r"\b[A-Z]:[\\/](?:Users|Documents and Settings)[\\/][^\s\"<>]+|/(?:Users|home)/[^/\s\"<>]+", re.I)
+PRIVATE_KEY = re.compile(r"-----BEGIN (?:[A-Z0-9]+ )*PRIVATE KEY-----")
+ACCESS_TOKEN = re.compile(r"\b(?:gh[pousr]_[A-Za-z0-9]{36,}|github_pat_[A-Za-z0-9_]{40,})\b")
 PUBLIC_DOMAINS = {"example.com", "example.net", "example.org", "localhost"}
 ARTIFACT_SUFFIXES = {".profraw", ".profdata", ".pcap", ".pcapng", ".p12", ".pfx", ".key", ".pem", ".zip"}
 
@@ -19,6 +21,10 @@ def privacy_findings(text):
     findings = []
     if HOME.search(text):
         findings.append("literal local home/profile path")
+    if PRIVATE_KEY.search(text):
+        findings.append("private key block")
+    if ACCESS_TOKEN.search(text):
+        findings.append("GitHub access token format")
     if any(m[1].lower() not in PUBLIC_DOMAINS for m in EMAIL.finditer(text)):
         findings.append("non-example email address")
     return findings
