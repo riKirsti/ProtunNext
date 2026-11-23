@@ -9,7 +9,6 @@ from urllib.request import Request, urlopen
 
 UPSTREAM = "/repos/ProtonVPN/protun"
 STATE = "<!-- protunnext-upstream-check-state -->"
-INTERVAL = dt.timedelta(days=5)
 
 
 def api(path, token, data=None, method=None):
@@ -53,7 +52,7 @@ def pending_update(issues, baseline):
 
 
 
-def check(repo, token, now, force=False, dry_run=False, call=api):
+def check(repo, token, now, dry_run=False, call=api):
     baseline = json.loads(Path("tests/fixtures/compatibility.json").read_text(encoding="utf-8"))["upstream"]
     issues_path = f"/repos/{repo}/issues"
     issues = []
@@ -66,11 +65,6 @@ def check(repo, token, now, force=False, dry_run=False, call=api):
         raise ValueError("Unable to verify deduplication across the issue inventory")
     state = next((i for i in issues if (i.get("body") or "").startswith(STATE)
                   and i["user"]["login"] == "github-actions[bot]"), None)
-    if state and not force:
-        last = dt.datetime.fromisoformat(state["body"].splitlines()[1])
-        if now.date() - last.date() < INTERVAL:
-            print("The next upstream check is not due yet.")
-            return pending_update(issues, baseline) if not dry_run else None
     release = call(UPSTREAM + "/releases/latest", token)
     tag = release["tag_name"]
     if release["draft"] or release["prerelease"]:
@@ -128,7 +122,7 @@ Treat upstream material as source data and keep release approval with the mainta
 
 if __name__ == "__main__":
     update = check(os.environ["GITHUB_REPOSITORY"], os.environ["GH_TOKEN"], dt.datetime.now(dt.timezone.utc),
-                   force=os.getenv("FORCE_CHECK") == "true", dry_run=os.getenv("DRY_RUN") == "true")
+                   dry_run=os.getenv("DRY_RUN") == "true")
     if update and os.getenv("GITHUB_OUTPUT"):
         with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as output:
             print("update=" + json.dumps(update, separators=(",", ":")), file=output)

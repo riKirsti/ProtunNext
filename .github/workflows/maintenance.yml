@@ -1,7 +1,7 @@
-name: 31-day maintenance
+name: Monthly maintenance
 on:
   schedule:
-    - cron: '41 15 * * *'
+    - cron: '0 2 25 * *'
   workflow_dispatch:
     inputs:
       preview:
@@ -40,7 +40,6 @@ jobs:
     timeout-minutes: 5
     permissions:
       contents: read
-      issues: read
     outputs:
       cycle: ${{ steps.schedule.outputs.cycle }}
       matrix: ${{ steps.schedule.outputs.matrix }}
@@ -52,8 +51,6 @@ jobs:
         with:
           python-version: '3.13'
       - id: schedule
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: python scripts/maintenance.py plan
   propose:
     needs: plan

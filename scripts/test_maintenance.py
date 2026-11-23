@@ -9,12 +9,13 @@ import maintenance
 
 
 class Maintenance(unittest.TestCase):
-    def test_interval_across_february_and_retry_day(self):
-        last = dt.date(2027, 2, 1)
-        self.assertTrue(maintenance.due(None, last))
-        self.assertFalse(maintenance.due(last, dt.date(2027, 3, 3)))
-        self.assertTrue(maintenance.due(last, dt.date(2027, 3, 4)))
-        self.assertTrue(maintenance.due(last, dt.date(2027, 3, 5)))
+    def test_calendar_cycle_across_february_and_year_boundary(self):
+        for month in (2, 3):
+            day = dt.date(2027, month, 25)
+            self.assertEqual(maintenance.cycle_date(day, True), day)
+        delayed = dt.date(2027, 1, 1)
+        self.assertEqual(maintenance.cycle_date(delayed, True), dt.date(2026, 12, 25))
+        self.assertEqual(maintenance.cycle_date(delayed, False), delayed)
 
     def test_stages_leave_version_and_workflow_ownership_with_upstream_monitor(self):
         for stage in maintenance.STAGES:

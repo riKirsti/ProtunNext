@@ -67,19 +67,18 @@ def state_issue():
                  and (issue.get("body") or "").startswith(MARKER + "\n")), None)
 
 
-def due(last, today):
-    return last is None or today - last >= dt.timedelta(days=31)
+def cycle_date(today, scheduled):
+    if not scheduled:
+        return today
+    month = today if today.day >= 25 else today.replace(day=1) - dt.timedelta(days=1)
+    return month.replace(day=25)
 
 
 def plan():
-    state = state_issue()
-    last = dt.date.fromisoformat(state["body"].splitlines()[1]) if state else None
     today = dt.datetime.now(dt.timezone.utc).date()
-    if os.environ["GITHUB_EVENT_NAME"] == "schedule" and not due(last, today):
-        print("The next 31-day maintenance cycle is not due.")
-        return
+    cycle = cycle_date(today, os.environ["GITHUB_EVENT_NAME"] == "schedule")
     with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as output:
-        print(f"cycle={today.isoformat()}", file=output)
+        print(f"cycle={cycle.isoformat()}", file=output)
         print(f"matrix={json.dumps(RUNNERS, separators=(',', ':'))}", file=output)
 
 
