@@ -87,12 +87,12 @@ and host ownership rules. Review any contract fixture change explicitly. One
 refactor stage belongs in each PR, with scope and acceptance checks reviewed
 before starting the next stage.
 
-## Scheduled maintenance
+## Maintenance
 
-The **31-day maintenance** workflow runs on GitHub-hosted runners. A daily
-UTC trigger checks the date of the last completed cycle. Manual dispatch
-defaults to preview, which runs the stages without opening draft PRs or
-changing the cycle date. It uses the package version from `Cargo.toml`, the
+The **31-day maintenance** workflow runs on GitHub-hosted runners when dispatched.
+Manual dispatch defaults to preview, which runs the stages without opening
+draft PRs or changing the cycle date. An automatic 31-day interval requires an
+external scheduler to dispatch the workflow. It uses the package version from `Cargo.toml`, the
 upstream pin from the compatibility index and the existing `OPENCODE_API_KEY`.
 Proposal generation uses OpenCode's inference limits and the GitHub-hosted
 runner's standard job limit.

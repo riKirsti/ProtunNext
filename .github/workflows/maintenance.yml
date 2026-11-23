@@ -1,7 +1,5 @@
 name: 31-day maintenance
 on:
-  schedule:
-    - cron: '41 15 * * *'
   workflow_dispatch:
     inputs:
       preview:
