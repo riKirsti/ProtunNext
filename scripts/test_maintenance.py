@@ -1,8 +1,10 @@
 """Validate the scheduling, patch boundaries and paired measurement decision."""
 
 import datetime as dt
+import os
 import unittest
 from copy import deepcopy
+from pathlib import Path
 from unittest.mock import patch
 
 import maintenance
@@ -16,6 +18,12 @@ class Maintenance(unittest.TestCase):
         delayed = dt.date(2027, 1, 1)
         self.assertEqual(maintenance.cycle_date(delayed, True), dt.date(2026, 12, 25))
         self.assertEqual(maintenance.cycle_date(delayed, False), delayed)
+        workflows = maintenance.ROOT / ".github" / "workflows"
+        for filename, cron in (("maintenance.yml", "'0 2 25 * *'"),
+                               ("upstream.yml", "'0 1 * * 0'")):
+            lines = workflows.joinpath(filename).read_text(encoding="utf-8").splitlines()
+            self.assertEqual([line.strip() for line in lines if "- cron:" in line],
+                             [f"- cron: {cron}"])
 
     def test_stages_leave_version_and_workflow_ownership_with_upstream_monitor(self):
         for stage in maintenance.STAGES:
@@ -123,13 +131,72 @@ class Maintenance(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "routing"):
             metrics(record, *args)
 
-    def test_refresh_is_for_disjoint_documentation_cleanup_only(self):
-        files = {"README.md"}
-        self.assertTrue(maintenance.can_refresh("cleanup", files, {"src/framing.rs"}))
-        for drift in (files, {"Cargo.lock"}, {"vendor/snapshot.rs"}, {".github/workflows/ci.yml"}):
-            self.assertFalse(maintenance.can_refresh("cleanup", files, drift))
-        self.assertFalse(maintenance.can_refresh("performance", files, {"README.md"}))
-        self.assertFalse(maintenance.can_refresh("refactor", {"src/engine.rs"}, {"README.md"}))
+    def test_qualified_stage_does_not_depend_on_other_stages(self):
+        results = [
+            {"platform": runner["platform"], "stages": {
+                "performance": {"decision": "measurement inconclusive"},
+                "refactor": {"decision": "passed"},
+            }} for runner in maintenance.RUNNERS
+        ]
+        proposal = {"sha256": "fixture"}
+        self.assertTrue(maintenance.stage_qualified("refactor", proposal, results))
+        self.assertFalse(maintenance.stage_qualified("performance", proposal, results))
+        self.assertFalse(maintenance.stage_qualified("refactor", proposal, results[:-1]))
+
+    def test_screen_distinguishes_gain_noise_and_wrong_workload(self):
+        baseline = {metric: 100 for metric in maintenance.METRICS}
+        steady = [(baseline, baseline)] * 4
+        faster = {**baseline, "framing_payload_mbps": 110}
+        normal = maintenance.compare_samples(steady, [(baseline, faster)] * 8, maintenance.METRICS)
+        noisy = maintenance.compare_samples([(baseline, faster)] * 4,
+                                            [(baseline, faster)] * 8, maintenance.METRICS)
+        decide = maintenance.screen_decision
+        self.assertEqual(decide("framing", {"metrics": normal}, "framing_payload_mbps"), "passed")
+        self.assertEqual(decide("framing", {"metrics": normal}, "cpu_ns_per_payload_byte"),
+                         "no demonstrated framing gain")
+        self.assertEqual(decide("framing", {"metrics": noisy}, "framing_payload_mbps"),
+                         "measurement inconclusive")
+        self.assertTrue(maintenance.needs_measurement({"metrics": noisy}))
+        self.assertFalse(maintenance.needs_measurement({"metrics": normal}))
+        notes = "Workload: framing\nMetric: framing_payload_mbps\nHypothesis: Remove a division."
+        self.assertEqual(maintenance.performance_hypothesis(notes, {"src/framing.rs"})["workload"],
+                         "framing")
+        with self.assertRaisesRegex(maintenance.CheckFailed, "does not match"):
+            maintenance.performance_hypothesis(notes, {"src/stream.rs"})
+
+    def test_preflight_formats_once_and_rejects_new_paths(self):
+        with (patch.object(maintenance.hosted, "apply_patch"),
+              patch.object(maintenance, "changed", return_value={"src/framing.rs"}),
+              patch.object(maintenance.hosted, "git", return_value=b"formatted"),
+              patch.object(maintenance, "run_check") as check):
+            self.assertEqual(maintenance.preflight_patch("refactor", b"raw", Path("."), {}),
+                             b"formatted")
+            self.assertEqual([call.args[0] for call in check.call_args_list],
+                             ["formatting", "privacy and links", "vendor", "compatibility"])
+        with (patch.object(maintenance.hosted, "apply_patch"),
+              patch.object(maintenance, "changed", side_effect=[
+                  {"src/framing.rs"}, {"src/framing.rs", "src/packet.rs"}]),
+              patch.object(maintenance.hosted, "git"), patch.object(maintenance, "run_check")):
+            with self.assertRaisesRegex(maintenance.CheckFailed, "outside the original patch"):
+                maintenance.preflight_patch("refactor", b"raw", Path("."), {})
+
+    def test_verified_maintenance_proposal_stays_a_draft(self):
+        from unittest.mock import Mock
+        head = "a" * 40
+        branch = "maintenance/review/2026-11-25/refactor-bbbbbbbbbbbb"
+        pr = {"draft": True, "head": {"sha": head, "ref": branch}}
+        finish = Mock()
+        finish.main_sha.return_value = "base"
+        finish.api.return_value = pr
+        finish.fetch.return_value = head
+        finish.git.return_value = "base"
+        with (patch.object(maintenance, "load_script", return_value=finish),
+              patch.dict(os.environ, {"MAINTENANCE_DRAFTS": '{"42":"' + head + '"}'})):
+            maintenance.verify_drafts()
+        finish.check.assert_called_once_with(branch, head)
+        self.assertEqual(finish.verification_status.call_args.args[:2], (head, "success"))
+        self.assertTrue(pr["draft"])
+        finish.merge.assert_not_called()
 
 
 if __name__ == "__main__":

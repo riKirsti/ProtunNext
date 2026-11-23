@@ -34,9 +34,9 @@ not change its identity.
 
 ## Upstream release updates
 
-The **Upstream release monitor** runs daily and checks ProtonVPN five days
-after the last successful check. A closed workflow-owned issue records that
-date. Manual dispatch checks immediately and defaults to a dry run. Each new
+The **Upstream release monitor** checks ProtonVPN every Sunday at 01:00 UTC.
+A closed workflow-owned issue records the last check. Manual dispatch checks
+immediately and defaults to a dry run. Each new
 stable upstream commit gets one tracking issue, even when the check is retried.
 
 The monitor can prepare a draft on GitHub-hosted runners. Enable **Allow GitHub
@@ -51,13 +51,13 @@ built-in provider. Both scheduled workflows install the same
 [locked OpenCode v2 CLI](../.github/opencode/package-lock.json) and use the
 [standalone CI mode](https://opencode.ai/docs/cli/commands/#ci).
 The job verifies the model from a private session export before accepting edits.
-For an isolated fixture, dispatch **31-day maintenance** with **preview** and
+For an isolated fixture, dispatch **Monthly maintenance** with **preview** and
 **opencode_smoke** enabled. Inference is billed to the OpenCode Console account. It uses
 OpenCode's inference limits and the GitHub-hosted
 runner's standard job limit. The agent reads the upstream diff from a temporary
 file in sections. If OpenCode returns with usable edits, those edits become a
-draft patch. The next daily run can resume from that branch, even between
-release checks. Closing the tracking issue stops proposal retries. The
+draft patch. The next Sunday run can resume from that branch. Closing the
+tracking issue stops proposal retries. The
 proposal job has read-only repository
 permissions. A separate completion job dispatches platform and linked-erasure
 checks on the bot PR's exact head. Once version alignment and both checks pass,
@@ -89,8 +89,8 @@ before starting the next stage.
 
 ## Scheduled maintenance
 
-The **31-day maintenance** workflow runs on GitHub-hosted runners. A daily
-UTC trigger checks the date of the last completed cycle. Manual dispatch
+The **Monthly maintenance** workflow runs on the 25th of each month at 02:00 UTC
+on GitHub-hosted runners. Manual dispatch
 defaults to preview, which runs the stages without opening draft PRs or
 changing the cycle date. It uses the package version from `Cargo.toml`, the
 upstream pin from the compatibility index and the existing `OPENCODE_API_KEY`.
@@ -99,10 +99,12 @@ runner's standard job limit.
 
 The workflow reviews public release notes for performance ideas, then
 reviews the codebase for refactoring and obsolete files. DeepSeek V4.1 Flash
-can prepare one patch per stage. Each patch is independently checked
-against the same commit. The performance stage can propose changes only to
-the framing and packet paths covered by the portable benchmark. Other
-performance ideas are recorded in the research notes.
+can prepare one patch per stage using the base commit's `AGENTS.md`.
+The runner checks scope, formats Rust once, and checks privacy, vendor hashes,
+and compatibility before qualification. A framing performance patch screens
+on portable framing. A packet or stream patch screens on one corresponding
+UDP or TCP workload. The screen must demonstrate a repeatable gain on the
+proposed metric before the runner starts full qualification.
 
 Candidate validation checks portable framing on Linux x64 and ARM64, Windows
 and macOS. Linux additionally compares verified 2 GiB kernel TCP downloads
@@ -121,15 +123,17 @@ with the measured gain also clearing twice the A/A spread. Every tested
 platform has to pass the non-regression checks. A throughput gain also needs
 headroom in the fixed peer and load generator. That headroom does not affect
 CPU time per verified byte. Short or unstable measurements are inconclusive.
-An inconclusive measurement or operational failure gets one retry on a fresh
-runner with the same patch.
-An incomplete cycle stays due for the next scheduled attempt.
+An inconclusive platform measurement gets one retry on a fresh runner with
+the same patch, reusing measurements whose controls passed. An interrupted
+qualification can retry once. An inconclusive initial screen ends that
+candidate. Other stages can still qualify. The next scheduled run is on the
+25th, regardless of the previous outcome.
 
-The completion job runs the full platform and linked-erasure workflows against
-the proposal commit and publishes the required verification status. GitHub
-also requires each eligible PR to include current `main`. If `main` moves
-after runtime measurements, the proposal needs fresh evidence. A disjoint
-documentation-only cleanup may refresh and run verification again.
+In the pilot, the workflow opens draft PRs for independently qualified
+proposals and runs the full platform and linked-erasure workflows against
+each exact head. The draft stays open for maintainer review. If `main` moves
+after runtime measurements, the proposal needs fresh evidence. The decision
+artifact lists each stage's checks, measured result and qualification outcome.
 Maintenance preserves the package version. The upstream monitor publishes
 when a new upstream version has been adopted.
 

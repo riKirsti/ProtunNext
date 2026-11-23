@@ -12,7 +12,16 @@
   credentials belong only in clearly marked synthetic fixtures.
 - Run formatting, relevant tests, Clippy and repository checks. Preserve linked
   erasure verification and its isolated insecure negative control.
-- Use the scheduled maintenance workflow for recurring performance research.
-  Keep generated measurements and stage reports in Actions artifacts.
+- For a Rust edit, use `cargo fmt --package protun-next --check`,
+  `cargo test --locked --all-targets --all-features`, and
+  `cargo clippy --locked --all-targets --all-features -- -D warnings`.
+- For public or platform APIs, also run `python scripts/check-downstream.py`
+  and `cargo run --locked -- verify-code-parity`. Keep the platform and
+  linked-erasure workflows as the merge gate.
+- For docs and cleanup, run `python scripts/check_repository.py` and confirm
+  that removed files have no build, packaging or test consumers.
+- For performance, name the workload, metric and hypothesis first. Keep raw
+  paired measurements and runner decisions in Actions artifacts. Hosted agents
+  propose changes. The runner executes and reports checks independently.
 - Ordinary builds/tests must not change real device settings, install a VPN or
   publish a release. Deployment requires explicit host integration.
