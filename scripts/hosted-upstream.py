@@ -13,8 +13,6 @@ import upstream_coverage
 import opencode_ci
 
 MAX_PATCH = 512 * 1024
-EDITABLE = ("src/*", "tests/*", "android/src/*", "apple/Sources/*",
-            "docs/*", "Cargo.toml", "Cargo.lock")
 
 
 def git(*args, **kwargs):
@@ -100,9 +98,9 @@ def check_proposal_version(update, baseline):
     return True
 
 
-def run_agent(key, prompt, editable=EDITABLE):
+def run_agent(key, prompt):
     try:
-        opencode_ci.run(key, prompt, Path.cwd(), editable)
+        opencode_ci.run(key, prompt, Path.cwd())
     except (ValueError, KeyError, TypeError, OSError, subprocess.CalledProcessError):
         print("OpenCode proposal failed or its model could not be verified.")
         return False

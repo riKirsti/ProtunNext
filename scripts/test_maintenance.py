@@ -204,7 +204,7 @@ class Maintenance(unittest.TestCase):
             self.assertEqual(maintenance.preflight_patch("refactor", b"raw", Path("."), {}),
                              b"formatted")
             self.assertEqual([call.args[0] for call in check.call_args_list],
-                             ["formatting", "privacy and links", "vendor", "compatibility"])
+                             ["formatting", "privacy and links", "vendor", "compatibility", "build"])
         with (patch.object(maintenance.hosted, "apply_patch"),
               patch.object(maintenance, "changed", side_effect=[
                   {"src/framing.rs"}, {"src/framing.rs", "src/packet.rs"}]),

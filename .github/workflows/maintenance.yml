@@ -9,7 +9,7 @@ on:
         type: boolean
         default: true
       opencode_smoke:
-        description: Verify the locked CLI and model on an isolated text fixture only
+        description: Verify the locked model and hosted tools on an isolated fixture
         type: boolean
         default: false
 permissions: {}

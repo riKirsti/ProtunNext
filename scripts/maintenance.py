@@ -197,11 +197,6 @@ def propose():
                 continue
             with checkout(Path(folder), stage):
                 notes = Path(".maintenance-notes.md")
-                editable = {
-                    "performance": sorted(PERF_PATHS),
-                    "refactor": ("src/*", "android/src/*", "apple/Sources/*"),
-                    "cleanup": ("src/*", "docs/*", "README.md"),
-                }
                 ok = hosted.run_agent(key, f"""Review ProtunNext {version} at {report['commit']}.
 {PROMPTS[stage]}
 Write short findings to .maintenance-notes.md, including the scope, sources and
@@ -214,7 +209,7 @@ Trusted base AGENTS.md:
 
 Primary source excerpts:
 {research if stage == 'performance' else 'Use the repository checkout.'}
-""", (*editable[stage], ".maintenance-notes.md"))
+""")
                 if notes.is_file() and not notes.is_symlink() and notes.stat().st_size <= 12000:
                     text = notes.read_text(encoding="utf-8", errors="replace")
                     if not privacy_findings(text):
@@ -446,7 +441,8 @@ def preflight_patch(stage, patch, work, checks):
     hosted.apply_patch(patch, permitted_path)
     original = changed(stage)
     checks["scope"] = "passed"
-    if any(path.endswith(".rs") for path in original):
+    rust_changed = any(path.endswith(".rs") for path in original)
+    if rust_changed:
         run_check("formatting", ["cargo", "fmt", "--package", "protun-next"], checks, 120)
         hosted.git("add", "-A")
         if not changed(stage) <= original:
@@ -456,7 +452,11 @@ def preflight_patch(stage, patch, work, checks):
     for name, script in (("privacy and links", "check_repository.py"),
                          ("vendor", "verify-vendor.py"), ("compatibility", "compatibility.py")):
         run_check(name, [sys.executable, str(work / "scripts" / script)], checks, 120)
-    return hosted.git("diff", "--cached", "--binary")
+    normalized = hosted.git("diff", "--cached", "--binary")
+    if rust_changed and normalized:
+        run_check("build", ["cargo", "check", "--locked", "--all-targets", "--all-features",
+                            "--target-dir", str(work.parent / "preflight-target")], checks, 600)
+    return normalized
 
 
 def preflight():
