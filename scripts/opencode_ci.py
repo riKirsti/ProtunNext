@@ -80,6 +80,8 @@ def run(key, prompt, work):
                      if name in os.environ}
             child.update({f"XDG_{name}_HOME": str(Path(folder) / name.lower())
                           for name in ("CONFIG", "DATA", "CACHE", "STATE")})
+            child["OPENCODE_DISABLE_CLAUDE_CODE"] = "true"
+            child["OPENCODE_DISABLE_FREE_MODELS"] = "true"
             invocation = {"cwd": work, "stdout": subprocess.PIPE, "stderr": subprocess.DEVNULL,
                           "encoding": "utf-8", "check": False}
             execution = subprocess.run(
