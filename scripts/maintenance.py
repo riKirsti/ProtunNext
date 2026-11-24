@@ -108,24 +108,18 @@ def inventory():
     prs = gh_json("pr", "list", "--repo", repo, "--state", "open", "--limit", "1000",
                   "--json", "headRefName,isCrossRepository")
     active = {pr["headRefName"] for pr in prs if not pr["isCrossRepository"]}
-    merged = [name for name in branches if name not in {"origin/main", "origin/HEAD"}
-              and name.removeprefix("origin/") not in active]
-    emails = hosted.git("log", "HEAD", "--format=%ae").decode().splitlines()
-    history = {email for email in emails if not email.endswith("@users.noreply.github.com")
-               and privacy_findings(email)}
-    messages = hosted.git("log", "-z", "--format=%B", "HEAD").decode(errors="replace").split("\0")
-    paths = sum("literal local home/profile path" in privacy_findings(message) for message in messages)
-    return {"merged_branches_for_review": len(merged), "historical_addresses_for_review": len(history),
-            "historical_messages_with_paths": paths}
+    return sum(name not in {"origin/main", "origin/HEAD"}
+               and name.removeprefix("origin/") not in active for name in branches)
 
 
 PROMPTS = {
-    "performance": """Research one narrow hypothesis. Name the workload, metric,
+    "performance": """Research one narrow hypothesis. Name the target platform, workload, metric,
 and reason to expect a repeatable gain in the notes. Edit only src/framing.rs,
 src/packet.rs or src/stream.rs. A framing-only patch screens on portable framing.
 A stream patch screens on TCP downloads and a packet patch screens on UDP
-downloads. In the notes put Workload:, Metric: and Hypothesis: on three plain
-lines. Use workload framing, udp/v4/http/1 or tcp/v4/http/1. Use metric
+downloads. In the notes put Platform:, Workload:, Metric: and Hypothesis: on four
+plain lines. Choose linux-x64 or linux-arm64 for downloads. Framing can also
+target macos or windows. Use workload framing, udp/v4/http/1 or tcp/v4/http/1. Use metric
 cpu_ns_per_payload_byte, framing_payload_mbps or download_mbps as applicable.
 Skip changes if no tested workload can demonstrate the hypothesis.""",
     "refactor": """Review the entire project for avoidable duplication and complexity.
@@ -199,7 +193,7 @@ def propose():
         for stage in STAGES:
             result = report["stages"][stage] = {}
             if privacy or not key:
-                result["status"] = "privacy review required" if privacy else "OpenCode key unavailable"
+                result["status"] = "privacy review required" if privacy else "proposal credentials unavailable"
                 continue
             with checkout(Path(folder), stage):
                 notes = Path(".maintenance-notes.md")
@@ -251,6 +245,11 @@ Primary source excerpts:
                     result["paths"] = len(paths)
                     result["sha256"] = hashlib.sha256(patch).hexdigest()
     (out / "report.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
+    target = report["stages"]["performance"].get("hypothesis", {}).get("platform", "linux-x64")
+    runner = next(row["runner"] for row in RUNNERS if row["platform"] == target)
+    with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as output:
+        print(f"runner={runner}", file=output)
+        print(f"platform={target}", file=output)
 
 
 def compare_samples(control, pairs, directions, *, rss_floor=0):
@@ -328,7 +327,7 @@ def measure_tunnels(baseline, candidate, selected=None):
     return results
 
 
-def measurement_decision(framing_result, tunnels, require_gain):
+def measurement_decision(framing_result, tunnels):
     metrics = list(framing_result["metrics"].values())
     metrics.extend(metric for row in tunnels.values() if row["sample_quality_passed"]
                    for metric in row["metrics"].values())
@@ -337,12 +336,6 @@ def measurement_decision(framing_result, tunnels, require_gain):
     if (any(item["decision"] != "passed" for item in metrics)
             or any(not row["sample_quality_passed"] for row in tunnels.values())):
         return "measurement inconclusive"
-    if require_gain and tunnels and not any(
-        row["metrics"]["cpu_ns_per_payload_byte"]["repeatable_gain"]
-        or (row["throughput_headroom"] and row["metrics"]["download_mbps"]["repeatable_gain"])
-        for row in tunnels.values()
-    ):
-        return "no demonstrated download gain"
     return "passed"
 
 
@@ -391,29 +384,50 @@ def performance_hypothesis(notes, paths):
     allowed = {"cpu_ns_per_payload_byte",
                "framing_payload_mbps" if workload == "framing" else "download_mbps"}
     fields = {}
-    for label in ("Workload", "Metric", "Hypothesis"):
+    for label in ("Platform", "Workload", "Metric", "Hypothesis"):
         matches = re.findall(rf"^{label}: ([^\n]+)$", notes, re.MULTILINE)
         if len(matches) != 1 or not matches[0].strip():
             raise CheckFailed("missing or ambiguous performance hypothesis")
         fields[label.lower()] = matches[0].strip()
-    if fields["workload"] != workload or fields["metric"] not in allowed:
+    platforms = {row["platform"] for row in RUNNERS} if workload == "framing" else {
+        "linux-x64", "linux-arm64"}
+    if (fields["platform"] not in platforms or fields["workload"] != workload
+            or fields["metric"] not in allowed):
         raise CheckFailed("performance hypothesis does not match the modified path")
     return fields
 
 
 def screen_decision(workload, evidence, metric):
     if workload == "framing":
-        result = measurement_decision(evidence, {}, False)
+        result = measurement_decision(evidence, {})
         if result == "passed" and not evidence["metrics"][metric]["repeatable_gain"]:
             return "no demonstrated framing gain"
         return result
-    result = measurement_decision({"metrics": {}}, evidence, False)
+    result = measurement_decision({"metrics": {}}, evidence)
     if result != "passed":
         return result
     sample = evidence[workload]
     if (not sample["metrics"][metric]["repeatable_gain"]
             or (metric == "download_mbps" and not sample["throughput_headroom"])):
         return "no demonstrated download gain"
+    return "passed"
+
+
+def qualification_decision(framing_result, tunnels, validation_platform, hypothesis):
+    expected_downloads = {f"{transport}/{family}/{app}/{flows}"
+                          for transport in download.TRANSPORTS for family, app, flows in WORKLOADS}
+    if validation_platform not in {"linux-x64", "linux-arm64"}:
+        expected_downloads.clear()
+    decision = measurement_decision(framing_result, tunnels)
+    if decision != "passed":
+        return decision
+    if (set(framing_result["metrics"]) != set(METRICS) or set(tunnels) != expected_downloads
+            or any(set(row["metrics"]) != set(download.METRICS) for row in tunnels.values())):
+        return "measurement inconclusive"
+    if hypothesis and validation_platform == hypothesis["platform"]:
+        workload, metric = hypothesis["workload"], hypothesis["metric"]
+        evidence = framing_result if workload == "framing" else {workload: tunnels[workload]}
+        return screen_decision(workload, evidence, metric)
     return "passed"
 
 
@@ -472,6 +486,9 @@ def preflight():
                     paths = changed(stage)
                     if stage == "performance":
                         hypothesis = performance_hypothesis(proposal["notes"], paths)
+                        if hypothesis["platform"] != os.environ["VALIDATION_PLATFORM"]:
+                            raise ValueError("screen runner does not match the proposal target")
+                        proposal["hypothesis"] = hypothesis
                         workload, metric = hypothesis["workload"], hypothesis["metric"]
                         try:
                             subprocess.run(["cargo", "fetch", "--locked"], cwd=ROOT,
@@ -481,8 +498,8 @@ def preflight():
                             proposal["status"] = "screen infrastructure failure"
                             continue
                         decision = screen_decision(workload, evidence, metric)
-                        proposal["screen"] = {"workload": workload, "decision": decision,
-                                              "metric": metric, "evidence": evidence}
+                        proposal["screen"] = {"platform": hypothesis["platform"], "workload": workload,
+                                              "decision": decision, "metric": metric, "evidence": evidence}
                         if decision != "passed":
                             proposal["status"] = f"screen: {decision}"
                             continue
@@ -590,8 +607,9 @@ def qualify():
                                 row["downloads"].update(measured)
                                 if retry:
                                     row["repeated_measurements"].extend(sorted(measured))
-                        row["decision"] = measurement_decision(
-                            row["framing"], row.get("downloads", {}), stage == "performance")
+                        hypothesis = report["stages"][stage]["hypothesis"] if stage == "performance" else None
+                        row["decision"] = qualification_decision(
+                            row["framing"], row.get("downloads", {}), validation_platform, hypothesis)
                     else:
                         row["decision"] = "passed"
                 except (OSError, RuntimeError, ValueError, KeyError, subprocess.SubprocessError):
@@ -696,7 +714,7 @@ def merge_retries(report, results):
 
 
 def cycle_complete(report, results):
-    interrupted = {"privacy review required", "OpenCode key unavailable", "no verified agent output",
+    interrupted = {"privacy review required", "proposal credentials unavailable", "no verified agent output",
                    "screen: measurement inconclusive", "preflight infrastructure failure",
                    "screen infrastructure failure"}
     return (report["stages"].keys() == set(STAGES)
@@ -731,15 +749,12 @@ def publish():
     repo = os.environ["GITHUB_REPOSITORY"]
     run_url = f"https://github.com/{repo}/actions/runs/{os.environ['GITHUB_RUN_ID']}"
     main = hosted.git("ls-remote", "--exit-code", "origin", "refs/heads/main").decode().split()[0]
-    inventory_counts = inventory()
     summary = [f"# Maintenance cycle {cycle}", "",
                f"ProtunNext {report['version']} · Protun {report['upstream']['tag']} · `{head}`",
                "", "Portable framing and Linux kernel TCP downloads are measured independently. "
                "Linux downloads run through the production WireGuard UDP, TCP and Stealth worker, "
                "with verified synthetic payloads in disposable namespaces.",
-               "", f"Merged branches for review: {inventory_counts['merged_branches_for_review']}.",
-               f"Historical author addresses flagged for review: {inventory_counts['historical_addresses_for_review']}.",
-               f"Historical commit messages with possible local paths: {inventory_counts['historical_messages_with_paths']}.",
+               "", f"Merged branches for review: {inventory()}.",
                "", f"[Research notes and measurement artifacts]({run_url}#artifacts)"]
     covered = set()
     drafts = {}
@@ -754,13 +769,15 @@ def publish():
                 workload, metric = screen["workload"], screen["metric"]
                 measurement = screen["evidence"] if workload == "framing" else screen["evidence"][workload]
                 sample = measurement["metrics"][metric]
-                summary.append(f"Screen ({workload}, {metric}): {screen['decision']}. "
+                summary.append(f"Screen ({screen['platform']}, {workload}, {metric}): "
+                               f"{screen['decision']}. "
                                f"Median paired gain {sample['relative_improvement']:.2%}, "
                                f"control variation {sample['control_spread']:.2%}.")
             qualified = stage_qualified(stage, proposal, results)
             decision["stages"][stage] = {
                 "proposal": proposal["status"], "qualified": qualified,
                 "patch_sha256": proposal.get("sha256"),
+                "hypothesis": proposal.get("hypothesis"),
                 "screen": proposal.get("screen", {}).get("decision"),
                 "checks": proposal.get("preflight", {}),
                 "platforms": {row["platform"]: row["stages"][stage]["decision"]
@@ -800,9 +817,12 @@ def publish():
                     drafts[existing["number"]] = commit
                     summary.append(f"Proposal already exists at #{existing['number']}.")
                     continue
+                hypothesis = proposal.get("hypothesis")
+                claim = (f"Measured gain target: {hypothesis['platform']} / "
+                         f"{hypothesis['workload']} / {hypothesis['metric']}.\n\n" if hypothesis else "")
                 body = (f"Maintenance proposal for ProtunNext {report['version']} with adopted upstream "
                         f"{report['upstream']['tag']}.\n\n"
-                        f"{evidence}\n\n[Cycle and measurement artifacts]({run_url})\n\n"
+                        f"{claim}{evidence}\n\n[Cycle and measurement artifacts]({run_url})\n\n"
                         "Download results describe the isolated Linux workload. The workflow runs "
                         "platform and linked-erasure checks for maintainer review.")
                 url = subprocess.check_output(

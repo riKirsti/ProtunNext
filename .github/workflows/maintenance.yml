@@ -60,7 +60,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     outputs:
-      candidates: ${{ steps.preflight.outputs.candidates }}
+      runner: ${{ steps.propose.outputs.runner }}
+      platform: ${{ steps.propose.outputs.platform }}
     permissions:
       contents: read
     steps:
@@ -71,9 +72,37 @@ jobs:
         with:
           python-version: '3.13'
       - uses: ./.github/actions/setup-opencode
-      - env:
+      - id: propose
+        env:
           OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
         run: python scripts/maintenance.py propose
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: maintenance-raw-proposals
+          path: ${{ runner.temp }}/maintenance-proposals/
+          if-no-files-found: error
+          retention-days: 1
+  preflight:
+    needs: propose
+    runs-on: ${{ needs.propose.outputs.runner }}
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    outputs:
+      candidates: ${{ steps.preflight.outputs.candidates }}
+    env:
+      VALIDATION_PLATFORM: ${{ needs.propose.outputs.platform }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.13'
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: maintenance-raw-proposals
+          path: ${{ runner.temp }}/maintenance-proposals/
       - uses: dtolnay/rust-toolchain@df2a88e9fe4098bad09cb42c3dec7187f15861fc
         with:
           toolchain: '1.100.0'
@@ -87,8 +116,8 @@ jobs:
           if-no-files-found: error
           retention-days: 7
   qualify:
-    needs: [plan, propose]
-    if: needs.propose.outputs.candidates == 'true'
+    needs: [plan, preflight]
+    if: needs.preflight.outputs.candidates == 'true'
     permissions: {contents: read}
     uses: ./.github/workflows/maintenance-qualification.yml
     with:
@@ -124,9 +153,9 @@ jobs:
       matrix: ${{ needs.retry-plan.outputs.matrix }}
       retry: true
   report:
-    needs: [plan, propose, qualify, retry-plan, retry]
+    needs: [plan, preflight, qualify, retry-plan, retry]
     if: >-
-      always() && needs.plan.outputs.cycle != '' && needs.propose.result == 'success' &&
+      always() && needs.plan.outputs.cycle != '' && needs.preflight.result == 'success' &&
       (needs.qualify.result == 'success' || needs.qualify.result == 'skipped') &&
       (needs.retry-plan.result == 'success' || needs.retry-plan.result == 'skipped') &&
       (needs.retry.result == 'success' || needs.retry.result == 'skipped')

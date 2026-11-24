@@ -56,20 +56,42 @@ class Maintenance(unittest.TestCase):
         with self.assertRaises(ValueError):
             compare(control, [(baseline, baseline)], directions)
 
-    def test_framing_cannot_supply_the_linux_download_benefit(self):
-        framing = {"metrics": {"framing_payload_mbps": {"decision": "passed", "repeatable_gain": True}}}
-        workload = {"sample_quality_passed": True, "throughput_headroom": False, "metrics": {
-            metric: {"decision": "passed", "repeatable_gain": False} for metric in maintenance.download.METRICS
-        }}
-        tunnels = {"udp/v4/http/1": workload}
-        decide = maintenance.measurement_decision
-        self.assertEqual(decide(framing, tunnels, True), "no demonstrated download gain")
-        workload["metrics"]["download_mbps"]["repeatable_gain"] = True
-        self.assertEqual(decide(framing, tunnels, True), "no demonstrated download gain")
-        workload["metrics"]["cpu_ns_per_payload_byte"]["repeatable_gain"] = True
-        self.assertEqual(decide(framing, tunnels, True), "passed")
-        workload["sample_quality_passed"] = False
-        self.assertEqual(decide(framing, tunnels, True), "measurement inconclusive")
+    def test_qualification_requires_the_declared_gain_and_shared_regression_evidence(self):
+        stable = {"decision": "passed", "repeatable_gain": False}
+        framing = {"metrics": {metric: stable.copy() for metric in maintenance.METRICS}}
+        downloads = {
+            f"{protocol}/{family}/{app}/{flows}": {
+                "sample_quality_passed": True, "throughput_headroom": True,
+                "metrics": {metric: stable.copy() for metric in maintenance.download.METRICS},
+            }
+            for protocol in maintenance.download.TRANSPORTS
+            for family, app, flows in maintenance.WORKLOADS
+        }
+        hypothesis = {"platform": "linux-arm64", "workload": "udp/v4/http/1",
+                      "metric": "download_mbps"}
+        decide = maintenance.qualification_decision
+        self.assertEqual(decide(framing, downloads, "linux-x64", hypothesis), "passed")
+        framing["metrics"]["framing_payload_mbps"]["repeatable_gain"] = True
+        sample = downloads[hypothesis["workload"]]
+        sample["metrics"]["cpu_ns_per_payload_byte"]["repeatable_gain"] = True
+        self.assertEqual(decide(framing, downloads, "linux-arm64", hypothesis),
+                         "no demonstrated download gain")
+        sample["metrics"]["download_mbps"]["repeatable_gain"] = True
+        sample["throughput_headroom"] = False
+        self.assertEqual(decide(framing, downloads, "linux-arm64", hypothesis),
+                         "no demonstrated download gain")
+        sample["throughput_headroom"] = True
+        self.assertEqual(decide(framing, downloads, "linux-arm64", hypothesis), "passed")
+
+        unaffected_gain = deepcopy(downloads)
+        unaffected_gain[hypothesis["workload"]]["metrics"]["download_mbps"]["decision"] = "regression"
+        self.assertEqual(decide(framing, unaffected_gain, "linux-x64", hypothesis), "regression")
+        sample["sample_quality_passed"] = False
+        self.assertEqual(decide(framing, downloads, "linux-arm64", hypothesis),
+                         "measurement inconclusive")
+        del downloads[hypothesis["workload"]]
+        self.assertEqual(decide(framing, downloads, "linux-arm64", hypothesis),
+                         "measurement inconclusive")
 
     def test_linux_rss_floor_clears_launch_spread_and_still_detects_growth(self):
         mib = 2**20
@@ -158,11 +180,21 @@ class Maintenance(unittest.TestCase):
                          "measurement inconclusive")
         self.assertTrue(maintenance.needs_measurement({"metrics": noisy}))
         self.assertFalse(maintenance.needs_measurement({"metrics": normal}))
-        notes = "Workload: framing\nMetric: framing_payload_mbps\nHypothesis: Remove a division."
+        notes = "Platform: macos\nWorkload: framing\nMetric: framing_payload_mbps\nHypothesis: Remove a division."
         self.assertEqual(maintenance.performance_hypothesis(notes, {"src/framing.rs"})["workload"],
                          "framing")
         with self.assertRaisesRegex(maintenance.CheckFailed, "does not match"):
             maintenance.performance_hypothesis(notes, {"src/stream.rs"})
+        self.assertEqual(maintenance.performance_hypothesis(notes, {"src/framing.rs"})["platform"],
+                         "macos")
+        download_notes = ("Platform: linux-arm64\nWorkload: udp/v4/http/1\n"
+                          "Metric: download_mbps\nHypothesis: Reduce packet copying.")
+        self.assertEqual(maintenance.performance_hypothesis(download_notes, {"src/packet.rs"})["platform"],
+                         "linux-arm64")
+        with self.assertRaisesRegex(maintenance.CheckFailed, "does not match"):
+            maintenance.performance_hypothesis(download_notes.replace("linux-arm64", "windows"),
+                                               {"src/packet.rs"})
+
 
     def test_preflight_formats_once_and_rejects_new_paths(self):
         with (patch.object(maintenance.hosted, "apply_patch"),

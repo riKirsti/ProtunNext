@@ -171,7 +171,7 @@ Prior coverage validation: {'; '.join(dict.fromkeys(outstanding)) or 'complete'}
 Upstream change summary:
 {stat}
 """
-    # Let OpenCode page through the diff with its read tool. Large releases
+    # Let the proposal runner read the diff in sections. Large releases
     # need not fit in a single prompt or be rejected before inference.
     with tempfile.TemporaryDirectory(prefix=".upstream-review-", dir=Path.cwd()) as directory:
         folder = Path(directory)

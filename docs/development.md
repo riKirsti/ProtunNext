@@ -39,27 +39,11 @@ A closed workflow-owned issue records the last check. Manual dispatch checks
 immediately and defaults to a dry run. Each new
 stable upstream commit gets one tracking issue, even when the check is retried.
 
-The monitor can prepare a draft on GitHub-hosted runners. Enable **Allow GitHub
-Actions to create and approve pull requests** under repository Actions settings
-and add an [OpenCode Console API key](https://opencode.ai/docs/console/api#api-keys)
-as the repository Actions secret `OPENCODE_API_KEY`. The
-workflow uses its repository token to open drafts. With the secret unset,
-the tracking issue still records the update.
-
-The proposal job pins `opencode/deepseek-v4.1-flash` through OpenCode's
-built-in provider. Both scheduled workflows install the same
-[locked OpenCode v2 CLI](../.github/opencode/package-lock.json) and use the
-[standalone CI mode](https://opencode.ai/docs/cli/commands/#ci).
-The job verifies the model from a private session export before accepting edits.
-For an isolated fixture, dispatch **Monthly maintenance** with **preview** and
-**opencode_smoke** enabled. Inference is billed to the OpenCode Console account. It uses
-OpenCode's inference limits and the GitHub-hosted
-runner's standard job limit. The agent reads the upstream diff from a temporary
-file in sections. If OpenCode returns with usable edits, those edits become a
-draft patch. The next Sunday run can resume from that branch. Closing the
-tracking issue stops proposal retries. The
-proposal job has read-only repository
-permissions. A separate completion job dispatches platform and linked-erasure
+The monitor can prepare a draft on GitHub-hosted runners. Proposal generation
+uses the credential configured for the proposal job. If the credential is
+unavailable, the tracking issue still records the update. The next Sunday run
+can resume from an existing draft branch. Closing the tracking issue stops
+proposal retries. The proposal job has read-only repository permissions. A separate completion job dispatches platform and linked-erasure
 checks on the bot PR's exact head. Once version alignment and both checks pass,
 it marks the PR ready and merges it through GitHub. Failed checks leave the
 proposal pending. The monitor dispatches checks again on the merged main
@@ -90,21 +74,16 @@ before starting the next stage.
 ## Scheduled maintenance
 
 The **Monthly maintenance** workflow runs on the 25th of each month at 02:00 UTC
-on GitHub-hosted runners. Manual dispatch
-defaults to preview, which runs the stages without opening draft PRs or
-changing the cycle date. It uses the package version from `Cargo.toml`, the
-upstream pin from the compatibility index and the existing `OPENCODE_API_KEY`.
-Proposal generation uses OpenCode's inference limits and the GitHub-hosted
-runner's standard job limit.
+on GitHub-hosted runners. Manual dispatch defaults to preview, which evaluates
+the stages without creating drafts, publishing a release or recording a completed
+cycle. Each proposal uses the base commit's `AGENTS.md`.
 
-The workflow reviews public release notes for performance ideas, then
-reviews the codebase for refactoring and obsolete files. DeepSeek V4.1 Flash
-can prepare one patch per stage using the base commit's `AGENTS.md`.
-The runner checks scope, formats Rust once, and checks privacy, vendor hashes,
-and compatibility before qualification. A framing performance patch screens
-on portable framing. A packet or stream patch screens on one corresponding
-UDP or TCP workload. The screen must demonstrate a repeatable gain on the
-proposed metric before the runner starts full qualification.
+The runner checks scope, formats Rust once, and verifies repository hygiene,
+vendor hashes and compatibility. A performance proposal names its target
+platform, workload, metric and hypothesis before measurement. Framing can
+target any qualification platform. Packet and stream proposals screen on a
+matching UDP or TCP download on the chosen Linux architecture. A repeatable
+gain on that target is required to start full qualification.
 
 Candidate validation checks portable framing on Linux x64 and ARM64, Windows
 and macOS. Linux additionally compares verified 2 GiB kernel TCP downloads
@@ -117,10 +96,11 @@ worker memory. The samples represent synthetic Linux traffic.
 Both benchmark layers collect four A/A controls and eight alternating A/B
 pairs. The fixed regression margins are 5% for throughput and CPU per byte
 and 10% for peak memory, with a 2 MiB minimum margin for Linux download RSS
-to account for process-to-process variation. A performance proposal must show a repeatable gain
-of at least 5% in download throughput or CPU per byte on each Linux runner,
-with the measured gain also clearing twice the A/A spread. Every tested
-platform has to pass the non-regression checks. A throughput gain also needs
+to account for process-to-process variation. Qualification must reproduce a
+gain of at least 5% on the declared platform, workload and metric, also
+clearing twice the A/A spread. All measured platforms and workloads keep
+their regression thresholds. Refactors require non-regression evidence.
+A throughput gain also needs
 headroom in the fixed peer and load generator. That headroom does not affect
 CPU time per verified byte. Short or unstable measurements are inconclusive.
 An inconclusive platform measurement gets one retry on a fresh runner with
@@ -137,10 +117,8 @@ artifact lists each stage's checks, measured result and qualification outcome.
 Maintenance preserves the package version. The upstream monitor publishes
 when a new upstream version has been adopted.
 
-The report counts merged branches without open PRs and possible historical
-author addresses without printing the values. Branch removal and history
-rewrites require maintainer review. Keep private findings and real device or
-account data out of proposal prompts, logs and artifacts.
+The report counts merged branches without open PRs. Keep personal information,
+real device data and account data out of proposal prompts, logs and artifacts.
 
 ## Architecture
 
@@ -253,9 +231,9 @@ musl/router artifact. Reports belong in ignored build output and CI artifacts.
 For runtime-changing PRs, also compare verified end-to-end downloads for UDP,
 TCP and Stealth, using matched toolchains/features, network conditions, repeated
 A/A controls and balanced baseline/candidate order. Include CPU, peak memory,
-download speed and test/build identities in the PR. Run temporary travel-router
-checks against that PR's code and restore prior state. Keep private configuration
-and device identifiers out of public reports. Establish workload-specific
+download speed and test/build identities in the PR. Use representative
+isolated hardware when claiming device-specific results. Keep private
+configuration and device identifiers out of public reports. Establish workload-specific
 regression limits from measured variability; framing noise is not a VPN limit.
 Unavailable live/device evidence remains unverified.
 
