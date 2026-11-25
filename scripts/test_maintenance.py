@@ -1,10 +1,14 @@
 """Validate the scheduling, patch boundaries and paired measurement decision."""
 
+from contextlib import chdir, nullcontext
 import datetime as dt
+from hashlib import sha256
+import json
 import os
 import unittest
 from copy import deepcopy
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 import maintenance
@@ -32,7 +36,7 @@ class Maintenance(unittest.TestCase):
                 for change in ("M", "A", "D"):
                     self.assertFalse(maintenance.permitted(stage, path, change))
         self.assertTrue(maintenance.permitted("performance", "src/framing.rs", "M"))
-        self.assertFalse(maintenance.permitted("performance", "src/linux.rs", "M"))
+        self.assertTrue(maintenance.permitted("performance", "src/linux_batch.rs", "M"))
         self.assertTrue(maintenance.permitted("refactor", "src/linux.rs", "M"))
         self.assertFalse(maintenance.permitted("cleanup", "docs/building.md", "D"))
         self.assertTrue(maintenance.permitted("cleanup", "src/obsolete.rs", "D"))
@@ -181,20 +185,92 @@ class Maintenance(unittest.TestCase):
         self.assertTrue(maintenance.needs_measurement({"metrics": noisy}))
         self.assertFalse(maintenance.needs_measurement({"metrics": normal}))
         notes = "Platform: macos\nWorkload: framing\nMetric: framing_payload_mbps\nHypothesis: Remove a division."
-        self.assertEqual(maintenance.performance_hypothesis(notes, {"src/framing.rs"})["workload"],
-                         "framing")
-        with self.assertRaisesRegex(maintenance.CheckFailed, "does not match"):
-            maintenance.performance_hypothesis(notes, {"src/stream.rs"})
-        self.assertEqual(maintenance.performance_hypothesis(notes, {"src/framing.rs"})["platform"],
-                         "macos")
-        download_notes = ("Platform: linux-arm64\nWorkload: udp/v4/http/1\n"
+        self.assertTrue(maintenance.supported_hypothesis(maintenance.performance_hypothesis(notes)))
+        download_notes = ("Platform: linux-arm64\nWorkload: stealth/v6/https/8\n"
                           "Metric: download_mbps\nHypothesis: Reduce packet copying.")
-        self.assertEqual(maintenance.performance_hypothesis(download_notes, {"src/packet.rs"})["platform"],
-                         "linux-arm64")
-        with self.assertRaisesRegex(maintenance.CheckFailed, "does not match"):
-            maintenance.performance_hypothesis(download_notes.replace("linux-arm64", "windows"),
-                                               {"src/packet.rs"})
+        self.assertTrue(maintenance.supported_hypothesis(maintenance.performance_hypothesis(download_notes)))
+        self.assertFalse(maintenance.supported_hypothesis(maintenance.performance_hypothesis(
+            download_notes.replace("linux-arm64", "windows"))))
+        with self.assertRaisesRegex(maintenance.CheckFailed, "missing or ambiguous"):
+            maintenance.performance_hypothesis(download_notes + "\nMetric: cpu_ns_per_payload_byte")
 
+    def test_benchmark_patch_is_separate_from_runtime_patch(self):
+        with TemporaryDirectory() as folder, chdir(folder):
+            git = maintenance.hosted.git
+            git("init", "--quiet")
+            git("-c", "user.name=Fixture", "-c", "user.email=fixture@example.com",
+                "commit", "--allow-empty", "--quiet", "-m", "Fixture baseline")
+            for name in ("src/linux_batch.rs", "benches/packet_path.rs"):
+                file = Path(name)
+                file.parent.mkdir(exist_ok=True)
+                file.write_text("// staged optimization or harness\n", encoding="utf-8")
+            git("add", "--all")
+            output = Path("out")
+            output.mkdir()
+            proposal = {}
+            maintenance.collect_benchmark_patch(output, proposal)
+            benchmark = (output / "benchmark-review.patch").read_bytes()
+            self.assertEqual(proposal["benchmark_sha256"], sha256(benchmark).hexdigest())
+            self.assertIn(b"benches/packet_path.rs", benchmark)
+            self.assertNotIn(b"src/linux_batch.rs", benchmark)
+            self.assertEqual(maintenance.changed("performance"), {"src/linux_batch.rs"})
+
+    def test_unknown_workload_preserves_review_artifacts_and_never_screens(self):
+        notes = "Platform: linux-arm64\nWorkload: connection-start\nMetric: latency_ms\nHypothesis: Reduce setup."
+        source = b"runtime patch"
+        harness = b"separate benchmark patch"
+        with TemporaryDirectory() as folder:
+            root = Path(folder)
+            directory = root / "maintenance-proposals"
+            directory.mkdir()
+            (directory / "performance.patch").write_bytes(source)
+            (directory / "benchmark-review.patch").write_bytes(harness)
+            report = {"commit": "head", "guidance_sha256": sha256(b"guidance").hexdigest(),
+                      "stages": {"performance": {"notes": notes, "sha256": sha256(source).hexdigest(),
+                                                 "benchmark_sha256": sha256(harness).hexdigest()}}}
+            path = directory / "report.json"
+            path.write_text(json.dumps(report), encoding="utf-8")
+            with (patch.dict(os.environ, {"RUNNER_TEMP": folder}),
+                  patch.object(maintenance.hosted, "git", side_effect=[b"head", b"guidance"]),
+                  patch.object(maintenance.hosted, "apply_patch") as apply,
+                  patch.object(maintenance, "checkout", return_value=nullcontext(root)),
+                  patch.object(maintenance, "changed", return_value={"src/linux_batch.rs"}),
+                  patch.object(maintenance, "screen_candidate") as screen):
+                maintenance.preflight()
+            result = json.loads(path.read_text(encoding="utf-8"))["stages"]["performance"]
+            self.assertEqual(result["status"], "awaiting benchmark review")
+            self.assertNotIn("sha256", result)
+            self.assertEqual((directory / "performance-review.patch").read_bytes(), source)
+            self.assertEqual((directory / "benchmark-review.patch").read_bytes(), harness)
+            self.assertEqual(apply.call_args_list[0].args, (harness, maintenance.benchmark_path))
+            screen.assert_not_called()
+
+    def test_linux_batch_patch_reaches_declared_udp_screen(self):
+        notes = ("Platform: linux-arm64\nWorkload: udp/v4/http/1\n"
+                 "Metric: download_mbps\nHypothesis: Reduce copies in packet batching.")
+        source = b"runtime patch"
+        with TemporaryDirectory() as folder:
+            root = Path(folder)
+            directory = root / "maintenance-proposals"
+            directory.mkdir()
+            (directory / "performance.patch").write_bytes(source)
+            report = {"commit": "head", "guidance_sha256": sha256(b"guidance").hexdigest(),
+                      "stages": {"performance": {"notes": notes, "sha256": sha256(source).hexdigest()}}}
+            (directory / "report.json").write_text(json.dumps(report), encoding="utf-8")
+            output = root / "actions-output"
+            with (patch.dict(os.environ, {"RUNNER_TEMP": folder, "VALIDATION_PLATFORM": "linux-arm64",
+                                          "GITHUB_OUTPUT": str(output)}),
+                  patch.object(maintenance.hosted, "git", side_effect=[b"head", b"guidance"]),
+                  patch.object(maintenance, "checkout", return_value=nullcontext(root)),
+                  patch.object(maintenance, "preflight_patch", return_value=source),
+                  patch.object(maintenance, "changed", return_value={"src/linux_batch.rs"}),
+                  patch.object(maintenance.subprocess, "run"),
+                  patch.object(maintenance, "screen_candidate", return_value={}) as screen,
+                  patch.object(maintenance, "screen_decision", return_value="passed")):
+                maintenance.preflight()
+            screen.assert_called_once()
+            self.assertEqual(screen.call_args.args[2], "udp/v4/http/1")
+            self.assertIn("candidates=true", output.read_text(encoding="utf-8"))
 
     def test_preflight_formats_once_and_rejects_new_paths(self):
         with (patch.object(maintenance.hosted, "apply_patch"),

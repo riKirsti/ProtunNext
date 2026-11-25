@@ -103,7 +103,7 @@ def build_executable(root, target):
         (consumer / ".cargo").mkdir()
         shutil.copyfile(root / ".cargo/config.toml", consumer / ".cargo/config.toml")
         shutil.copyfile(root / "Cargo.lock", consumer / "Cargo.lock")
-        shutil.copyfile(root / "benches/packet_path.rs", consumer / "src/main.rs")
+        shutil.copyfile(ROOT / "benches/packet_path.rs", consumer / "src/main.rs")
         (consumer / "Cargo.toml").write_text(
             '[package]\nname = "protun-next-framing-baseline"\nversion = "0.0.0"\nedition = "2024"\n'
             '[workspace]\n[dependencies]\nprotun-next = { path = ' + json.dumps(str(root)) + ' }\n'

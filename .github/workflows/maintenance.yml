@@ -34,6 +34,31 @@ jobs:
       - env:
           OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
         run: python scripts/opencode_smoke.py
+  benchmark-smoke:
+    if: github.event_name == 'workflow_dispatch' && inputs.preview && !inputs.opencode_smoke
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@df2a88e9fe4098bad09cb42c3dec7187f15861fc
+        with:
+          toolchain: '1.100.0'
+      - name: Install the Linux benchmark sandbox
+        if: runner.os == 'Linux'
+        run: |
+          if ! command -v bwrap >/dev/null; then
+            sudo apt-get -o Acquire::Retries=2 -o Acquire::http::Timeout=15 update
+            sudo apt-get install -y --no-install-recommends bubblewrap
+          fi
+      - run: python3 scripts/measure-download.py
   plan:
     if: >-
       !inputs.opencode_smoke && (github.ref == 'refs/heads/main' ||
@@ -58,7 +83,7 @@ jobs:
     needs: plan
     if: needs.plan.outputs.cycle != ''
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     outputs:
       runner: ${{ steps.propose.outputs.runner }}
       platform: ${{ steps.propose.outputs.platform }}
@@ -107,6 +132,13 @@ jobs:
         with:
           toolchain: '1.100.0'
           components: rustfmt
+      - name: Install the Linux benchmark sandbox
+        if: runner.os == 'Linux'
+        run: |
+          if ! command -v bwrap >/dev/null; then
+            sudo apt-get -o Acquire::Retries=2 -o Acquire::http::Timeout=15 update
+            sudo apt-get install -y --no-install-recommends bubblewrap
+          fi
       - id: preflight
         run: python scripts/maintenance.py preflight
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

@@ -80,16 +80,25 @@ cycle. Each proposal uses the base commit's `AGENTS.md`.
 
 The runner checks scope, formats Rust once, and verifies repository hygiene,
 vendor hashes and compatibility. A performance proposal names its target
-platform, workload, metric and hypothesis before measurement. Framing can
-target any qualification platform. Packet and stream proposals screen on a
-matching UDP or TCP download on the chosen Linux architecture. A repeatable
-gain on that target is required to start full qualification.
+platform, workload, metric and hypothesis before measurement. The declared
+workload selects the benchmark regardless of the source files changed.
+Framing can target any qualification platform. Download workloads cover
+UDP, TCP and Stealth on Linux x64 and ARM64. A repeatable gain on the declared
+target is required to start full qualification.
+
+For an unsupported workload, the decision records that benchmark review is
+pending. The proposal artifact carries the reproduction notes and any separate
+benchmark or optimization patch. A maintainer can review and integrate the
+benchmark into the trusted harness before a later run qualifies the change.
+The proposal job logs stage durations and has a 60-minute limit.
 
 Candidate validation checks portable framing on Linux x64 and ARM64, Windows
 and macOS. Linux additionally compares verified 2 GiB kernel TCP downloads
 through the production WireGuard UDP, TCP and Stealth worker in disposable
-network namespaces. Each transport runs one IPv4 HTTP flow and eight IPv6 HTTPS
-flows. The baseline peer and load generator are reused across both builds.
+user and network namespaces on unprivileged runners. The runtime sees only
+its sandbox filesystem, two executables, and the TUN device. Each transport
+runs one IPv4 HTTP flow and eight IPv6 HTTPS flows. Both builds use the trusted
+base harness and reuse the baseline peer and load generator.
 Reports include download speed, CPU time per payload byte, CPU use and peak
 worker memory. The samples represent synthetic Linux traffic.
 

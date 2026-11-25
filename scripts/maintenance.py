@@ -14,6 +14,7 @@ import statistics
 import subprocess
 import sys
 import tempfile
+import time
 import tomllib
 from urllib.request import Request, urlopen
 
@@ -33,7 +34,6 @@ framing = load_script("measure-baseline.py")
 download = load_script("measure-download.py")
 MARKER = "<!-- protunnext-31-day-maintenance -->"
 STAGES = ("performance", "refactor", "cleanup")
-PERF_PATHS = {"src/framing.rs", "src/packet.rs", "src/stream.rs"}
 METRICS = {"framing_payload_mbps": 1, "cpu_ns_per_payload_byte": -1, "peak_rss_bytes": -1}
 MARGINS = {"framing_payload_mbps": .05, "download_mbps": .05,
            "cpu_ns_per_payload_byte": .05, "peak_rss_bytes": .10}
@@ -41,6 +41,9 @@ MIN_GAIN = .05
 DOWNLOAD_RSS_FLOOR = 2 * 2**20
 RETRY_DECISIONS = {"measurement inconclusive", "operational failure"}
 WORKLOADS = (("v4", "http", 1), ("v6", "https", 8))
+DOWNLOAD_WORKLOADS = {f"{transport}/{family}/{app}/{flows}"
+                      for transport in download.TRANSPORTS for family, app, flows in WORKLOADS}
+LINUX_PLATFORMS = {"linux-x64", "linux-arm64"}
 RUNNERS = [
     {"platform": "linux-x64", "runner": "ubuntu-24.04"},
     {"platform": "linux-arm64", "runner": "ubuntu-24.04-arm"},
@@ -113,15 +116,15 @@ def inventory():
 
 
 PROMPTS = {
-    "performance": """Research one narrow hypothesis. Name the target platform, workload, metric,
-and reason to expect a repeatable gain in the notes. Edit only src/framing.rs,
-src/packet.rs or src/stream.rs. A framing-only patch screens on portable framing.
-A stream patch screens on TCP downloads and a packet patch screens on UDP
-downloads. In the notes put Platform:, Workload:, Metric: and Hypothesis: on four
-plain lines. Choose linux-x64 or linux-arm64 for downloads. Framing can also
-target macos or windows. Use workload framing, udp/v4/http/1 or tcp/v4/http/1. Use metric
-cpu_ns_per_payload_byte, framing_payload_mbps or download_mbps as applicable.
-Skip changes if no tested workload can demonstrate the hypothesis.""",
+    "performance": """Research one narrow hypothesis anywhere in the runtime or its tests.
+In the notes declare Platform:, Workload:, Metric: and Hypothesis: on four plain
+lines. Use linux-x64 or linux-arm64 download workload IDs from the harness, such as
+udp/v4/http/1 or stealth/v6/https/8, or framing on any qualification platform.
+Use the matching throughput or CPU-per-byte metric. If coverage is missing,
+describe the workload, metric, baseline, controls and reproduction steps for
+a new benchmark. Optionally stage benchmark code under benches/, in the
+existing measurement scripts, or in the download probe fixture. Keep it
+independent of the optimization so maintainers can review it separately.""",
     "refactor": """Review the entire project for avoidable duplication and complexity.
 Make one coherent refactor of production code with a clear readability or reuse
 benefit. Preserve public APIs, bindings, runtime behavior, ownership, and packet
@@ -137,7 +140,8 @@ history or expose personal information.""",
 
 def permitted(stage, path, status):
     if stage == "performance":
-        return path in PERF_PATHS and status == "M"
+        return (path.startswith(("src/", "tests/", "android/src/", "apple/Sources/"))
+                and not path.startswith("tests/fixtures/") and path != "src/requirements.json")
     if stage == "refactor":
         return (path.startswith(("src/", "android/src/", "apple/Sources/"))
                 and path.endswith((".rs", ".kt", ".swift"))
@@ -153,11 +157,35 @@ def permitted_path(path):
     return path == "README.md" or hosted.allowed(path)
 
 
+def benchmark_path(path):
+    return (path.startswith("benches/") and path.endswith(".rs")
+            or path in {"scripts/measure-baseline.py", "scripts/measure-download.py",
+                        "tests/fixtures/download_probe.rs"})
+
+
+def staged_paths():
+    output = hosted.git("diff", "--cached", "--name-only", "--no-renames", "-z")
+    return sorted(filter(None, output.decode().split("\0")))
+
+
+def collect_benchmark_patch(out, result):
+    paths = [path for path in staged_paths() if benchmark_path(path)]
+    if paths:
+        hosted.validate_staged(lambda path: permitted_path(path) or benchmark_path(path))
+        patch = hosted.git("diff", "--cached", "--binary", "--no-renames", "--", *paths)
+        if len(patch) > hosted.MAX_PATCH:
+            raise ValueError("benchmark proposal exceeds size limit")
+        hosted.git("restore", "--staged", "--", *paths)
+        (out / "benchmark-review.patch").write_bytes(patch)
+        result["benchmark_sha256"] = hashlib.sha256(patch).hexdigest()
+
+
 def changed(stage):
     hosted.validate_staged(permitted_path)
     records = hosted.git("diff", "--cached", "--name-status", "--no-renames", "-z").decode().split("\0")
     paths = dict(zip(records[1::2], records[:-1:2]))
-    if any(not permitted(stage, path, status) for path, status in paths.items()):
+    if any(not permitted(stage, path, status) or (stage == "performance" and benchmark_path(path))
+           for path, status in paths.items()):
         raise ValueError("proposal exceeded the maintenance stage's source scope")
     return set(paths)
 
@@ -192,12 +220,15 @@ def propose():
     with tempfile.TemporaryDirectory(dir=os.environ["RUNNER_TEMP"]) as folder:
         for stage in STAGES:
             result = report["stages"][stage] = {}
-            if privacy or not key:
-                result["status"] = "privacy review required" if privacy else "proposal credentials unavailable"
-                continue
-            with checkout(Path(folder), stage):
-                notes = Path(".maintenance-notes.md")
-                ok = hosted.run_agent(key, f"""Review ProtunNext {version} at {report['commit']}.
+            start = time.monotonic()
+            print(f"Starting {stage} proposal", flush=True)
+            try:
+                if privacy or not key:
+                    result["status"] = "privacy review required" if privacy else "proposal credentials unavailable"
+                    continue
+                with checkout(Path(folder), stage):
+                    notes = Path(".maintenance-notes.md")
+                    ok = hosted.run_agent(key, f"""Review ProtunNext {version} at {report['commit']}.
 {PROMPTS[stage]}
 Write short findings to .maintenance-notes.md, including the scope, sources and
 any work left open. Include no private identifiers. State what you could not run.
@@ -210,37 +241,47 @@ Trusted base AGENTS.md:
 Primary source excerpts:
 {research if stage == 'performance' else 'Use the repository checkout.'}
 """)
-                if notes.is_file() and not notes.is_symlink() and notes.stat().st_size <= 12000:
-                    text = notes.read_text(encoding="utf-8", errors="replace")
-                    if not privacy_findings(text):
-                        result["notes"] = text
-                notes.unlink(missing_ok=True)
-                if not ok:
-                    result["status"] = "no verified agent output"
-                    continue
-                hosted.git("add", "-A")
-                try:
-                    paths = changed(stage)
-                    patch = hosted.git("diff", "--cached", "--binary")
-                    if len(patch) > hosted.MAX_PATCH:
-                        raise ValueError("proposal patch exceeds size limit")
-                except ValueError:
-                    result["status"] = "proposal rejected by source or privacy policy"
-                    continue
-                if stage == "performance" and patch:
-                    try:
-                        result["hypothesis"] = performance_hypothesis(result.get("notes", ""), paths)
-                    except CheckFailed as error:
-                        result["status"] = str(error)
+                    if notes.is_file() and not notes.is_symlink() and notes.stat().st_size <= 12000:
+                        text = notes.read_text(encoding="utf-8", errors="replace")
+                        if not privacy_findings(text):
+                            result["notes"] = text
+                    notes.unlink(missing_ok=True)
+                    if not ok:
+                        result["status"] = "no verified agent output"
                         continue
-                result["status"] = "candidate" if patch else (
-                    "no change" if ok and "notes" in result else "no verified agent output")
-                if patch:
-                    (out / f"{stage}.patch").write_bytes(patch)
-                    result["paths"] = len(paths)
-                    result["sha256"] = hashlib.sha256(patch).hexdigest()
+                    try:
+                        if hosted.git("rev-parse", "HEAD").decode().strip() != head:
+                            raise ValueError("proposal checkout moved from the baseline")
+                        hosted.git("add", "-A")
+                        if stage == "performance":
+                            collect_benchmark_patch(out, result)
+                        paths = changed(stage)
+                        patch = hosted.git("diff", "--cached", "--binary")
+                        if len(patch) > hosted.MAX_PATCH:
+                            raise ValueError("proposal patch exceeds size limit")
+                    except (ValueError, subprocess.CalledProcessError):
+                        result["status"] = "proposal rejected by source or privacy policy"
+                        continue
+                    if stage == "performance" and (patch or "benchmark_sha256" in result):
+                        try:
+                            result["hypothesis"] = performance_hypothesis(result.get("notes", ""))
+                        except CheckFailed as error:
+                            result["status"] = str(error)
+                            continue
+                    result["status"] = "candidate" if patch else (
+                        "awaiting benchmark review" if "benchmark_sha256" in result else
+                        "no change" if "notes" in result else "no verified agent output")
+                    if patch:
+                        (out / f"{stage}.patch").write_bytes(patch)
+                        result["paths"] = len(paths)
+                        result["sha256"] = hashlib.sha256(patch).hexdigest()
+            finally:
+                print(f"{stage} proposal finished in {time.monotonic() - start:.1f}s "
+                      f"({result.get('status', 'interrupted')})", flush=True)
     (out / "report.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
-    target = report["stages"]["performance"].get("hypothesis", {}).get("platform", "linux-x64")
+    performance = report["stages"]["performance"]
+    hypothesis = performance.get("hypothesis")
+    target = hypothesis["platform"] if hypothesis and supported_hypothesis(hypothesis) else "linux-x64"
     runner = next(row["runner"] for row in RUNNERS if row["platform"] == target)
     with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as output:
         print(f"runner={runner}", file=output)
@@ -363,33 +404,26 @@ def verify_candidate(work, checks):
               checks, 900)
 
 
-def screen_workload(paths):
-    if paths == {"src/framing.rs"}:
-        return "framing"
-    targets = paths - {"src/framing.rs"}
-    if targets == {"src/packet.rs"}:
-        return "udp/v4/http/1"
-    if targets == {"src/stream.rs"}:
-        return "tcp/v4/http/1"
-    raise CheckFailed("performance hypothesis must target one measured path")
-
-
-def performance_hypothesis(notes, paths):
-    workload = screen_workload(paths)
-    allowed = {"cpu_ns_per_payload_byte",
-               "framing_payload_mbps" if workload == "framing" else "download_mbps"}
+def performance_hypothesis(notes):
     fields = {}
     for label in ("Platform", "Workload", "Metric", "Hypothesis"):
         matches = re.findall(rf"^{label}: ([^\n]+)$", notes, re.MULTILINE)
         if len(matches) != 1 or not matches[0].strip():
             raise CheckFailed("missing or ambiguous performance hypothesis")
         fields[label.lower()] = matches[0].strip()
-    platforms = {row["platform"] for row in RUNNERS} if workload == "framing" else {
-        "linux-x64", "linux-arm64"}
-    if (fields["platform"] not in platforms or fields["workload"] != workload
-            or fields["metric"] not in allowed):
-        raise CheckFailed("performance hypothesis does not match the modified path")
+    if any(not re.fullmatch(r"[a-z0-9][a-z0-9_/-]{0,95}", fields[key])
+           for key in ("platform", "workload", "metric")):
+        raise CheckFailed("invalid performance hypothesis identifiers")
     return fields
+
+
+def supported_hypothesis(hypothesis):
+    platform, workload, metric = (hypothesis[key] for key in ("platform", "workload", "metric"))
+    if workload == "framing":
+        return (platform in {row["platform"] for row in RUNNERS}
+                and metric in {"cpu_ns_per_payload_byte", "framing_payload_mbps"})
+    return (workload in DOWNLOAD_WORKLOADS and platform in LINUX_PLATFORMS
+            and metric in {"cpu_ns_per_payload_byte", "download_mbps"})
 
 
 def screen_decision(workload, evidence, metric):
@@ -409,10 +443,7 @@ def screen_decision(workload, evidence, metric):
 
 
 def qualification_decision(framing_result, tunnels, validation_platform, hypothesis):
-    expected_downloads = {f"{transport}/{family}/{app}/{flows}"
-                          for transport in download.TRANSPORTS for family, app, flows in WORKLOADS}
-    if validation_platform not in {"linux-x64", "linux-arm64"}:
-        expected_downloads.clear()
+    expected_downloads = DOWNLOAD_WORKLOADS if validation_platform in LINUX_PLATFORMS else set()
     decision = measurement_decision(framing_result, tunnels)
     if decision != "passed":
         return decision
@@ -469,6 +500,23 @@ def preflight():
         raise ValueError("proposal baseline or guidance mismatch")
     with tempfile.TemporaryDirectory(dir=os.environ["RUNNER_TEMP"]) as folder:
         parent = Path(folder)
+        benchmark = directory / "benchmark-review.patch"
+        performance = report["stages"]["performance"]
+        if "benchmark_sha256" in performance:
+            patch = benchmark.read_bytes()
+            try:
+                if hashlib.sha256(patch).hexdigest() != performance["benchmark_sha256"]:
+                    raise ValueError("benchmark proposal identity mismatch")
+                with checkout(parent, "benchmark-review"):
+                    hosted.apply_patch(patch, benchmark_path)
+            except (ValueError, subprocess.CalledProcessError):
+                benchmark.unlink()
+                performance.pop("benchmark_sha256")
+                performance["benchmark_review"] = "benchmark patch rejected"
+            else:
+                performance["benchmark_review"] = "benchmark patch for maintainer review"
+        elif benchmark.exists():
+            benchmark.unlink()
         for stage, proposal in report["stages"].items():
             if "sha256" not in proposal:
                 continue
@@ -479,16 +527,23 @@ def preflight():
             checks = proposal["preflight"] = {}
             try:
                 with checkout(parent, stage) as work:
+                    if stage == "performance":
+                        hypothesis = performance_hypothesis(proposal.get("notes", ""))
+                        proposal["hypothesis"] = hypothesis
+                        if not supported_hypothesis(hypothesis):
+                            hosted.apply_patch(patch, permitted_path)
+                            changed(stage)
+                            (directory / "performance-review.patch").write_bytes(patch)
+                            proposal["status"] = "awaiting benchmark review"
+                            continue
                     normalized = preflight_patch(stage, patch, work, checks)
                     if not normalized:
                         proposal["status"] = "no change after formatting"
                         continue
                     paths = changed(stage)
                     if stage == "performance":
-                        hypothesis = performance_hypothesis(proposal["notes"], paths)
                         if hypothesis["platform"] != os.environ["VALIDATION_PLATFORM"]:
                             raise ValueError("screen runner does not match the proposal target")
-                        proposal["hypothesis"] = hypothesis
                         workload, metric = hypothesis["workload"], hypothesis["metric"]
                         try:
                             subprocess.run(["cargo", "fetch", "--locked"], cwd=ROOT,
@@ -593,7 +648,7 @@ def qualify():
                             row["framing"] = measure_pair(base_binary, binary)
                             if retry:
                                 row["repeated_measurements"].append("framing")
-                        if validation_platform in {"linux-x64", "linux-arm64"}:
+                        if validation_platform in LINUX_PLATFORMS:
                             prior_downloads = prior.get("downloads", {}) if reuse else {}
                             repeat = (set(workload for workload, block in prior_downloads.items()
                                           if needs_measurement(block)) if prior_downloads else None)
@@ -763,6 +818,10 @@ def publish():
         for stage, proposal in report["stages"].items():
             evidence = evidence_rows(results, stage)
             summary.extend(("", f"## {stage.capitalize()}", "", proposal["status"], "", evidence))
+            if review := proposal.get("benchmark_review"):
+                summary.append(review)
+            if proposal["status"] == "awaiting benchmark review":
+                summary.append("Performance evidence pending a reviewed benchmark. See the proposal artifact.")
             if checks := proposal.get("preflight"):
                 summary.append("Preflight: " + ", ".join(f"{name} {outcome}" for name, outcome in checks.items()))
             if screen := proposal.get("screen"):
@@ -778,6 +837,7 @@ def publish():
                 "proposal": proposal["status"], "qualified": qualified,
                 "patch_sha256": proposal.get("sha256"),
                 "hypothesis": proposal.get("hypothesis"),
+                "benchmark_review": proposal.get("benchmark_review"),
                 "screen": proposal.get("screen", {}).get("decision"),
                 "checks": proposal.get("preflight", {}),
                 "platforms": {row["platform"]: row["stages"][stage]["decision"]
