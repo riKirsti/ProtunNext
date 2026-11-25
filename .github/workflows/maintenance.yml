@@ -53,11 +53,7 @@ jobs:
           toolchain: '1.100.0'
       - name: Install the Linux benchmark sandbox
         if: runner.os == 'Linux'
-        run: |
-          if ! command -v bwrap >/dev/null; then
-            sudo apt-get -o Acquire::Retries=2 -o Acquire::http::Timeout=15 update
-            sudo apt-get install -y --no-install-recommends bubblewrap
-          fi
+        run: bash scripts/setup-benchmark-sandbox.sh
       - run: python3 scripts/measure-download.py
   plan:
     if: >-
@@ -134,11 +130,7 @@ jobs:
           components: rustfmt
       - name: Install the Linux benchmark sandbox
         if: runner.os == 'Linux'
-        run: |
-          if ! command -v bwrap >/dev/null; then
-            sudo apt-get -o Acquire::Retries=2 -o Acquire::http::Timeout=15 update
-            sudo apt-get install -y --no-install-recommends bubblewrap
-          fi
+        run: bash scripts/setup-benchmark-sandbox.sh
       - id: preflight
         run: python scripts/maintenance.py preflight
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

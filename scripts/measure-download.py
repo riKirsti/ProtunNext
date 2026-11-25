@@ -103,7 +103,7 @@ def sample(build_info, baseline, protocol, family, app, flows, blocks):
     affinity = [argument for name, cpu in assignments.items()
                 for argument in ("--setenv", f"NEXT_{name}_CPUS", str(cpu))]
     run = subprocess.run(
-        ["bwrap", "--unshare-user", "--uid", "0", "--gid", "0",
+        ["/usr/bin/bwrap", "--unshare-user", "--uid", "0", "--gid", "0",
          "--unshare-net", "--unshare-pid", "--unshare-ipc", "--unshare-uts",
          "--cap-add", "CAP_NET_ADMIN", "--cap-add", "CAP_SYS_ADMIN",
          "--new-session", "--die-with-parent", "--clearenv",
