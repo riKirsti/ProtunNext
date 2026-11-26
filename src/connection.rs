@@ -209,6 +209,7 @@ impl ControlNetwork {
 }
 #[derive(Default)]
 pub(crate) struct RuntimeServices {
+    pub(crate) compatibility_policy: bool,
     pub(crate) capture: Option<Arc<CaptureState>>,
     #[cfg(feature = "control-plane")]
     pub(crate) control: Option<Arc<ControlNetwork>>,
@@ -504,21 +505,10 @@ impl Connection {
         transport: Transport,
         protector: Option<Arc<dyn SocketProtector>>,
     ) -> Result<Self> {
-        Self::start_with_capture(tun, config, uplink, transport, protector, None)
-    }
-    #[cfg(unix)]
-    pub(crate) fn start_with_capture(
-        tun: Option<BorrowedFd<'_>>,
-        config: WireguardConfig,
-        uplink: String,
-        transport: Transport,
-        protector: Option<Arc<dyn SocketProtector>>,
-        capture: Option<Arc<CaptureState>>,
-    ) -> Result<Self> {
         let owned_tun = tun
             .map(|fd| crate::unix::duplicate_nonblocking(fd.as_raw_fd()))
             .transpose()?;
-        Self::start_owned(owned_tun, config, uplink, transport, protector, capture)
+        Self::start_owned(owned_tun, config, uplink, transport, protector)
     }
     pub(crate) fn start_owned(
         owned_tun: Option<TunHandle>,
@@ -526,16 +516,12 @@ impl Connection {
         uplink: String,
         transport: Transport,
         protector: Option<Arc<dyn SocketProtector>>,
-        capture: Option<Arc<CaptureState>>,
     ) -> Result<Self> {
         Self::start_runtime(
             owned_tun,
             Some((config, uplink, transport)),
             protector,
-            RuntimeServices {
-                capture,
-                ..Default::default()
-            },
+            RuntimeServices::default(),
         )
     }
     pub(crate) fn start_runtime(
@@ -567,7 +553,7 @@ impl Connection {
             path_verified: AtomicBool::new(false),
             next_sample_ms: AtomicU64::new(0),
             owns_capture: capture.is_none(),
-            compatibility_policy: capture.is_some(),
+            compatibility_policy: services.compatibility_policy,
             capture: capture.unwrap_or_else(|| Arc::new(CaptureState::default())),
             tun_update: Mutex::new(None),
             protector,
