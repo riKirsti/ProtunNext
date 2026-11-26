@@ -150,6 +150,69 @@ impl Account {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn interface_updates_do_not_reapply_account_settings() {
+        use super::super::{Command as SupervisorCommand, Notifications, Supervisor};
+
+        let settings = LocalAgentSettings {
+            split_tcp: Some(true),
+            ..Default::default()
+        };
+        let mut supervisor = Supervisor::new(
+            InitialConnectionConfig {
+                peers: Vec::new(),
+                network_available: false,
+                pcap_file: None,
+                connection_mode: ConnectionMode::LocalAgent {
+                    user_agent: "fixture".into(),
+                    app_version: "fixture".into(),
+                    settings: LocalAgentSettings::default(),
+                    muon_env: MuonEnv::Prod,
+                    certificate_duration: None,
+                },
+                sni_strategy: SniStrategy::Random,
+            },
+            None,
+            Arc::new(crate::api::cache::MemoryCache::default()),
+            Notifications::new(Box::new(|_| {}), Box::new(|_| {})),
+        );
+        let (service, mut commands) = Service::command_probe();
+        supervisor.account.service = Some(service);
+
+        supervisor
+            .command(SupervisorCommand::Update(ConfigUpdate::default()))
+            .unwrap();
+        #[cfg(unix)]
+        supervisor
+            .command(SupervisorCommand::Update(ConfigUpdate {
+                tun: Some(TunStreamInfo::NoTun),
+                ..Default::default()
+            }))
+            .unwrap();
+        assert!(commands.is_empty());
+
+        supervisor
+            .command(SupervisorCommand::Update(ConfigUpdate {
+                settings: Some(settings.clone()),
+                ..Default::default()
+            }))
+            .unwrap();
+        assert!(
+            matches!(commands.try_recv(), Ok(Command::Settings(applied, None)) if applied == settings)
+        );
+        supervisor
+            .command(SupervisorCommand::Update(ConfigUpdate {
+                peers: Some(vec![peer()]),
+                ..Default::default()
+            }))
+            .unwrap();
+        assert!(
+            matches!(commands.try_recv(), Ok(Command::Settings(applied, None)) if applied == settings)
+        );
+        assert!(commands.is_empty());
+    }
+
     fn peer() -> PeerInfo {
         PeerInfo {
             peer_id: "fixture".into(),

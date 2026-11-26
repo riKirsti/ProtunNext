@@ -104,26 +104,12 @@ impl Connection {
         let join = thread::Builder::new()
             .name("protun-next-control".into())
             .spawn(move || {
-                let mut actor = Supervisor {
+                let mut actor = Supervisor::new(
                     config,
-                    tun: None,
-                    protector: socket_protector,
-                    cache: Arc::from(cache),
-                    notifications: Notifications::new(state_change_callback, event_callback),
-                    worker: None,
-                    peers: PeerPlan::new(Instant::now()),
-                    active: None,
-                    attempt_at: Instant::now(),
-                    key: Zeroizing::new([0; 32]),
-                    capture: Arc::new(CaptureState::default()),
-                    #[cfg(feature = "local-agent")]
-                    account: account::Account::default(),
-                    #[cfg(feature = "control-plane")]
-                    control: None,
-                    #[cfg(all(feature = "control-plane", not(feature = "local-agent")))]
-                    local_http: None,
-                    fatal: false,
-                };
+                    socket_protector,
+                    Arc::from(cache),
+                    Notifications::new(state_change_callback, event_callback),
+                );
                 match owned_tun {
                     Ok(tun) => actor.tun = tun,
                     Err(error) => {
@@ -255,6 +241,34 @@ struct Supervisor {
     fatal: bool,
 }
 impl Supervisor {
+    fn new(
+        config: InitialConnectionConfig,
+        protector: Option<Arc<dyn SocketProtector>>,
+        cache: Arc<dyn PersistentCache>,
+        notifications: Notifications,
+    ) -> Self {
+        Self {
+            config,
+            tun: None,
+            protector,
+            cache,
+            notifications,
+            worker: None,
+            peers: PeerPlan::new(Instant::now()),
+            active: None,
+            attempt_at: Instant::now(),
+            key: Zeroizing::new([0; 32]),
+            capture: Arc::new(CaptureState::default()),
+            #[cfg(feature = "local-agent")]
+            account: account::Account::default(),
+            #[cfg(feature = "control-plane")]
+            control: None,
+            #[cfg(all(feature = "control-plane", not(feature = "local-agent")))]
+            local_http: None,
+            fatal: false,
+        }
+    }
+
     fn initialize(&mut self) -> Result<()> {
         self.notifications.start(platform::boottime()?);
         #[cfg(not(feature = "local-agent"))]
@@ -509,6 +523,8 @@ impl Supervisor {
                     .as_ref()
                     .map(|tun| tun.as_ref().map(platform::clone_tun).transpose())
                     .transpose()?;
+                #[cfg(feature = "local-agent")]
+                let update_account = update.peers.is_some() || update.settings.is_some();
                 if let Some(peers) = update.peers {
                     self.config.peers = peers;
                     self.peers.rebuild(&mut self.config.peers);
@@ -537,10 +553,12 @@ impl Supervisor {
                     *current = settings;
                 }
                 #[cfg(feature = "local-agent")]
-                self.account.settings(
-                    &self.config.connection_mode,
-                    self.active.as_ref().map(|p| &p.peer),
-                );
+                if update_account {
+                    self.account.settings(
+                        &self.config.connection_mode,
+                        self.active.as_ref().map(|p| &p.peer),
+                    );
+                }
                 if let Some(tun) = replacement {
                     if let Some(worker) = &self.worker {
                         worker.replace_owned_tun(worker_tun.expect("prepared update"));
