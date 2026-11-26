@@ -7,6 +7,7 @@ use super::{
 use crate::{
     Error, Result,
     config::WireguardConfig,
+    connection::Observer,
     network::Network,
     packet::{PacketPool, PacketQueue},
     path_probe::{Action as ProbeAction, PathProbe},
@@ -27,12 +28,14 @@ pub(crate) fn run<N: Network>(
     config: &WireguardConfig,
     mut network: N,
     stop: &AtomicBool,
-    observer: Option<&crate::connection::Observer>,
+    observer: Option<&Observer>,
 ) -> Result<Counters> {
     let mut tun = tun_file.map(TunDevice::new).transpose()?;
-    let policy = PacketPolicy::new(config, observer)?;
-    let compatibility_policy = policy.compatibility;
-    let addresses = policy.addresses;
+    let compatibility_policy = observer.is_some_and(Observer::compatibility_policy);
+    let addresses = observer.map_or_else(Default::default, Observer::addresses);
+    let policy = PacketPolicy::new(config, compatibility_policy, addresses)?;
+    #[cfg(feature = "control-plane")]
+    let control = observer.map(Observer::control_network);
     let handshake_deadline = boottime()? + Duration::from_secs(10);
     let mut poll = Poll::new()?;
     let waker = std::sync::Arc::new(mio::Waker::new(poll.registry(), CONTROL)?);
@@ -203,7 +206,12 @@ pub(crate) fn run<N: Network>(
                         pool.recycle(input)?;
                         continue;
                     }
-                    match policy.outbound(&mut input, batch_now)? {
+                    match policy.outbound(
+                        &input,
+                        #[cfg(feature = "control-plane")]
+                        control,
+                        batch_now,
+                    )? {
                         Decision::Forward => {}
                         Decision::Consumed => {
                             pool.recycle(input)?;
@@ -214,6 +222,18 @@ pub(crate) fn run<N: Network>(
                             pool.recycle(input)?;
                             continue;
                         }
+                    }
+                    if let Some(observer) = observer {
+                        observer.capture(input.data());
+                    }
+                    #[cfg(feature = "control-plane")]
+                    if compatibility_policy
+                        && let Some(control) = control
+                        && control.customer_outbound(input.data_mut()).is_err()
+                    {
+                        counters.outbound_filtered += 1;
+                        pool.recycle(input)?;
+                        continue;
                     }
                     let (result, mut output) = encrypt_owned(&mut session, input)?;
                     counters.in_place_encryptions += 1;
@@ -245,7 +265,7 @@ pub(crate) fn run<N: Network>(
         }
         #[cfg(feature = "control-plane")]
         for _ in 0..BUDGET {
-            let Some(observer) = observer else {
+            let Some(control) = control else {
                 break;
             };
             if network_error.is_some()
@@ -255,7 +275,7 @@ pub(crate) fn run<N: Network>(
                 break;
             }
             let mut input = pool.take_sized(65535).ok_or(Error::Full)?;
-            let Some(n) = observer.internal_read(input.writable(), batch_now)? else {
+            let Some(n) = control.read_packet(input.writable(), batch_now)? else {
                 pool.recycle(input)?;
                 break;
             };
@@ -268,13 +288,15 @@ pub(crate) fn run<N: Network>(
                 }
                 continue;
             }
-            observer.capture(input.data());
+            if let Some(observer) = observer {
+                observer.capture(input.data());
+            }
             let (result, mut output) = encrypt_owned(&mut session, input)?;
             counters.in_place_encryptions += 1;
             match result {
                 Output::Network(n) => {
                     output.set_data_len(n)?;
-                    enqueue_network(&mut pool, &mut to_net, output, Some(observer), &mut probe)?;
+                    enqueue_network(&mut pool, &mut to_net, output, observer, &mut probe)?;
                     drain = true;
                 }
                 _ => pool.recycle(output)?,
@@ -316,7 +338,15 @@ pub(crate) fn run<N: Network>(
                             {
                                 observer.confirm_path();
                             }
-                            match policy.inbound(&mut output, batch_now)? {
+                            if let Some(observer) = observer {
+                                observer.capture(output.data());
+                            }
+                            match policy.inbound(
+                                &mut output,
+                                #[cfg(feature = "control-plane")]
+                                control,
+                                batch_now,
+                            )? {
                                 Decision::Forward if tun.is_some() => {
                                     enqueue(&mut pool, &mut to_tun, output)?
                                 }
@@ -515,8 +545,8 @@ pub(crate) fn run<N: Network>(
                 .min(Duration::from_millis(250))
         };
         #[cfg(feature = "control-plane")]
-        let timeout = observer
-            .and_then(|o| boottime().ok().and_then(|now| o.internal_wakeup(now)))
+        let timeout = control
+            .and_then(|control| boottime().ok().and_then(|now| control.next_wakeup(now)))
             .map_or(timeout, |internal| internal.min(timeout));
         let timeout = if network.handshaking() {
             timeout
