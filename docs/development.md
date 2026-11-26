@@ -141,10 +141,12 @@ and shutdown remain responsive under backpressure.
 Inside the engine, the live reactor owns readiness, budgets, timers and delivery
 order; the offline worker keeps local services alive without an uplink. Packet
 ownership helpers retain buffers through crypto and recycle queue rejections.
-A private packet policy reports forward/consumed/filtered decisions without
-owning queues. Authentication/replay commit and path confirmation precede inbound
-policy; outbound capture remains before customer translation. Consumed service
-or probe traffic is distinct from filtered traffic in counters.
+A private packet policy reports forward/consumed/filtered decisions at the
+worker interface. Both workers use the same private network interface for local
+services. The live reactor owns capture order: authentication/replay commit and
+path confirmation precede inbound capture and policy, and outbound capture
+precedes customer translation. Consumed service or probe traffic is distinct
+from filtered traffic in counters.
 
 The production receiver is serial. Complete TCP frames are extracted directly;
 borrowed TLS input uses MTU-sized bounded prefetch. Linux/Android use UDP mmsg

@@ -1,5 +1,7 @@
 //! Local-service worker while no authenticated uplink exists.
-use super::{BUDGET, CONTROL, TUN, detach_tun, packets::enqueue};
+#[cfg(feature = "control-plane")]
+use super::packets::enqueue;
+use super::{BUDGET, CONTROL, TUN, detach_tun};
 use crate::{
     Error, Result,
     connection::Observer,
@@ -22,6 +24,8 @@ pub(crate) fn run_offline(
     stop: &AtomicBool,
     observer: &Observer,
 ) -> Result<Counters> {
+    #[cfg(feature = "control-plane")]
+    let (control, addresses) = (observer.control_network(), observer.addresses());
     let mut tun = tun_file.map(TunDevice::new).transpose()?;
     let mut poll = Poll::new()?;
     let waker = std::sync::Arc::new(mio::Waker::new(poll.registry(), CONTROL)?);
@@ -84,10 +88,9 @@ pub(crate) fn run_offline(
                     counters.tun_reads += 1;
                     packet.set_len(n)?;
                     #[cfg(feature = "control-plane")]
-                    let local =
-                        crate::virtual_policy::outbound_with(packet.data(), observer.addresses())
-                            == crate::virtual_policy::Route::LocalService
-                            && observer.internal_local(packet.data(), boottime()?)?;
+                    let local = crate::virtual_policy::outbound_with(packet.data(), addresses)
+                        == crate::virtual_policy::Route::LocalService
+                        && control.receive_local(packet.data(), boottime()?, addresses)?;
                     #[cfg(not(feature = "control-plane"))]
                     let local = false;
                     if !local {
@@ -118,16 +121,13 @@ pub(crate) fn run_offline(
                 break;
             }
             let mut packet = pool.take().ok_or(Error::Full)?;
-            let Some(n) = observer.internal_read(packet.writable(), boottime()?)? else {
+            let Some(n) = control.read_packet(packet.writable(), boottime()?)? else {
                 pool.recycle(packet)?;
                 break;
             };
             packet.set_len(n)?;
             if tun.is_some()
-                && crate::api::internal::local_service_source_with(
-                    packet.data(),
-                    observer.addresses(),
-                )
+                && crate::api::internal::local_service_source_with(packet.data(), addresses)
             {
                 enqueue(&mut pool, &mut replies, packet)?;
             } else {
@@ -189,8 +189,8 @@ pub(crate) fn run_offline(
             Duration::from_millis(250)
         };
         #[cfg(feature = "control-plane")]
-        let timeout = observer
-            .internal_wakeup(boottime()?)
+        let timeout = control
+            .next_wakeup(boottime()?)
             .map_or(timeout, |delay| delay.min(timeout));
         #[cfg(windows)]
         let timeout = if wants_write {

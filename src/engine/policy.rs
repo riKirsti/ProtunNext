@@ -1,7 +1,9 @@
 //! Routing and service decisions; the reactor retains packet/queue ownership.
+#[cfg(feature = "control-plane")]
+use crate::connection::ControlNetwork;
 use crate::{
-    Result, addressing::Addresses, config::WireguardConfig, connection::Observer, packet::Packet,
-    path_probe::PathProbe, routing::AllowedIps,
+    Result, addressing::Addresses, config::WireguardConfig, packet::Packet, path_probe::PathProbe,
+    routing::AllowedIps,
 };
 use std::time::Duration;
 
@@ -11,26 +13,30 @@ pub(super) enum Decision {
     Filtered,
 }
 
-pub(super) struct PacketPolicy<'a> {
+pub(super) struct PacketPolicy {
     allowed: AllowedIps,
-    pub compatibility: bool,
-    pub addresses: Addresses,
-    observer: Option<&'a Observer>,
+    compatibility: bool,
+    addresses: Addresses,
 }
-impl<'a> PacketPolicy<'a> {
-    pub fn new(config: &WireguardConfig, observer: Option<&'a Observer>) -> Result<Self> {
-        let allowed = AllowedIps::new(&config.allowed_ips)?;
-        let compatibility = observer.is_some_and(|o| o.compatibility_policy());
-        let addresses = observer.map_or_else(Default::default, Observer::addresses);
+impl PacketPolicy {
+    pub fn new(
+        config: &WireguardConfig,
+        compatibility: bool,
+        addresses: Addresses,
+    ) -> Result<Self> {
         Ok(Self {
-            allowed,
+            allowed: AllowedIps::new(&config.allowed_ips)?,
             compatibility,
             addresses,
-            observer,
         })
     }
 
-    pub fn outbound(&self, packet: &mut Packet, now: Duration) -> Result<Decision> {
+    pub fn outbound(
+        &self,
+        packet: &Packet,
+        #[cfg(feature = "control-plane")] control: Option<&ControlNetwork>,
+        now: Duration,
+    ) -> Result<Decision> {
         #[cfg(not(feature = "control-plane"))]
         let _ = now;
         if self.compatibility
@@ -43,30 +49,23 @@ impl<'a> PacketPolicy<'a> {
             return Ok(Decision::Filtered);
         }
         #[cfg(feature = "control-plane")]
-        if let Some(observer) = self.observer
-            && observer.internal_local(packet.data(), now)?
+        if let Some(control) = control
+            && control.receive_local(packet.data(), now, self.addresses)?
         {
             return Ok(Decision::Consumed);
-        }
-        if let Some(observer) = self.observer {
-            observer.capture(packet.data());
-        }
-        #[cfg(feature = "control-plane")]
-        if let Some(observer) = self.observer
-            && observer.customer_outbound(packet.data_mut()).is_err()
-        {
-            return Ok(Decision::Filtered);
         }
         Ok(Decision::Forward)
     }
 
     // Called only after successful authentication/replay commit and path confirmation.
-    pub fn inbound(&self, packet: &mut Packet, now: Duration) -> Result<Decision> {
+    pub fn inbound(
+        &self,
+        packet: &mut Packet,
+        #[cfg(feature = "control-plane")] control: Option<&ControlNetwork>,
+        now: Duration,
+    ) -> Result<Decision> {
         #[cfg(not(feature = "control-plane"))]
         let _ = now;
-        if let Some(observer) = self.observer {
-            observer.capture(packet.data());
-        }
         if self.compatibility && PathProbe::is_reply(packet.data()) {
             return Ok(Decision::Consumed);
         }
@@ -76,8 +75,8 @@ impl<'a> PacketPolicy<'a> {
             return Ok(Decision::Filtered);
         }
         #[cfg(feature = "control-plane")]
-        let disposition = if let Some(observer) = self.observer {
-            observer.internal_receive(packet.data_mut(), now)?
+        let disposition = if let Some(control) = control {
+            control.receive_routed(packet.data_mut(), now)?
         } else {
             crate::api::internal::PacketDisposition::Untracked
         };
