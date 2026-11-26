@@ -42,5 +42,5 @@ pub fn start_without_tun(
     config: crate::config::WireguardConfig,
     transport: crate::transport::Transport,
 ) -> Result<crate::connection::Connection> {
-    crate::connection::Connection::start_owned(None, config, String::new(), transport, None, None)
+    crate::connection::Connection::start_owned(None, config, String::new(), transport, None)
 }
