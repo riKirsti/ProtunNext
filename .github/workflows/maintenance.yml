@@ -8,17 +8,21 @@ on:
         description: Run all stages without opening drafts, merging or advancing the schedule
         type: boolean
         default: true
+      benchmark_evidence:
+        description: Run the fixed Linux download replay and macOS baseline calibration
+        type: boolean
+        default: false
       opencode_smoke:
         description: Verify the locked model and hosted tools on an isolated fixture
         type: boolean
         default: false
 permissions: {}
 concurrency:
-  group: ${{ inputs.opencode_smoke && 'protunnext-opencode-smoke' || 'protunnext-31-day-maintenance' }}
+  group: ${{ inputs.benchmark_evidence && 'protunnext-benchmark-evidence' || inputs.opencode_smoke && 'protunnext-opencode-smoke' || 'protunnext-31-day-maintenance' }}
   cancel-in-progress: false
 jobs:
   opencode-smoke:
-    if: github.event_name == 'workflow_dispatch' && inputs.preview && inputs.opencode_smoke
+    if: github.event_name == 'workflow_dispatch' && inputs.preview && inputs.opencode_smoke && !inputs.benchmark_evidence
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -35,7 +39,7 @@ jobs:
           OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
         run: python scripts/opencode_smoke.py
   benchmark-smoke:
-    if: github.event_name == 'workflow_dispatch' && inputs.preview && !inputs.opencode_smoke
+    if: github.event_name == 'workflow_dispatch' && inputs.preview && !inputs.opencode_smoke && !inputs.benchmark_evidence
     strategy:
       fail-fast: false
       matrix:
@@ -57,7 +61,7 @@ jobs:
       - run: python3 scripts/measure-download.py
   plan:
     if: >-
-      !inputs.opencode_smoke && (github.ref == 'refs/heads/main' ||
+      !inputs.benchmark_evidence && !inputs.opencode_smoke && (github.ref == 'refs/heads/main' ||
       (github.event_name == 'workflow_dispatch' && inputs.preview))
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -103,16 +107,61 @@ jobs:
           path: ${{ runner.temp }}/maintenance-proposals/
           if-no-files-found: error
           retention-days: 1
+  replay-input:
+    if: github.event_name == 'workflow_dispatch' && inputs.preview && inputs.benchmark_evidence
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.13'
+      - run: python scripts/maintenance-evidence.py seed
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: maintenance-raw-proposals
+          path: ${{ runner.temp }}/maintenance-proposals/
+          if-no-files-found: error
+          retention-days: 1
+  macos-calibration:
+    if: github.event_name == 'workflow_dispatch' && inputs.preview && inputs.benchmark_evidence
+    runs-on: macos-26
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.13'
+      - uses: dtolnay/rust-toolchain@df2a88e9fe4098bad09cb42c3dec7187f15861fc
+        with:
+          toolchain: '1.100.0'
+      - run: cargo fetch --locked
+      - run: python scripts/maintenance-evidence.py calibrate
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: macos-benchmark-calibration
+          path: ${{ runner.temp }}/macos-benchmark-calibration.json
+          if-no-files-found: error
+          retention-days: 14
   preflight:
-    needs: propose
-    runs-on: ${{ needs.propose.outputs.runner }}
+    needs: [propose, replay-input]
+    if: ${{ !cancelled() && (needs.propose.result == 'success' || needs.replay-input.result == 'success') }}
+    runs-on: ${{ needs.replay-input.result == 'success' && 'ubuntu-24.04-arm' || needs.propose.outputs.runner }}
     timeout-minutes: 15
     permissions:
       contents: read
     outputs:
       candidates: ${{ steps.preflight.outputs.candidates }}
     env:
-      VALIDATION_PLATFORM: ${{ needs.propose.outputs.platform }}
+      VALIDATION_PLATFORM: ${{ needs.replay-input.result == 'success' && 'linux-arm64' || needs.propose.outputs.platform }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -133,6 +182,8 @@ jobs:
         run: bash scripts/setup-benchmark-sandbox.sh
       - id: preflight
         run: python scripts/maintenance.py preflight
+      - if: needs.replay-input.result == 'success'
+        run: python scripts/maintenance-evidence.py check-replay
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: maintenance-proposals

@@ -21,10 +21,10 @@ import time
 ROOT = Path(__file__).resolve().parent.parent
 
 
-def measure(executable):
+def measure(executable, seconds=1):
     with tempfile.TemporaryFile() as output:
         started = time.perf_counter()
-        process = subprocess.Popen([str(executable)], stdout=output, stderr=subprocess.DEVNULL)
+        process = subprocess.Popen([str(executable), str(seconds)], stdout=output, stderr=subprocess.DEVNULL)
         if os.name == "nt":
             from ctypes import wintypes as w
 
