@@ -125,6 +125,87 @@ impl ControlNetwork {
             let _ = waker.wake();
         }
     }
+    pub(crate) fn read_packet(&self, output: &mut [u8], now: Duration) -> Result<Option<usize>> {
+        if !self.enabled.load(Ordering::Relaxed) {
+            return Ok(None);
+        }
+        match self
+            .network
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_mut()
+        {
+            Some(network) => network.read_packet(output, now),
+            None => Ok(None),
+        }
+    }
+    pub(crate) fn receive_routed(
+        &self,
+        bytes: &mut [u8],
+        now: Duration,
+    ) -> Result<crate::api::internal::PacketDisposition> {
+        if !self.enabled.load(Ordering::Relaxed)
+            || !crate::api::internal::InternalNetwork::might_receive(bytes)
+        {
+            return Ok(crate::api::internal::PacketDisposition::Untracked);
+        }
+        match self
+            .network
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_mut()
+        {
+            Some(network) => network.receive_routed(bytes, now),
+            None => Ok(crate::api::internal::PacketDisposition::Untracked),
+        }
+    }
+    pub(crate) fn customer_outbound(&self, bytes: &mut [u8]) -> Result<()> {
+        if !self.enabled.load(Ordering::Relaxed)
+            || !crate::api::internal::InternalNetwork::might_send(bytes)
+        {
+            return Ok(());
+        }
+        if let Some(network) = self
+            .network
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_mut()
+        {
+            network.customer_outbound(bytes)?;
+        }
+        Ok(())
+    }
+    pub(crate) fn receive_local(
+        &self,
+        bytes: &[u8],
+        now: Duration,
+        addresses: crate::addressing::Addresses,
+    ) -> Result<bool> {
+        if !self.enabled.load(Ordering::Relaxed)
+            || !crate::api::internal::local_service_destination_with(bytes, addresses)
+        {
+            return Ok(false);
+        }
+        match self
+            .network
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_mut()
+        {
+            Some(network) => network.receive_local(bytes, now),
+            None => Ok(false),
+        }
+    }
+    pub(crate) fn next_wakeup(&self, now: Duration) -> Option<Duration> {
+        if !self.enabled.load(Ordering::Relaxed) {
+            return None;
+        }
+        self.network
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_ref()
+            .and_then(|n| n.next_wakeup(now))
+    }
 }
 #[derive(Default)]
 pub(crate) struct RuntimeServices {
@@ -209,96 +290,8 @@ impl Observer {
         *self.shared.waker.lock().unwrap_or_else(|e| e.into_inner()) = Some(waker);
     }
     #[cfg(feature = "control-plane")]
-    pub(crate) fn internal_read(&self, output: &mut [u8], now: Duration) -> Result<Option<usize>> {
-        if !self.shared.internal.enabled.load(Ordering::Relaxed) {
-            return Ok(None);
-        }
-        match self
-            .shared
-            .internal
-            .network
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .as_mut()
-        {
-            Some(network) => network.read_packet(output, now),
-            None => Ok(None),
-        }
-    }
-    #[cfg(feature = "control-plane")]
-    pub(crate) fn internal_receive(
-        &self,
-        bytes: &mut [u8],
-        now: Duration,
-    ) -> Result<crate::api::internal::PacketDisposition> {
-        if !self.shared.internal.enabled.load(Ordering::Relaxed)
-            || !crate::api::internal::InternalNetwork::might_receive(bytes)
-        {
-            return Ok(crate::api::internal::PacketDisposition::Untracked);
-        }
-        match self
-            .shared
-            .internal
-            .network
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .as_mut()
-        {
-            Some(network) => network.receive_routed(bytes, now),
-            None => Ok(crate::api::internal::PacketDisposition::Untracked),
-        }
-    }
-    #[cfg(feature = "control-plane")]
-    pub(crate) fn customer_outbound(&self, bytes: &mut [u8]) -> Result<()> {
-        if !self.shared.compatibility_policy
-            || !self.shared.internal.enabled.load(Ordering::Relaxed)
-            || !crate::api::internal::InternalNetwork::might_send(bytes)
-        {
-            return Ok(());
-        }
-        if let Some(network) = self
-            .shared
-            .internal
-            .network
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .as_mut()
-        {
-            network.customer_outbound(bytes)?;
-        }
-        Ok(())
-    }
-    #[cfg(feature = "control-plane")]
-    pub(crate) fn internal_local(&self, bytes: &[u8], now: Duration) -> Result<bool> {
-        if !self.shared.internal.enabled.load(Ordering::Relaxed)
-            || !crate::api::internal::local_service_destination_with(bytes, self.shared.addresses)
-        {
-            return Ok(false);
-        }
-        match self
-            .shared
-            .internal
-            .network
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .as_mut()
-        {
-            Some(network) => network.receive_local(bytes, now),
-            None => Ok(false),
-        }
-    }
-    #[cfg(feature = "control-plane")]
-    pub(crate) fn internal_wakeup(&self, now: Duration) -> Option<Duration> {
-        if !self.shared.internal.enabled.load(Ordering::Relaxed) {
-            return None;
-        }
-        self.shared
-            .internal
-            .network
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .as_ref()
-            .and_then(|n| n.next_wakeup(now))
+    pub(crate) fn control_network(&self) -> &ControlNetwork {
+        &self.shared.internal
     }
     pub(crate) fn protector(&self) -> Option<&dyn SocketProtector> {
         self.shared.protector.as_deref()
