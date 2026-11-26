@@ -138,6 +138,61 @@ impl Drop for Connection {
         self.disconnect_and_wait();
     }
 }
+
+#[cfg(test)]
+#[test]
+fn invalid_initial_capture_does_not_stop_managed_connection() {
+    let directory = tempfile::tempdir().unwrap();
+    let (state_tx, states) = mpsc::channel();
+    let (event_tx, events) = mpsc::channel();
+    let connection = Connection::connect_platform(
+        InitialConnectionConfig {
+            peers: Vec::new(),
+            network_available: false,
+            pcap_file: Some(PcapFileInfo {
+                file: PcapFile::Path {
+                    path: directory.path().to_str().unwrap().into(),
+                    mode: FileWriteMode::Overwrite,
+                },
+                max_bytes: None,
+            }),
+            connection_mode: ConnectionMode::NoLocalAgent {
+                wg_private_key: Some(WgClientPrivateKey([7; 32])),
+            },
+            sni_strategy: SniStrategy::Random,
+        },
+        Ok(None),
+        Box::new(move |state| state_tx.send(state).unwrap()),
+        Box::new(move |event| event_tx.send(event).unwrap()),
+        None,
+        Box::new(super::cache::MemoryCache::default()),
+    );
+    let timeout = Duration::from_secs(4);
+    let state = states.recv_timeout(timeout).unwrap();
+    assert_eq!(
+        state.connection_state,
+        ConnectionState::Connecting {
+            peers: Vec::new(),
+            wait_reasons: vec![PeerConnectionWaitReason::WaitingForNetwork],
+        }
+    );
+
+    let path = directory.path().join("capture.pcap");
+    connection.start_packet_capture(PcapFileInfo {
+        file: PcapFile::Path {
+            path: path.to_str().unwrap().into(),
+            mode: FileWriteMode::Overwrite,
+        },
+        max_bytes: None,
+    });
+    assert!(matches!(
+        events.recv_timeout(timeout).unwrap(),
+        Event::PacketCaptureStarted { .. }
+    ));
+    connection.disconnect_and_wait();
+    assert_eq!(std::fs::metadata(path).unwrap().len(), 24);
+}
+
 #[cfg(unix)]
 fn take_descriptor(fd: i32) -> Result<TunHandle> {
     // Validate before changing any supervisor state, including atomic updates.
@@ -229,8 +284,10 @@ impl Supervisor {
             } => key.0,
             _ => Identity::load_or_generate(self.cache.as_ref())?.wireguard_key(),
         });
-        if let Some(info) = self.config.pcap_file.clone() {
-            self.capture.start(info)?;
+        if let Some(info) = self.config.pcap_file.take()
+            && let Err(error) = self.capture.start(info)
+        {
+            log::error!("failed to start initial packet capture: {error}");
         }
         self.peers.rebuild(&mut self.config.peers);
         #[cfg(feature = "control-plane")]
@@ -323,6 +380,7 @@ impl Supervisor {
     }
     fn runtime_services(&self) -> crate::connection::RuntimeServices {
         crate::connection::RuntimeServices {
+            compatibility_policy: true,
             capture: Some(self.capture.clone()),
             #[cfg(feature = "control-plane")]
             control: self.control.clone(),
