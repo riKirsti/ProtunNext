@@ -1,4 +1,4 @@
-name: ProtunNext combined decoupling validation
+name: ProtunNext ARM64 UDP follow-up
 on:
   workflow_dispatch:
 permissions:
@@ -8,9 +8,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+        runner: [ubuntu-24.04-arm]
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 60
+    timeout-minutes: 25
     env:
       BASELINE_SHA: 3ef3e414f5ed3820b9684f59870c2169f893ba7c
       CANDIDATE_SHA: 1c5cef8c129f33573b4d16d708a22c5714d4b00a
@@ -36,83 +36,6 @@ jobs:
           cd "$RUNNER_TEMP/baseline"
           bash scripts/setup-benchmark-sandbox.sh
           cargo fetch --locked
-      - name: Compare managed startup and reconnect
-        working-directory: ${{ runner.temp }}/baseline
-        shell: bash
-        run: |
-          set -euo pipefail
-          PYTHONPATH=scripts python - <<'PY'
-          import json
-          import os
-          import re
-          import statistics
-          import subprocess
-          from pathlib import Path
-
-          import maintenance
-
-          temp = Path(os.environ["RUNNER_TEMP"])
-          name = "compatibility_supervisor_handshakes_without_tun_retains_peer_and_recovers_network"
-
-          def build(label):
-              source = temp / label
-              fixture = source / "tests/api_connection.rs"
-              text = fixture.read_text()
-              edits = [
-                  ("    let first_size = std::fs::metadata(&path).unwrap().len();",
-                   "    let startup_us = started.elapsed().as_micros();\n"
-                   "    let first_size = std::fs::metadata(&path).unwrap().len();"),
-                  ("    connection.on_connectivity_change(ConnectivityEvent::Up);",
-                   "    let recovery = Instant::now();\n"
-                   "    connection.on_connectivity_change(ConnectivityEvent::Up);"),
-                  ("    assert_eq!(protected.load(Ordering::Relaxed), 2);",
-                   "    println!(\"DECOUPLING_TIMING {startup_us} {}\", recovery.elapsed().as_micros());\n"
-                   "    assert_eq!(protected.load(Ordering::Relaxed), 2);"),
-              ]
-              for before, after in edits:
-                  assert text.count(before) == 1, before
-                  text = text.replace(before, after)
-              fixture.write_text(text)
-              try:
-                  output = subprocess.check_output(
-                      ["cargo", "test", "--locked", "--offline", "--features", "unix",
-                       "--test", "api_connection", "--no-run", "--message-format=json",
-                       "--target-dir", str(temp / f"{label}-test-target")],
-                      cwd=source, text=True,
-                  )
-              finally:
-                  subprocess.run(["git", "restore", "--", "tests/api_connection.rs"], cwd=source, check=True)
-              rows = [json.loads(line) for line in output.splitlines() if line.startswith("{")]
-              return next(row["executable"] for row in rows if row.get("executable")
-                          and row.get("target", {}).get("name") == "api_connection")
-
-          def measure(executable):
-              result = subprocess.run([executable, "--exact", name, "--nocapture"],
-                                      text=True, capture_output=True, timeout=30)
-              if result.returncode:
-                  raise RuntimeError(result.stdout + result.stderr)
-              timing = re.findall(r"DECOUPLING_TIMING (\d+) (\d+)", result.stdout)
-              assert len(timing) == 1 and "1 passed" in result.stdout, result.stdout
-              return dict(zip(("startup_us", "reconnect_us"), map(int, timing[0])))
-
-          baseline, candidate = build("baseline"), build("candidate")
-          control, pairs = maintenance.paired_samples(measure, baseline, candidate)
-          metrics = {}
-          for key in ("startup_us", "reconnect_us"):
-              noise = max(abs(b[key] - a[key]) for a, b in control)
-              paired_delta = sorted(b[key] - a[key] for a, b in pairs)
-              # The existing supervisor's poll interval sets the timing tolerance.
-              budget = 20_000
-              decision = ("passed" if noise <= budget and paired_delta[-2] <= budget
-                          else "regression" if noise <= budget and paired_delta[1] > budget
-                          else "measurement inconclusive")
-              metrics[key] = {"control_spread_us": noise, "median_delta_us": statistics.median(paired_delta),
-                              "budget_us": budget, "decision": decision}
-          data = {"aa": control, "ab": pairs, "metrics": metrics,
-                  "baseline": os.environ["BASELINE_SHA"], "candidate": os.environ["CANDIDATE_SHA"]}
-          (temp / "decoupling-timing.json").write_text(json.dumps(data, indent=2))
-          print(json.dumps(metrics), flush=True)
-          PY
       - name: Compare sustained UDP, TCP, and Stealth downloads
         working-directory: ${{ runner.temp }}/baseline
         shell: bash
@@ -135,8 +58,8 @@ jobs:
               "architecture": platform.machine(),
               "workloads": {},
           }
-          path = root / "decoupling-paired.json"
-          for workload in sorted(maintenance.DOWNLOAD_WORKLOADS):
+          path = root / "decoupling-paired-retry.json"
+          for workload in ["udp/v4/http/1"]:
               report["workloads"].update(maintenance.measure_tunnels(baseline, candidate, {workload}))
               path.write_text(json.dumps(report, indent=2), encoding="utf-8")
               row = report["workloads"][workload]
@@ -151,9 +74,7 @@ jobs:
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         if: always()
         with:
-          name: decoupling-paired-${{ matrix.runner }}
-          path: |
-            ${{ runner.temp }}/decoupling-paired.json
-            ${{ runner.temp }}/decoupling-timing.json
+          name: decoupling-paired-retry-${{ matrix.runner }}
+          path: ${{ runner.temp }}/decoupling-paired-retry.json
           if-no-files-found: warn
           retention-days: 14
