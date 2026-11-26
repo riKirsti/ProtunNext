@@ -11,9 +11,14 @@ fn main() {
     let mut pool = PacketPool::new(2, 2048).unwrap();
     let mut tx = Encoder::default();
     let mut rx = Decoder::new(65536).unwrap();
+    let seconds = std::env::args()
+        .nth(1)
+        .map(|value| value.parse::<u64>().expect("benchmark duration"))
+        .unwrap_or(1);
+    assert!((1..=5).contains(&seconds));
     let start = Instant::now();
     let mut count = 0u64;
-    while start.elapsed() < Duration::from_secs(1) {
+    while start.elapsed() < Duration::from_secs(seconds) {
         let mut p = pool.take().unwrap();
         p.writable()[..1280].fill(0x5a);
         p.writable()[..4].copy_from_slice(&[4, 0, 0, 0]);
