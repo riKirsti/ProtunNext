@@ -45,6 +45,19 @@ pub struct Service {
     join: Option<JoinHandle<()>>,
 }
 impl Service {
+    #[cfg(test)]
+    pub(crate) fn command_probe() -> (Self, async_channel::UnboundedReceiver<Command>) {
+        let (sender, receiver) = async_channel::unbounded_channel();
+        (
+            Self {
+                sender,
+                notices: None,
+                join: None,
+            },
+            receiver,
+        )
+    }
+
     pub fn start(
         network: InternalConnector,
         mode: ConnectionMode,
