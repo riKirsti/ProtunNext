@@ -112,9 +112,9 @@ gh api --method POST repos/OWNER/REPO/rulesets --input .github/main-ruleset.json
 ```
 
 Enable GitHub Actions to create pull requests in the repository's Actions
-settings. The ruleset requires zero approving reviews. The five-day monitor
-uses the gated merge for qualifying upstream adoptions. The 31-day workflow
-also uses it for maintenance patches.
+settings. The ruleset requires zero approving reviews. The weekly monitor
+uses the gated merge for qualifying upstream adoptions. The monthly workflow
+verifies maintenance drafts and leaves them for maintainer review.
 
 Validate the actual target OS/CPU, transport, account feature set, persistence,
 disconnect/reconnect, network changes and teardown before deployment. Preserve

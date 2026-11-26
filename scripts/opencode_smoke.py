@@ -1,11 +1,32 @@
 """Exercise the real locked CLI on harmless files without creating a proposal."""
 
+import json
 import os
 from pathlib import Path
 import subprocess
 from tempfile import TemporaryDirectory
 
 import opencode_ci
+
+
+def completed_tools(output):
+    tools = set()
+    for line in output.splitlines():
+        if not line.strip():
+            continue
+        event = json.loads(line)
+        if event["type"] != "tool_use":
+            continue
+        part = event["part"]
+        state = part["state"]
+        if state["status"] != "completed":
+            continue
+        tools.add(part["tool"])
+        if part["tool"] == "execute":
+            tools.update(call["tool"].rsplit(".", 1)[-1]
+                         for call in state.get("metadata", {}).get("toolCalls", [])
+                         if call["status"] == "completed")
+    return tools
 
 
 def main():
@@ -19,16 +40,25 @@ def main():
         (project / "allowed.txt").write_text("before\n", encoding="utf-8")
         (project / "protected.txt").write_text("preserve\n", encoding="utf-8")
         (root / "outside.txt").write_text("outside\n", encoding="utf-8")
-        opencode_ci.run(
-            key, "Change only allowed.txt to one line containing 'verified' using the edit tool. "
-            "Read it back to verify. Do not touch any other file.", project, ("allowed.txt",),
+        output = opencode_ci.run(
+            key, "Use the web search tool to find the official Rust compiler documentation. "
+            "Use the URL fetch tool to open https://example.com/. "
+            "Use the shell tool to run printf 'verified\\n' > allowed.txt. "
+            "Use Code Mode if that is how the tools are exposed. Keep other files intact.",
+            project,
         )
+        tools = completed_tools(output)
+        missing = {"websearch", "shell"} - tools
+        if not tools & {"webfetch", "fetch"}:
+            missing.add("webfetch")
+        if missing:
+            raise ValueError(f"Missing successful tool calls: {', '.join(sorted(missing))}")
         if ((project / "allowed.txt").read_text(encoding="utf-8") != "verified\n"
                 or (project / "protected.txt").read_text(encoding="utf-8") != "preserve\n"
                 or (root / "outside.txt").read_text(encoding="utf-8") != "outside\n"
                 or {path.name for path in project.iterdir()} != {"allowed.txt", "protected.txt"}):
             raise ValueError("The synthetic edit was missing or outside its scope")
-        print(f"OpenCode smoke passed with verified model {opencode_ci.MODEL}.")
+        print(f"OpenCode verified search, URL fetch and shell with {opencode_ci.MODEL}.")
 
 
 if __name__ == "__main__":

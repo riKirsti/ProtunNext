@@ -42,23 +42,22 @@ class FakeGitHub:
 
 
 class UpstreamMonitor(unittest.TestCase):
-    def test_five_day_interval_across_month_boundary(self):
+    def test_sunday_checks_after_recent_manual_check(self):
         api = FakeGitHub(ADOPTED)
-        upstream.check("test/repo", "fixture", NOW, call=api)
+        saturday = dt.datetime(2026, 11, 28, 12, tzinfo=dt.timezone.utc)
+        upstream.check("test/repo", "fixture", saturday, call=api)
         self.assertEqual(api.issues[0]["state"], "closed")
         api.calls.clear()
-        upstream.check("test/repo", "fixture", NOW + dt.timedelta(days=4), call=api)
-        self.assertEqual(len(api.calls), 1)
-        upstream.check("test/repo", "fixture", NOW + dt.timedelta(days=5), call=api)
+        upstream.check("test/repo", "fixture", saturday + dt.timedelta(days=1), call=api)
         self.assertTrue(any(path.endswith("/releases/latest") for path, _, _ in api.calls))
         self.assertEqual(len(api.issues), 1)
 
     def test_dry_run_then_annotated_release_and_idempotent_issue_creation(self):
         api = FakeGitHub()
-        upstream.check("test/repo", "fixture", NOW, force=True, dry_run=True, call=api)
+        upstream.check("test/repo", "fixture", NOW, dry_run=True, call=api)
         self.assertTrue(all(data is None for _, data, _ in api.calls))
         for _ in range(2):
-            upstream.check("test/repo", "fixture", NOW, force=True, call=api)
+            upstream.check("test/repo", "fixture", NOW, call=api)
         self.assertEqual(len(api.issues), 2)
         self.assertIn("b" * 40, api.issues[0]["body"])
         self.assertEqual(sum(path == "/repos/test/repo/issues" and data.get("title", "").startswith("Review ProtonVPN")
@@ -70,14 +69,14 @@ class UpstreamMonitor(unittest.TestCase):
             upstream.check("test/repo", "fixture", NOW, call=api)
         self.assertEqual(api.issues, [])
 
-    def test_partial_update_remains_available_between_checks(self):
+    def test_partial_update_remains_available_on_the_next_check(self):
         api = FakeGitHub()
         update = upstream.check("test/repo", "fixture", NOW, call=api)
         self.assertEqual(update["tag"], NEXT)
         self.assertEqual(update["commit"], "b" * 40)
         api.calls.clear()
-        retry_day = NOW + dt.timedelta(days=1)
+        retry_day = NOW + dt.timedelta(days=7)
         self.assertEqual(upstream.check("test/repo", "fixture", retry_day, call=api), update)
-        self.assertEqual(len(api.calls), 1)
+        self.assertTrue(any(path.endswith("/releases/latest") for path, _, _ in api.calls))
         api.issues[0]["state"] = "closed"
         self.assertIsNone(upstream.check("test/repo", "fixture", retry_day, call=api))

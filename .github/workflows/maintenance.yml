@@ -1,7 +1,7 @@
-name: 31-day maintenance
+name: Monthly maintenance
 on:
   schedule:
-    - cron: '41 15 * * *'
+    - cron: '0 2 25 * *'
   workflow_dispatch:
     inputs:
       preview:
@@ -9,7 +9,7 @@ on:
         type: boolean
         default: true
       opencode_smoke:
-        description: Verify the locked CLI and model on an isolated text fixture only
+        description: Verify the locked model and hosted tools on an isolated fixture
         type: boolean
         default: false
 permissions: {}
@@ -34,13 +34,35 @@ jobs:
       - env:
           OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
         run: python scripts/opencode_smoke.py
+  benchmark-smoke:
+    if: github.event_name == 'workflow_dispatch' && inputs.preview && !inputs.opencode_smoke
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@df2a88e9fe4098bad09cb42c3dec7187f15861fc
+        with:
+          toolchain: '1.100.0'
+      - name: Install the Linux benchmark sandbox
+        if: runner.os == 'Linux'
+        run: bash scripts/setup-benchmark-sandbox.sh
+      - run: python3 scripts/measure-download.py
   plan:
-    if: github.ref == 'refs/heads/main' && !inputs.opencode_smoke
+    if: >-
+      !inputs.opencode_smoke && (github.ref == 'refs/heads/main' ||
+      (github.event_name == 'workflow_dispatch' && inputs.preview))
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
       contents: read
-      issues: read
     outputs:
       cycle: ${{ steps.schedule.outputs.cycle }}
       matrix: ${{ steps.schedule.outputs.matrix }}
@@ -52,13 +74,15 @@ jobs:
         with:
           python-version: '3.13'
       - id: schedule
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: python scripts/maintenance.py plan
   propose:
     needs: plan
     if: needs.plan.outputs.cycle != ''
     runs-on: ubuntu-latest
+    timeout-minutes: 60
+    outputs:
+      runner: ${{ steps.propose.outputs.runner }}
+      platform: ${{ steps.propose.outputs.platform }}
     permissions:
       contents: read
     steps:
@@ -69,9 +93,46 @@ jobs:
         with:
           python-version: '3.13'
       - uses: ./.github/actions/setup-opencode
-      - env:
+      - id: propose
+        env:
           OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
         run: python scripts/maintenance.py propose
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: maintenance-raw-proposals
+          path: ${{ runner.temp }}/maintenance-proposals/
+          if-no-files-found: error
+          retention-days: 1
+  preflight:
+    needs: propose
+    runs-on: ${{ needs.propose.outputs.runner }}
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    outputs:
+      candidates: ${{ steps.preflight.outputs.candidates }}
+    env:
+      VALIDATION_PLATFORM: ${{ needs.propose.outputs.platform }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.13'
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: maintenance-raw-proposals
+          path: ${{ runner.temp }}/maintenance-proposals/
+      - uses: dtolnay/rust-toolchain@df2a88e9fe4098bad09cb42c3dec7187f15861fc
+        with:
+          toolchain: '1.100.0'
+          components: rustfmt
+      - name: Install the Linux benchmark sandbox
+        if: runner.os == 'Linux'
+        run: bash scripts/setup-benchmark-sandbox.sh
+      - id: preflight
+        run: python scripts/maintenance.py preflight
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: maintenance-proposals
@@ -79,7 +140,8 @@ jobs:
           if-no-files-found: error
           retention-days: 7
   qualify:
-    needs: [plan, propose]
+    needs: [plan, preflight]
+    if: needs.preflight.outputs.candidates == 'true'
     permissions: {contents: read}
     uses: ./.github/workflows/maintenance-qualification.yml
     with:
@@ -115,13 +177,16 @@ jobs:
       matrix: ${{ needs.retry-plan.outputs.matrix }}
       retry: true
   report:
-    needs: [plan, qualify, retry-plan, retry]
+    needs: [plan, preflight, qualify, retry-plan, retry]
     if: >-
-      always() && needs.plan.outputs.cycle != '' && needs.qualify.result == 'success' &&
-      needs.retry-plan.result == 'success' &&
+      always() && needs.plan.outputs.cycle != '' && needs.preflight.result == 'success' &&
+      (needs.qualify.result == 'success' || needs.qualify.result == 'skipped') &&
+      (needs.retry-plan.result == 'success' || needs.retry-plan.result == 'skipped') &&
       (needs.retry.result == 'success' || needs.retry.result == 'skipped')
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    outputs:
+      drafts: ${{ steps.report.outputs.drafts }}
     permissions:
       contents: write
       issues: write
@@ -130,6 +195,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+          persist-credentials: ${{ github.ref == 'refs/heads/main' && !inputs.preview }}
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: '3.13'
@@ -138,6 +204,7 @@ jobs:
           name: maintenance-proposals
           path: ${{ runner.temp }}/maintenance-proposals/
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        if: needs.qualify.result == 'success'
         with:
           pattern: maintenance-first-*
           merge-multiple: true
@@ -148,26 +215,27 @@ jobs:
           pattern: maintenance-retry-*
           merge-multiple: true
           path: ${{ runner.temp }}/maintenance-retry-results/
-      - env:
+      - id: report
+        env:
           GH_TOKEN: ${{ github.token }}
           MAINTENANCE_CYCLE: ${{ needs.plan.outputs.cycle }}
           PREVIEW: ${{ github.event_name == 'workflow_dispatch' && inputs.preview }}
         run: python scripts/maintenance.py publish
-  complete:
-    needs: [plan, report]
-    if: >-
-      always() && needs.plan.result == 'success' &&
-      (needs.report.result == 'success' || needs.report.result == 'skipped') &&
-      !(github.event_name == 'workflow_dispatch' && inputs.preview)
-    concurrency:
-      group: protunnext-automated-merge
-      cancel-in-progress: false
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: maintenance-decision
+          path: ${{ runner.temp }}/maintenance-decision.json
+          if-no-files-found: error
+          retention-days: 7
+  verify-drafts:
+    needs: report
+    if: needs.report.outputs.drafts != '' && github.ref == 'refs/heads/main' && !inputs.preview
     runs-on: ubuntu-latest
     timeout-minutes: 170
     permissions:
       actions: write
-      contents: write
-      pull-requests: write
+      contents: read
+      pull-requests: read
       statuses: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -177,6 +245,7 @@ jobs:
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: '3.13'
-      - run: python scripts/maintenance.py complete
+      - run: python scripts/maintenance.py verify-drafts
         env:
           GH_TOKEN: ${{ github.token }}
+          MAINTENANCE_DRAFTS: ${{ needs.report.outputs.drafts }}

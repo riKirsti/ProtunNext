@@ -1,4 +1,5 @@
 from contextlib import chdir
+import os
 import importlib.util
 import json
 from pathlib import Path
@@ -13,14 +14,12 @@ SPEC.loader.exec_module(hosted)
 
 
 class HostedUpstream(unittest.TestCase):
-    def test_agent_uses_only_the_pinned_console_model(self):
-        config = hosted.opencode_ci.configuration(["src/packet.rs"])
+    def test_agent_allows_all_tools_with_the_pinned_model(self):
+        config = hosted.opencode_ci.configuration()
         self.assertEqual(config["model"], "opencode/deepseek-v4.1-flash")
-        self.assertEqual(config["permissions"][0], {"action": "*", "resource": "*", "effect": "deny"})
-        self.assertIn({"action": "tool.use", "resource": "external_directory:*", "effect": "deny"},
-                      config["policies"])
-        self.assertEqual([rule["resource"] for rule in config["permissions"]
-                          if rule["action"] == "edit"], ["src/packet.rs"])
+        self.assertEqual(config["permissions"], [{"action": "*", "resource": "*", "effect": "allow"}])
+        self.assertNotIn("policies", config)
+        self.assertEqual(config["websearch"], {"provider": "random"})
 
     def test_generated_patch_excludes_workflow_and_publication_paths(self):
         for path in (".github/workflows/release.yml", "scripts/hosted-upstream.py",
@@ -34,7 +33,9 @@ class HostedUpstream(unittest.TestCase):
             self.assertIn("--standalone", argv)
             self.assertNotIn("GH_TOKEN", options["env"])
             if argv[1] == "run":
-                self.assertEqual(Path(argv[argv.index("--file") + 1]).read_text(), "Synthetic task")
+                prompt = Path(argv[argv.index("--file") + 1]).read_text(encoding="utf-8")
+                self.assertIn("noninteractive GitHub Actions", prompt)
+                self.assertTrue(prompt.endswith("Synthetic task"))
                 self.assertEqual(options["env"]["OPENCODE_API_KEY"], "synthetic")
                 output = {"type": "step_finish", "sessionID": "fixture"}
             else:
@@ -47,7 +48,8 @@ class HostedUpstream(unittest.TestCase):
 
         model = ["deepseek-v4.1-flash"]
         with TemporaryDirectory() as folder, chdir(folder):
-            with patch.object(hosted.subprocess, "run", side_effect=complete):
+            with (patch.dict(os.environ, {"GITHUB_ACTIONS": "true"}),
+                  patch.object(hosted.subprocess, "run", side_effect=complete)):
                 self.assertTrue(hosted.run_agent("synthetic", "Synthetic task"))
                 model[0] = "wrong-model"
                 self.assertFalse(hosted.run_agent("synthetic", "Synthetic task"))

@@ -41,6 +41,9 @@ jobs:
         with:
           name: maintenance-first-${{ matrix.platform }}
           path: ${{ runner.temp }}/maintenance-first-results/
+      - name: Install the Linux benchmark sandbox
+        if: runner.os == 'Linux'
+        run: bash scripts/setup-benchmark-sandbox.sh
       - run: python scripts/maintenance.py qualify
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:

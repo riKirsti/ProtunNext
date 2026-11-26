@@ -1,7 +1,7 @@
 name: Upstream release monitor
 on:
   schedule:
-    - cron: '23 14 * * *'
+    - cron: '0 1 * * 0'
   workflow_dispatch:
     inputs:
       dry_run:
@@ -34,7 +34,6 @@ jobs:
         run: python scripts/check-upstream.py
         env:
           GH_TOKEN: ${{ github.token }}
-          FORCE_CHECK: ${{ github.event_name == 'workflow_dispatch' }}
           DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
   propose:
     needs: check

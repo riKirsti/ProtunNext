@@ -170,6 +170,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@df2a88e9fe4098bad09cb42c3dec7187f15861fc
         with:
           toolchain: '1.100.0'
+      - run: bash scripts/setup-benchmark-sandbox.sh
       - run: python scripts/measure-download.py --sustained
   linux-tun:
     runs-on: ubuntu-latest

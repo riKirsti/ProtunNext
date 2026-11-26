@@ -98,15 +98,28 @@ def sample(build_info, baseline, protocol, family, app, flows, blocks):
     executable, identity, _ = build_info
     peer, fixed_identity, _ = baseline
     assignments = dict(zip(("PEER", "LOAD", "CLIENT", "SERVER"), cpus[:4]))
-    affinity = [f"NEXT_{name}_CPUS={cpu}" for name, cpu in assignments.items()]
+    if os.geteuid() == 0:
+        raise RuntimeError("download qualification must start as an unprivileged user")
+    affinity = [argument for name, cpu in assignments.items()
+                for argument in ("--setenv", f"NEXT_{name}_CPUS", str(cpu))]
     run = subprocess.run(
-        ["sudo", "-n", "env", "-i", "PATH=/usr/sbin:/usr/bin:/sbin:/bin", *affinity,
-         "timeout", "--kill-after=5", "170", "unshare", "--net", str(executable),
-         "download-client", str(peer), protocol, str(flows), str(blocks), family, app],
+        ["/usr/bin/bwrap", "--unshare-user", "--uid", "0", "--gid", "0",
+         "--unshare-net", "--unshare-pid", "--unshare-ipc", "--unshare-uts",
+         "--cap-add", "CAP_NET_ADMIN", "--cap-add", "CAP_SYS_ADMIN",
+         "--new-session", "--die-with-parent", "--clearenv",
+         "--setenv", "PATH", "/usr/bin:/usr/sbin",
+         "--ro-bind", "/usr", "/usr", "--ro-bind", "/lib", "/lib",
+         "--ro-bind-try", "/lib64", "/lib64",
+         "--proc", "/proc", "--dev", "/dev", "--dev-bind", "/dev/net/tun", "/dev/net/tun",
+         "--tmpfs", "/tmp", "--chdir", "/tmp",
+         "--ro-bind", str(executable), "/candidate", "--ro-bind", str(peer), "/baseline",
+         *affinity, "/usr/bin/unshare", "--net", "/candidate",
+         "download-client", "/baseline", protocol, str(flows), str(blocks), family, app],
         stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=180,
     )
     if run.returncode:
-        raise RuntimeError(f"isolated download process exited {run.returncode}")
+        error = run.stderr.splitlines()[:1]
+        raise RuntimeError(f"isolated download process exited {run.returncode}: {error}")
     rows = [json.loads(line.removeprefix("NEXT_JSON ")) for line in run.stdout.splitlines()
             if line.startswith("NEXT_JSON ")]
     if len(rows) != 1:

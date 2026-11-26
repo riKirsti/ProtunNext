@@ -1,20 +1,33 @@
 """Validate the scheduling, patch boundaries and paired measurement decision."""
 
+from contextlib import chdir, nullcontext
 import datetime as dt
+from hashlib import sha256
+import json
+import os
 import unittest
 from copy import deepcopy
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 import maintenance
 
 
 class Maintenance(unittest.TestCase):
-    def test_interval_across_february_and_retry_day(self):
-        last = dt.date(2027, 2, 1)
-        self.assertTrue(maintenance.due(None, last))
-        self.assertFalse(maintenance.due(last, dt.date(2027, 3, 3)))
-        self.assertTrue(maintenance.due(last, dt.date(2027, 3, 4)))
-        self.assertTrue(maintenance.due(last, dt.date(2027, 3, 5)))
+    def test_calendar_cycle_across_february_and_year_boundary(self):
+        for month in (2, 3):
+            day = dt.date(2027, month, 25)
+            self.assertEqual(maintenance.cycle_date(day, True), day)
+        delayed = dt.date(2027, 1, 1)
+        self.assertEqual(maintenance.cycle_date(delayed, True), dt.date(2026, 12, 25))
+        self.assertEqual(maintenance.cycle_date(delayed, False), delayed)
+        workflows = maintenance.ROOT / ".github" / "workflows"
+        for filename, cron in (("maintenance.yml", "'0 2 25 * *'"),
+                               ("upstream.yml", "'0 1 * * 0'")):
+            lines = workflows.joinpath(filename).read_text(encoding="utf-8").splitlines()
+            self.assertEqual([line.strip() for line in lines if "- cron:" in line],
+                             [f"- cron: {cron}"])
 
     def test_stages_leave_version_and_workflow_ownership_with_upstream_monitor(self):
         for stage in maintenance.STAGES:
@@ -23,7 +36,7 @@ class Maintenance(unittest.TestCase):
                 for change in ("M", "A", "D"):
                     self.assertFalse(maintenance.permitted(stage, path, change))
         self.assertTrue(maintenance.permitted("performance", "src/framing.rs", "M"))
-        self.assertFalse(maintenance.permitted("performance", "src/linux.rs", "M"))
+        self.assertTrue(maintenance.permitted("performance", "src/linux_batch.rs", "M"))
         self.assertTrue(maintenance.permitted("refactor", "src/linux.rs", "M"))
         self.assertFalse(maintenance.permitted("cleanup", "docs/building.md", "D"))
         self.assertTrue(maintenance.permitted("cleanup", "src/obsolete.rs", "D"))
@@ -47,20 +60,42 @@ class Maintenance(unittest.TestCase):
         with self.assertRaises(ValueError):
             compare(control, [(baseline, baseline)], directions)
 
-    def test_framing_cannot_supply_the_linux_download_benefit(self):
-        framing = {"metrics": {"framing_payload_mbps": {"decision": "passed", "repeatable_gain": True}}}
-        workload = {"sample_quality_passed": True, "throughput_headroom": False, "metrics": {
-            metric: {"decision": "passed", "repeatable_gain": False} for metric in maintenance.download.METRICS
-        }}
-        tunnels = {"udp/v4/http/1": workload}
-        decide = maintenance.measurement_decision
-        self.assertEqual(decide(framing, tunnels, True), "no demonstrated download gain")
-        workload["metrics"]["download_mbps"]["repeatable_gain"] = True
-        self.assertEqual(decide(framing, tunnels, True), "no demonstrated download gain")
-        workload["metrics"]["cpu_ns_per_payload_byte"]["repeatable_gain"] = True
-        self.assertEqual(decide(framing, tunnels, True), "passed")
-        workload["sample_quality_passed"] = False
-        self.assertEqual(decide(framing, tunnels, True), "measurement inconclusive")
+    def test_qualification_requires_the_declared_gain_and_shared_regression_evidence(self):
+        stable = {"decision": "passed", "repeatable_gain": False}
+        framing = {"metrics": {metric: stable.copy() for metric in maintenance.METRICS}}
+        downloads = {
+            f"{protocol}/{family}/{app}/{flows}": {
+                "sample_quality_passed": True, "throughput_headroom": True,
+                "metrics": {metric: stable.copy() for metric in maintenance.download.METRICS},
+            }
+            for protocol in maintenance.download.TRANSPORTS
+            for family, app, flows in maintenance.WORKLOADS
+        }
+        hypothesis = {"platform": "linux-arm64", "workload": "udp/v4/http/1",
+                      "metric": "download_mbps"}
+        decide = maintenance.qualification_decision
+        self.assertEqual(decide(framing, downloads, "linux-x64", hypothesis), "passed")
+        framing["metrics"]["framing_payload_mbps"]["repeatable_gain"] = True
+        sample = downloads[hypothesis["workload"]]
+        sample["metrics"]["cpu_ns_per_payload_byte"]["repeatable_gain"] = True
+        self.assertEqual(decide(framing, downloads, "linux-arm64", hypothesis),
+                         "no demonstrated download gain")
+        sample["metrics"]["download_mbps"]["repeatable_gain"] = True
+        sample["throughput_headroom"] = False
+        self.assertEqual(decide(framing, downloads, "linux-arm64", hypothesis),
+                         "no demonstrated download gain")
+        sample["throughput_headroom"] = True
+        self.assertEqual(decide(framing, downloads, "linux-arm64", hypothesis), "passed")
+
+        unaffected_gain = deepcopy(downloads)
+        unaffected_gain[hypothesis["workload"]]["metrics"]["download_mbps"]["decision"] = "regression"
+        self.assertEqual(decide(framing, unaffected_gain, "linux-x64", hypothesis), "regression")
+        sample["sample_quality_passed"] = False
+        self.assertEqual(decide(framing, downloads, "linux-arm64", hypothesis),
+                         "measurement inconclusive")
+        del downloads[hypothesis["workload"]]
+        self.assertEqual(decide(framing, downloads, "linux-arm64", hypothesis),
+                         "measurement inconclusive")
 
     def test_linux_rss_floor_clears_launch_spread_and_still_detects_growth(self):
         mib = 2**20
@@ -122,13 +157,154 @@ class Maintenance(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "routing"):
             metrics(record, *args)
 
-    def test_refresh_is_for_disjoint_documentation_cleanup_only(self):
-        files = {"README.md"}
-        self.assertTrue(maintenance.can_refresh("cleanup", files, {"src/framing.rs"}))
-        for drift in (files, {"Cargo.lock"}, {"vendor/snapshot.rs"}, {".github/workflows/ci.yml"}):
-            self.assertFalse(maintenance.can_refresh("cleanup", files, drift))
-        self.assertFalse(maintenance.can_refresh("performance", files, {"README.md"}))
-        self.assertFalse(maintenance.can_refresh("refactor", {"src/engine.rs"}, {"README.md"}))
+    def test_qualified_stage_does_not_depend_on_other_stages(self):
+        results = [
+            {"platform": runner["platform"], "stages": {
+                "performance": {"decision": "measurement inconclusive"},
+                "refactor": {"decision": "passed"},
+            }} for runner in maintenance.RUNNERS
+        ]
+        proposal = {"sha256": "fixture"}
+        self.assertTrue(maintenance.stage_qualified("refactor", proposal, results))
+        self.assertFalse(maintenance.stage_qualified("performance", proposal, results))
+        self.assertFalse(maintenance.stage_qualified("refactor", proposal, results[:-1]))
+
+    def test_screen_distinguishes_gain_noise_and_wrong_workload(self):
+        baseline = {metric: 100 for metric in maintenance.METRICS}
+        steady = [(baseline, baseline)] * 4
+        faster = {**baseline, "framing_payload_mbps": 110}
+        normal = maintenance.compare_samples(steady, [(baseline, faster)] * 8, maintenance.METRICS)
+        noisy = maintenance.compare_samples([(baseline, faster)] * 4,
+                                            [(baseline, faster)] * 8, maintenance.METRICS)
+        decide = maintenance.screen_decision
+        self.assertEqual(decide("framing", {"metrics": normal}, "framing_payload_mbps"), "passed")
+        self.assertEqual(decide("framing", {"metrics": normal}, "cpu_ns_per_payload_byte"),
+                         "no demonstrated framing gain")
+        self.assertEqual(decide("framing", {"metrics": noisy}, "framing_payload_mbps"),
+                         "measurement inconclusive")
+        self.assertTrue(maintenance.needs_measurement({"metrics": noisy}))
+        self.assertFalse(maintenance.needs_measurement({"metrics": normal}))
+        notes = "Platform: macos\nWorkload: framing\nMetric: framing_payload_mbps\nHypothesis: Remove a division."
+        self.assertTrue(maintenance.supported_hypothesis(maintenance.performance_hypothesis(notes)))
+        download_notes = ("Platform: linux-arm64\nWorkload: stealth/v6/https/8\n"
+                          "Metric: download_mbps\nHypothesis: Reduce packet copying.")
+        self.assertTrue(maintenance.supported_hypothesis(maintenance.performance_hypothesis(download_notes)))
+        self.assertFalse(maintenance.supported_hypothesis(maintenance.performance_hypothesis(
+            download_notes.replace("linux-arm64", "windows"))))
+        with self.assertRaisesRegex(maintenance.CheckFailed, "missing or ambiguous"):
+            maintenance.performance_hypothesis(download_notes + "\nMetric: cpu_ns_per_payload_byte")
+
+    def test_benchmark_patch_is_separate_from_runtime_patch(self):
+        with TemporaryDirectory() as folder, chdir(folder):
+            git = maintenance.hosted.git
+            git("init", "--quiet")
+            git("-c", "user.name=Fixture", "-c", "user.email=fixture@example.com",
+                "commit", "--allow-empty", "--quiet", "-m", "Fixture baseline")
+            for name in ("src/linux_batch.rs", "benches/packet_path.rs"):
+                file = Path(name)
+                file.parent.mkdir(exist_ok=True)
+                file.write_text("// staged optimization or harness\n", encoding="utf-8")
+            git("add", "--all")
+            output = Path("out")
+            output.mkdir()
+            proposal = {}
+            maintenance.collect_benchmark_patch(output, proposal)
+            benchmark = (output / "benchmark-review.patch").read_bytes()
+            self.assertEqual(proposal["benchmark_sha256"], sha256(benchmark).hexdigest())
+            self.assertIn(b"benches/packet_path.rs", benchmark)
+            self.assertNotIn(b"src/linux_batch.rs", benchmark)
+            self.assertEqual(maintenance.changed("performance"), {"src/linux_batch.rs"})
+
+    def test_unknown_workload_preserves_review_artifacts_and_never_screens(self):
+        notes = "Platform: linux-arm64\nWorkload: connection-start\nMetric: latency_ms\nHypothesis: Reduce setup."
+        source = b"runtime patch"
+        harness = b"separate benchmark patch"
+        with TemporaryDirectory() as folder:
+            root = Path(folder)
+            directory = root / "maintenance-proposals"
+            directory.mkdir()
+            (directory / "performance.patch").write_bytes(source)
+            (directory / "benchmark-review.patch").write_bytes(harness)
+            report = {"commit": "head", "guidance_sha256": sha256(b"guidance").hexdigest(),
+                      "stages": {"performance": {"notes": notes, "sha256": sha256(source).hexdigest(),
+                                                 "benchmark_sha256": sha256(harness).hexdigest()}}}
+            path = directory / "report.json"
+            path.write_text(json.dumps(report), encoding="utf-8")
+            with (patch.dict(os.environ, {"RUNNER_TEMP": folder}),
+                  patch.object(maintenance.hosted, "git", side_effect=[b"head", b"guidance"]),
+                  patch.object(maintenance.hosted, "apply_patch") as apply,
+                  patch.object(maintenance, "checkout", return_value=nullcontext(root)),
+                  patch.object(maintenance, "changed", return_value={"src/linux_batch.rs"}),
+                  patch.object(maintenance, "screen_candidate") as screen):
+                maintenance.preflight()
+            result = json.loads(path.read_text(encoding="utf-8"))["stages"]["performance"]
+            self.assertEqual(result["status"], "awaiting benchmark review")
+            self.assertNotIn("sha256", result)
+            self.assertEqual((directory / "performance-review.patch").read_bytes(), source)
+            self.assertEqual((directory / "benchmark-review.patch").read_bytes(), harness)
+            self.assertEqual(apply.call_args_list[0].args, (harness, maintenance.benchmark_path))
+            screen.assert_not_called()
+
+    def test_linux_batch_patch_reaches_declared_udp_screen(self):
+        notes = ("Platform: linux-arm64\nWorkload: udp/v4/http/1\n"
+                 "Metric: download_mbps\nHypothesis: Reduce copies in packet batching.")
+        source = b"runtime patch"
+        with TemporaryDirectory() as folder:
+            root = Path(folder)
+            directory = root / "maintenance-proposals"
+            directory.mkdir()
+            (directory / "performance.patch").write_bytes(source)
+            report = {"commit": "head", "guidance_sha256": sha256(b"guidance").hexdigest(),
+                      "stages": {"performance": {"notes": notes, "sha256": sha256(source).hexdigest()}}}
+            (directory / "report.json").write_text(json.dumps(report), encoding="utf-8")
+            output = root / "actions-output"
+            with (patch.dict(os.environ, {"RUNNER_TEMP": folder, "VALIDATION_PLATFORM": "linux-arm64",
+                                          "GITHUB_OUTPUT": str(output)}),
+                  patch.object(maintenance.hosted, "git", side_effect=[b"head", b"guidance"]),
+                  patch.object(maintenance, "checkout", return_value=nullcontext(root)),
+                  patch.object(maintenance, "preflight_patch", return_value=source),
+                  patch.object(maintenance, "changed", return_value={"src/linux_batch.rs"}),
+                  patch.object(maintenance.subprocess, "run"),
+                  patch.object(maintenance, "screen_candidate", return_value={}) as screen,
+                  patch.object(maintenance, "screen_decision", return_value="passed")):
+                maintenance.preflight()
+            screen.assert_called_once()
+            self.assertEqual(screen.call_args.args[2], "udp/v4/http/1")
+            self.assertIn("candidates=true", output.read_text(encoding="utf-8"))
+
+    def test_preflight_formats_once_and_rejects_new_paths(self):
+        with (patch.object(maintenance.hosted, "apply_patch"),
+              patch.object(maintenance, "changed", return_value={"src/framing.rs"}),
+              patch.object(maintenance.hosted, "git", return_value=b"formatted"),
+              patch.object(maintenance, "run_check") as check):
+            self.assertEqual(maintenance.preflight_patch("refactor", b"raw", Path("."), {}),
+                             b"formatted")
+            self.assertEqual([call.args[0] for call in check.call_args_list],
+                             ["formatting", "privacy and links", "vendor", "compatibility", "build"])
+        with (patch.object(maintenance.hosted, "apply_patch"),
+              patch.object(maintenance, "changed", side_effect=[
+                  {"src/framing.rs"}, {"src/framing.rs", "src/packet.rs"}]),
+              patch.object(maintenance.hosted, "git"), patch.object(maintenance, "run_check")):
+            with self.assertRaisesRegex(maintenance.CheckFailed, "outside the original patch"):
+                maintenance.preflight_patch("refactor", b"raw", Path("."), {})
+
+    def test_verified_maintenance_proposal_stays_a_draft(self):
+        from unittest.mock import Mock
+        head = "a" * 40
+        branch = "maintenance/review/2026-11-25/refactor-bbbbbbbbbbbb"
+        pr = {"draft": True, "head": {"sha": head, "ref": branch}}
+        finish = Mock()
+        finish.main_sha.return_value = "base"
+        finish.api.return_value = pr
+        finish.fetch.return_value = head
+        finish.git.return_value = "base"
+        with (patch.object(maintenance, "load_script", return_value=finish),
+              patch.dict(os.environ, {"MAINTENANCE_DRAFTS": '{"42":"' + head + '"}'})):
+            maintenance.verify_drafts()
+        finish.check.assert_called_once_with(branch, head)
+        self.assertEqual(finish.verification_status.call_args.args[:2], (head, "success"))
+        self.assertTrue(pr["draft"])
+        finish.merge.assert_not_called()
 
 
 if __name__ == "__main__":
