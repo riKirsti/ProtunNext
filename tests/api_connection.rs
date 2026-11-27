@@ -115,6 +115,17 @@ fn compatibility_supervisor_handshakes_without_tun_retains_peer_and_recovers_net
         state.interface_state,
         InterfaceState::Down { last_error: None }
     ));
+    wait_for(&event_rx, |event| {
+        matches!(event, Event::PacketCaptureStarted { .. })
+    });
+    let deadline = Instant::now() + Duration::from_secs(4);
+    while std::fs::metadata(&path).unwrap().len() <= 24 {
+        assert!(
+            Instant::now() < deadline,
+            "capture records did not reach the sink"
+        );
+        thread::sleep(Duration::from_millis(5));
+    }
     let first_size = std::fs::metadata(&path).unwrap().len();
     assert!(first_size > 24);
     peer.peer_id = "retained".into();
@@ -188,10 +199,6 @@ fn compatibility_supervisor_handshakes_without_tun_retains_peer_and_recovers_net
         "recreated worker must retain the connection's timestamp origin"
     );
     assert!(second_timestamp as u128 <= started.elapsed().as_millis() + 100);
-    assert!(
-        std::fs::metadata(&path).unwrap().len() > first_size,
-        "failover must preserve rather than truncate capture"
-    );
     connection.disconnect_and_wait();
     connection.disconnect_and_wait();
     wait_for(&state_rx, |s| {
@@ -205,6 +212,10 @@ fn compatibility_supervisor_handshakes_without_tun_retains_peer_and_recovers_net
             }
         )
     });
+    assert!(
+        std::fs::metadata(&path).unwrap().len() > first_size,
+        "failover must preserve rather than truncate capture"
+    );
     stopped.store(true, Ordering::Relaxed);
     peer_thread.join().unwrap();
 }
@@ -405,13 +416,15 @@ fn managed_capture_lifecycle_timing() {
             recovery.as_micros(),
             disconnect.as_micros()
         );
-        if let Ok(budget) = std::env::var("PROTUNNEXT_CAPTURE_LIFECYCLE_BUDGET_MS") {
-            let budget = Duration::from_millis(budget.parse().unwrap());
-            assert!(
-                startup <= budget && recovery <= budget && disconnect <= budget,
-                "{scenario}: {startup:?}, {recovery:?}, {disconnect:?} exceeded {budget:?}"
-            );
-        }
+        let budget = Duration::from_millis(
+            std::env::var("PROTUNNEXT_CAPTURE_LIFECYCLE_BUDGET_MS")
+                .map(|value| value.parse().unwrap())
+                .unwrap_or(500),
+        );
+        assert!(
+            startup <= budget && recovery <= budget && disconnect <= budget,
+            "{scenario}: {startup:?}, {recovery:?}, {disconnect:?} exceeded {budget:?}"
+        );
     }
 }
 

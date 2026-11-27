@@ -1,5 +1,10 @@
 //! Control commands execute on a supervisor thread, never in the packet loop.
-use super::{capture_worker::CaptureState, keys::Identity, types::*};
+use super::{
+    capture::CaptureInput,
+    capture_worker::{CaptureState, Pending as CapturePending, Request as CaptureRequest},
+    keys::Identity,
+    types::*,
+};
 #[cfg(feature = "local-agent")]
 mod account;
 mod notifications;
@@ -14,6 +19,7 @@ use crate::{
 use notifications::Notifications;
 use peers::{Candidate, PeerPlan};
 use std::{
+    collections::VecDeque,
     sync::{Arc, Mutex, mpsc},
     thread::{self, JoinHandle},
     time::{Duration, Instant},
@@ -232,6 +238,8 @@ struct Supervisor {
     attempt_at: Instant,
     key: Zeroizing<[u8; 32]>,
     capture: Arc<CaptureState>,
+    capture_pending: Option<CapturePending>,
+    capture_requests: VecDeque<CaptureRequest>,
     #[cfg(feature = "local-agent")]
     account: account::Account,
     #[cfg(feature = "control-plane")]
@@ -259,6 +267,8 @@ impl Supervisor {
             attempt_at: Instant::now(),
             key: Zeroizing::new([0; 32]),
             capture: Arc::new(CaptureState::default()),
+            capture_pending: None,
+            capture_requests: VecDeque::new(),
             #[cfg(feature = "local-agent")]
             account: account::Account::default(),
             #[cfg(feature = "control-plane")]
@@ -285,10 +295,12 @@ impl Supervisor {
             _ => Identity::load_or_generate(self.cache.as_ref())?.wireguard_key(),
         });
         if let Some(info) = self.config.pcap_file.take()
-            && let Err(error) = self.capture.start(info)
+            && let Err(error) = CaptureInput::take(info)
+                .and_then(|input| self.queue_capture(CaptureRequest::Start(input)))
         {
             log::error!("failed to start initial packet capture: {error}");
         }
+        self.advance_capture();
         self.peers.rebuild(&mut self.config.peers);
         #[cfg(feature = "control-plane")]
         {
@@ -406,6 +418,7 @@ impl Supervisor {
                 }
                 Err(mpsc::RecvTimeoutError::Timeout) => {}
             }
+            self.advance_capture();
             #[cfg(feature = "local-agent")]
             if let Err(error) = self.poll_account() {
                 log::error!("cannot maintain control path: {error}");
@@ -504,7 +517,7 @@ impl Supervisor {
         {
             self.control = None;
         }
-        let _ = self.capture.stop(true);
+        self.finish_capture();
         for event in self.capture.take_events() {
             self.notifications.event(event);
         }
@@ -513,6 +526,61 @@ impl Supervisor {
     fn schedule_retry(&mut self) {
         self.peers.retry(Instant::now());
     }
+
+    fn queue_capture(&mut self, request: CaptureRequest) -> Result<()> {
+        if self.capture_requests.len() >= 16 {
+            return Err(crate::Error::Full);
+        }
+        self.capture_requests.push_back(request);
+        Ok(())
+    }
+
+    fn advance_capture(&mut self) {
+        if let Some(pending) = &self.capture_pending {
+            let Some(result) = self.capture.poll(pending) else {
+                return;
+            };
+            self.capture_pending = None;
+            if let Err(error) = result {
+                log::error!("capture control request failed: {error}");
+            }
+        }
+        if !self.capture_requests.is_empty()
+            && !self.capture.busy()
+            && let Some(request) = self.capture_requests.pop_front()
+        {
+            match self.capture.submit(request, true) {
+                Ok(pending) => self.capture_pending = pending,
+                Err(error) => log::error!("capture control request failed: {error}"),
+            }
+        }
+    }
+    fn finish_capture(&mut self) {
+        let deadline = Instant::now() + Duration::from_millis(100);
+        // Give commands received before disconnect a share of the same flush budget.
+        while Instant::now() < deadline {
+            self.advance_capture();
+            let Some(pending) = self.capture_pending.take() else {
+                if self.capture_requests.is_empty() || self.capture.busy() {
+                    break;
+                }
+                continue;
+            };
+            if let Err(error) = self
+                .capture
+                .wait(pending, deadline.saturating_duration_since(Instant::now()))
+            {
+                log::warn!("capture control request failed during disconnect: {error}");
+            }
+        }
+        if let Err(error) = self
+            .capture
+            .stop_with_timeout(true, deadline.saturating_duration_since(Instant::now()))
+        {
+            log::warn!("capture did not finish within managed disconnect budget: {error}");
+        }
+    }
+
     fn command(&mut self, command: Command) -> Result<()> {
         match command {
             Command::Update(update) => {
@@ -572,10 +640,12 @@ impl Supervisor {
                 self.peers.restart(Instant::now());
             }
             Command::Capture(info) => {
-                self.capture.start(info)?;
+                self.queue_capture(CaptureRequest::Start(CaptureInput::take(info)?))?;
             }
             Command::StopCapture => {
-                self.capture.stop(false)?;
+                self.queue_capture(CaptureRequest::Stop {
+                    disconnected: false,
+                })?;
             }
             Command::Stats => {
                 if let Some(worker) = &self.worker {
