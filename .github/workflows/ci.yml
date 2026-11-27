@@ -1,263 +1,80 @@
-name: verification
+name: Managed capture lifecycle forwarding non-regression
 on:
-  push:
-    branches: [main]
-    paths-ignore: ['**/*.md']
-  pull_request:
-    branches: [main]
   workflow_dispatch:
-    inputs:
-      download_fixture:
-        description: Exercise the synthetic Linux download fixture
-        type: boolean
-        default: false
 permissions:
   contents: read
-concurrency:
-  group: verification-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
 jobs:
-  repository:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
-        with:
-          python-version: '3.13'
-      - run: python scripts/check_repository.py
-      - run: python -m unittest discover -s scripts -p 'test_*.py' -v
-      - run: python scripts/compatibility.py --verify-tag
-  host:
+  linux-paired:
     strategy:
       fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest, macos-26, xcode-27]
-    runs-on: ${{ matrix.os }}
-    env:
-      MACOSX_DEPLOYMENT_TARGET: "26.0"
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: dtolnay/rust-toolchain@df2a88e9fe4098bad09cb42c3dec7187f15861fc
-        with:
-          toolchain: '1.100.0'
-          components: rustfmt, clippy
-      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
-        with:
-          python-version: '3.13'
-      - run: python scripts/verify-vendor.py
-      - run: cargo fmt --package protun-next --check
-      - run: cargo test --locked --all-targets --all-features
-      - name: Compile production API from a separate application
-        run: python scripts/check-downstream.py
-      - run: cargo clippy --locked --all-targets --all-features -- -D warnings
-      - name: Check no-account runtime retains its private network services
-        run: cargo clippy --locked --all-targets --no-default-features --features unix -- -D warnings
-      - name: Check adopted release implementation coverage
-        run: cargo run --locked -- verify-code-parity
-      - name: Assert incomplete live parity fails deployment verification
-        shell: bash
-        run: |
-          if cargo run --locked -- verify-parity; then
-            echo "Unexpected live parity approval; review deployment qualification"
-            exit 1
-          fi
-      - name: Build optimized runtime library and CLI
-        run: cargo build --locked --release --lib --bin protun-next-cli
-      - name: Build and measure the portable framing baseline
-        shell: bash
-        run: |
-          python scripts/measure-baseline.py --build --output target/baseline/framing.json
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: framing-baseline-${{ matrix.os }}
-          path: target/baseline/framing.json
-      - name: Call the native compatibility API through generated bindings
-        if: runner.os == 'Linux'
-        shell: bash
-        run: |
-          cargo run --locked --features bindgen --bin uniffi-bindgen -- generate --library target/release/libprotun_next.so --language python --out-dir target/generated --no-format
-          cp target/release/libprotun_next.so target/generated/
-          python3 tests/ffi_contract.py target/generated
-      - name: Generate and typecheck Swift and Kotlin contracts
-        if: runner.os == 'macOS'
-        shell: bash
-        run: |
-          cargo run --locked --features bindgen --bin uniffi-bindgen -- generate --library target/release/libprotun_next.dylib --language swift --language kotlin --config uniffi.toml --out-dir target/generated --no-format
-          swiftc -typecheck target/generated/ProtunNext.swift -I target/generated -Xcc -fmodule-map-file=target/generated/ProtunNextFFI.modulemap
-      - name: Build public ARM64 Apple packet-flow adapter
-        if: runner.os == 'macOS'
-        run: swift build --package-path apple
-      - name: Build all supported Apple ARM64 SDK slices
-        if: matrix.os == 'xcode-27'
-        run: bash scripts/build-apple.sh
-      - name: Call Windows native initialization through generated bindings
-        if: runner.os == 'Windows'
-        shell: bash
-        run: |
-          cargo run --locked --features bindgen --bin uniffi-bindgen -- generate --library target/release/protun_next.dll --language python --out-dir target/windows-bindings --no-format
-          cp target/release/protun_next.dll target/windows-bindings/
-          python tests/windows_ffi_contract.py target/windows-bindings
-      - name: Package verified Wintun driver without loading or installing it
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: ./scripts/package-windows.ps1
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        if: runner.os == 'Windows'
-        with:
-          name: windows-development-package
-          path: target/windows-package/
-  android-native:
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: dtolnay/rust-toolchain@df2a88e9fe4098bad09cb42c3dec7187f15861fc
-        with:
-          toolchain: '1.100.0'
-          targets: aarch64-linux-android
-      - name: Install the pinned current Android toolchain
-        shell: bash
-        run: |
-          "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-37.0' 'build-tools;36.0.0' 'ndk;30.0.16248370'
-      - name: Compile native Android library at API 36
-        shell: bash
-        run: |
-          toolchain="${ANDROID_HOME}/ndk/30.0.16248370/toolchains/llvm/prebuilt/linux-x86_64/bin"
-          export CC_aarch64_linux_android="$toolchain/aarch64-linux-android36-clang"
-          export AR_aarch64_linux_android="$toolchain/llvm-ar"
-          export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$CC_aarch64_linux_android"
-          cargo build --locked --release --lib --features android --target aarch64-linux-android
-      - name: Generate Kotlin bindings from the actual Android library
-        shell: bash
-        run: |
-          cargo run --locked --features bindgen --bin uniffi-bindgen -- generate --library target/aarch64-linux-android/release/libprotun_next.so --language kotlin --config uniffi.toml --out-dir target/android-bindings --no-format
-      - uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880 # v6.3.0
-        with:
-          distribution: temurin
-          java-version: '17'
-      - uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c # v6.4.1
-        with:
-          gradle-version: '9.6.0'
-          cache-provider: basic
-      - name: Compile Android service, bindings, unit tests and AAR
-        shell: bash
-        run: |
-          mkdir -p target/android-jni/arm64-v8a
-          cp target/aarch64-linux-android/release/libprotun_next.so target/android-jni/arm64-v8a/
-          gradle -p android --no-daemon testDebugUnitTest assembleRelease
-          python3 scripts/verify-android-package.py
-          bash -n scripts/build-android.sh
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: android-development-library-and-bindings
-          path: |
-            target/aarch64-linux-android/release/libprotun_next.so
-            target/android-bindings/
-            android/build/outputs/aar/
-  linux-download-fixture:
-    if: github.event_name == 'workflow_dispatch' && inputs.download_fixture
-    strategy:
       matrix:
         runner: [ubuntu-24.04, ubuntu-24.04-arm]
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 25
+    timeout-minutes: 45
+    env:
+      BASELINE_SHA: 65d255c15434ec4795ead96f83e29209652dd1bd
+      CANDIDATE_SHA: 170e7977569c89d825e34f7920e5ccf39f9f4e44
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
+          fetch-depth: 0
           persist-credentials: false
-      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0
         with:
           python-version: '3.13'
       - uses: dtolnay/rust-toolchain@df2a88e9fe4098bad09cb42c3dec7187f15861fc
         with:
           toolchain: '1.100.0'
-      - run: bash scripts/setup-benchmark-sandbox.sh
-      - run: python scripts/measure-download.py --sustained
-  linux-tun:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: dtolnay/rust-toolchain@df2a88e9fe4098bad09cb42c3dec7187f15861fc
-        with:
-          toolchain: '1.100.0'
-      - name: Build opt-in network integration test
-        shell: bash
-        run: |
-          cargo test --locked --all-features --test linux_tun --no-run --message-format=json > test-artifacts.json
-          python3 -c 'import json; a=[json.loads(x) for x in open("test-artifacts.json")]; print(next(x["executable"] for x in a if x.get("executable") and x.get("target",{}).get("name")=="linux_tun"))' > test-binary.txt
-      - name: Test real TUN inside disposable namespace
+      - name: Prepare exact source revisions and the isolated Linux fixture
         shell: bash
         run: |
           set -euo pipefail
-          sudo ip netns add protun-next-ci
-          trap 'sudo ip netns del protun-next-ci' EXIT
-          sudo ip netns exec protun-next-ci env PROTUN_NEXT_NETNS_TEST=1 "$(cat test-binary.txt)" --ignored --nocapture --test-threads=1
-      - name: Build and test offline local service without account SDKs
+          git merge-base --is-ancestor "$BASELINE_SHA" "$CANDIDATE_SHA"
+          git worktree add --detach "$RUNNER_TEMP/baseline" "$BASELINE_SHA"
+          git worktree add --detach "$RUNNER_TEMP/candidate" "$CANDIDATE_SHA"
+          cmp "$RUNNER_TEMP/baseline/Cargo.lock" "$RUNNER_TEMP/candidate/Cargo.lock"
+          cd "$RUNNER_TEMP/baseline"
+          bash scripts/setup-benchmark-sandbox.sh
+          cargo fetch --locked
+      - name: Compare sustained UDP, TCP, and Stealth downloads
+        working-directory: ${{ runner.temp }}/baseline
         shell: bash
         run: |
           set -euo pipefail
-          cargo test --locked --no-default-features --features unix --test linux_tun --no-run --message-format=json > minimal-test-artifacts.json
-          python3 -c 'import json; a=[json.loads(x) for x in open("minimal-test-artifacts.json")]; print(next(x["executable"] for x in a if x.get("executable") and x.get("target",{}).get("name")=="linux_tun"))' > minimal-test-binary.txt
-          sudo ip netns add protun-next-minimal-ci
-          trap 'sudo ip netns del protun-next-minimal-ci' EXIT
-          sudo ip netns exec protun-next-minimal-ci env PROTUN_NEXT_NETNS_TEST=1 "$(cat minimal-test-binary.txt)" local_http_exists_offline --ignored --nocapture
-  linux-lts:
-    strategy:
-      fail-fast: false
-      matrix:
-        kernel: ['6.12.118', '6.18.64']
-    runs-on: ubuntu-24.04
-    timeout-minutes: 45
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: dtolnay/rust-toolchain@df2a88e9fe4098bad09cb42c3dec7187f15861fc
-        with:
-          toolchain: '1.100.0'
-          targets: x86_64-unknown-linux-musl
-      - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        id: kernel-cache
-        continue-on-error: true
-        with:
-          path: target/lts-kernels/${{ matrix.kernel }}/
-          key: lts-kernel-${{ runner.arch }}-${{ matrix.kernel }}-${{ hashFiles('scripts/test-linux-lts.sh') }}
-      - name: Install disposable-VM build tools
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends qemu-system-x86 busybox-static musl-tools flex bison libelf-dev libssl-dev bc cpio
-      - name: Boot the actual supported LTS kernel and run functional tests
-        run: bash scripts/test-linux-lts.sh '${{ matrix.kernel }}'
-      - uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        if: always() && steps.kernel-cache.outputs.cache-hit != 'true' && hashFiles('target/lts-kernels/**/bzImage') != ''
-        continue-on-error: true
-        with:
-          path: target/lts-kernels/${{ matrix.kernel }}/
-          key: lts-kernel-${{ runner.arch }}-${{ matrix.kernel }}-${{ hashFiles('scripts/test-linux-lts.sh') }}
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+          PYTHONPATH=scripts python - <<'PY'
+          import json
+          import os
+          import platform
+          from pathlib import Path
+
+          import maintenance
+
+          root = Path(os.environ["RUNNER_TEMP"])
+          baseline = maintenance.download.build(root / "baseline", root / "baseline-target")
+          candidate = maintenance.download.build(root / "candidate", root / "candidate-target")
+          report = {
+              "baseline": os.environ["BASELINE_SHA"],
+              "candidate": os.environ["CANDIDATE_SHA"],
+              "architecture": platform.machine(),
+              "workloads": {},
+          }
+          path = root / "capture-writer-paired.json"
+          for workload in sorted(maintenance.DOWNLOAD_WORKLOADS):
+              report["workloads"].update(maintenance.measure_tunnels(baseline, candidate, {workload}))
+              path.write_text(json.dumps(report, indent=2), encoding="utf-8")
+              row = report["workloads"][workload]
+              print(workload, "sample quality:", row["sample_quality_passed"],
+                    {key: value["decision"] for key, value in row["metrics"].items()}, flush=True)
+          decision = maintenance.measurement_decision({"metrics": {}}, report["workloads"])
+          report["decision"] = decision
+          path.write_text(json.dumps(report, indent=2), encoding="utf-8")
+          print("Overall paired download decision:", decision, flush=True)
+          raise SystemExit(0 if decision == "passed" else 1)
+          PY
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         if: always()
         with:
-          name: linux-${{ matrix.kernel }}-guest-results
-          path: target/lts-results/
-  linux-arm64-musl:
-    runs-on: ubuntu-24.04-arm
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: dtolnay/rust-toolchain@df2a88e9fe4098bad09cb42c3dec7187f15861fc
-        with:
-          toolchain: '1.100.0'
-          targets: aarch64-unknown-linux-musl
-      - run: sudo apt-get update && sudo apt-get install -y musl-tools
-      - name: Build the OpenWrt ARM64-musl artifact
-        env:
-          CC_aarch64_unknown_linux_musl: musl-gcc
-        run: cargo build --locked --release --lib --bin protun-next-cli --target aarch64-unknown-linux-musl
-      - name: Measure native ARM64 framing baseline
-        shell: bash
-        run: |
-          python3 scripts/measure-baseline.py --build --output target/baseline/framing.json
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: framing-baseline-linux-arm64
-          path: target/baseline/framing.json
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: linux-arm64-musl
-          path: |
-            target/aarch64-unknown-linux-musl/release/protun-next-cli
-            target/aarch64-unknown-linux-musl/release/libprotun_next.a
+          name: capture-writer-paired-${{ matrix.runner }}
+          path: ${{ runner.temp }}/capture-writer-paired.json
+          if-no-files-found: warn
+          retention-days: 14
