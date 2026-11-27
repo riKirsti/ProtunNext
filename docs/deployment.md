@@ -23,9 +23,11 @@ limit of 64 records, capture stops accepting records and logs the reason. The
 VPN keeps forwarding. An interrupted nonseekable output may end with a partial
 record. Supply a dedicated Unix pipe or socket descriptor since its nonblocking
 flag is shared with duplicate descriptors while a write is in progress. Normal
-stop drains pending records and flushes the output. Start and stop wait up to
-one second for the writer. A regular file stuck in OS I/O may take longer to
-close in the background.
+stop drains pending records and flushes the output. The low-level capture API
+waits up to one second for the writer. Managed start and stop requests run
+asynchronously. Managed disconnect stops the tunnel before giving pending
+capture work up to 100 ms to finish. A regular file stuck in OS I/O may take
+longer to close in the background.
 
 ## Linux
 

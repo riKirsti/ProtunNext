@@ -13,16 +13,21 @@ use std::{
         mpsc,
     },
     thread::{self, JoinHandle},
-    time::{Duration, UNIX_EPOCH},
+    time::{Duration, Instant, UNIX_EPOCH},
 };
 use zeroize::Zeroizing;
 
 const RECORDS: usize = 64;
 const CONTROL_TIMEOUT: Duration = Duration::from_secs(1);
 
-enum Request {
+pub(super) enum Request {
     Start(CaptureInput),
     Stop { disconnected: bool },
+}
+
+pub(super) struct Pending {
+    reply: mpsc::Receiver<Result<()>>,
+    deadline: Instant,
 }
 
 enum Work {
@@ -84,10 +89,22 @@ impl CaptureState {
     }
 
     pub(crate) fn start(&self, info: PcapFileInfo) -> Result<()> {
-        let request = Request::Start(CaptureInput::take(info)?);
+        self.submit(Request::Start(CaptureInput::take(info)?), false)?
+            .map_or(Ok(()), |pending| self.wait(pending, CONTROL_TIMEOUT))
+    }
+
+    pub(super) fn submit(&self, request: Request, buffer_initial: bool) -> Result<Option<Pending>> {
         {
             let mut thread = self.thread.lock().unwrap_or_else(|e| e.into_inner());
             if thread.is_none() {
+                if let Request::Stop { disconnected } = request {
+                    if !disconnected {
+                        self.writer.event(Event::PacketCaptureStopped {
+                            reason: CaptureStopReason::AlreadyStopped,
+                        });
+                    }
+                    return Ok(None);
+                }
                 let writer = self.writer.clone();
                 *thread = Some(
                     thread::Builder::new()
@@ -96,24 +113,39 @@ impl CaptureState {
                 );
             }
         }
-        self.writer.request(request)
+        self.writer.submit(request, buffer_initial).map(Some)
     }
 
     pub(crate) fn stop(&self, disconnected: bool) -> Result<()> {
-        if self
-            .thread
+        self.stop_with_timeout(disconnected, CONTROL_TIMEOUT)
+    }
+
+    pub(super) fn stop_with_timeout(&self, disconnected: bool, timeout: Duration) -> Result<()> {
+        self.submit(Request::Stop { disconnected }, false)?
+            .map_or(Ok(()), |pending| self.wait(pending, timeout))
+    }
+
+    pub(super) fn wait(&self, pending: Pending, timeout: Duration) -> Result<()> {
+        pending
+            .reply
+            .recv_timeout(timeout)
+            .unwrap_or_else(|_| self.writer.expire(&pending.reply))
+    }
+
+    pub(super) fn poll(&self, pending: &Pending) -> Option<Result<()>> {
+        match pending.reply.try_recv() {
+            Ok(result) => Some(result),
+            Err(mpsc::TryRecvError::Empty) if Instant::now() < pending.deadline => None,
+            Err(_) => Some(self.writer.expire(&pending.reply)),
+        }
+    }
+
+    pub(super) fn busy(&self) -> bool {
+        self.writer
+            .queue
             .lock()
             .unwrap_or_else(|e| e.into_inner())
-            .is_none()
-        {
-            if !disconnected {
-                self.writer.event(Event::PacketCaptureStopped {
-                    reason: CaptureStopReason::AlreadyStopped,
-                });
-            }
-            return Ok(());
-        }
-        self.writer.request(Request::Stop { disconnected })
+            .pending
     }
 
     pub(crate) fn take_events(&self) -> Vec<Event> {
@@ -149,7 +181,7 @@ impl Writer {
         self.ready.notify_one();
     }
 
-    fn request(&self, request: Request) -> Result<()> {
+    fn submit(&self, request: Request, buffer_initial: bool) -> Result<Pending> {
         let shutdown = matches!(request, Request::Stop { disconnected: true });
         let (response, received) = mpsc::sync_channel(1);
         {
@@ -163,28 +195,29 @@ impl Writer {
             }
             if matches!(request, Request::Stop { .. }) {
                 self.active.store(false, Ordering::Relaxed);
+            } else if buffer_initial {
+                // Queue the earliest packets while the initial header is prepared.
+                self.active.store(true, Ordering::Relaxed);
             }
             queue.pending = true;
             queue.work.push_back(Work::Control(request, response));
             self.ready.notify_one();
         }
-        match received.recv_timeout(CONTROL_TIMEOUT) {
-            Ok(result) => result,
-            Err(_) => {
-                let mut queue = self.queue.lock().unwrap_or_else(|e| e.into_inner());
-                if let Ok(result) = received.try_recv() {
-                    return result;
-                }
-                queue.expired = true;
-                self.active.store(false, Ordering::Relaxed);
-                self.cancel.store(true, Ordering::Relaxed);
-                drop(queue);
-                Err(
-                    io::Error::new(io::ErrorKind::TimedOut, "capture writer did not respond")
-                        .into(),
-                )
-            }
+        Ok(Pending {
+            reply: received,
+            deadline: Instant::now() + CONTROL_TIMEOUT,
+        })
+    }
+
+    fn expire(&self, reply: &mpsc::Receiver<Result<()>>) -> Result<()> {
+        let mut queue = self.queue.lock().unwrap_or_else(|e| e.into_inner());
+        if let Ok(result) = reply.try_recv() {
+            return result;
         }
+        queue.expired = true;
+        self.active.store(false, Ordering::Relaxed);
+        self.cancel.store(true, Ordering::Relaxed);
+        Err(io::Error::new(io::ErrorKind::TimedOut, "capture writer did not respond").into())
     }
 
     fn run(&self) {
