@@ -2,7 +2,7 @@
 //! The supervisor retains control services and capture across worker changes;
 //! this layer owns packet-thread stop/join, interface updates and statistics.
 use crate::api::{
-    capture::CaptureController,
+    capture_worker::CaptureState,
     types::{Event, PcapFileInfo, SocketProtector},
 };
 use crate::{
@@ -12,7 +12,6 @@ use crate::{
     session::{Session, Statistics},
     transport::{Counters, Transport},
 };
-use std::collections::VecDeque;
 #[cfg(unix)]
 use std::os::fd::{AsRawFd, BorrowedFd};
 use std::{
@@ -214,56 +213,6 @@ pub(crate) struct RuntimeServices {
     #[cfg(feature = "control-plane")]
     pub(crate) control: Option<Arc<ControlNetwork>>,
 }
-/// A supervisor retains one sink across peer/socket replacement, so failover
-/// neither truncates capture files nor repeats descriptor ownership transfer.
-pub(crate) struct CaptureState {
-    controller: Mutex<CaptureController>,
-    capturing: AtomicBool,
-    events: Mutex<VecDeque<Event>>,
-}
-impl Default for CaptureState {
-    fn default() -> Self {
-        Self {
-            controller: Mutex::new(CaptureController::new()),
-            capturing: AtomicBool::new(false),
-            events: Mutex::new(VecDeque::new()),
-        }
-    }
-}
-impl CaptureState {
-    fn event(&self, event: Event) {
-        let mut events = self.events.lock().unwrap_or_else(|e| e.into_inner());
-        if events.len() == 128 {
-            events.pop_front();
-        }
-        events.push_back(event);
-    }
-    pub(crate) fn start(&self, info: PcapFileInfo) -> Result<()> {
-        let mut capture = self.controller.lock().unwrap_or_else(|e| e.into_inner());
-        let events = capture.start(info)?;
-        self.capturing.store(capture.active(), Ordering::Relaxed);
-        for event in events {
-            self.event(event);
-        }
-        Ok(())
-    }
-    pub(crate) fn stop(&self, disconnected: bool) -> Result<()> {
-        self.capturing.store(false, Ordering::Relaxed);
-        let mut capture = self.controller.lock().unwrap_or_else(|e| e.into_inner());
-        if disconnected && !capture.active() {
-            return Ok(());
-        }
-        self.event(capture.stop(disconnected)?);
-        Ok(())
-    }
-    pub(crate) fn take_events(&self) -> Vec<Event> {
-        self.events
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .drain(..)
-            .collect()
-    }
-}
 pub(crate) struct Observer {
     shared: Arc<Shared>,
     start: Duration,
@@ -316,38 +265,10 @@ impl Observer {
         self.shared.changed.notify_all();
     }
     pub(crate) fn capture(&self, bytes: &[u8]) {
-        if !self.shared.capture.capturing.load(Ordering::Relaxed) {
-            return;
-        }
-        let wall = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default();
-        let mut capture = self
-            .shared
-            .capture
-            .controller
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        match capture.packet(wall, bytes) {
-            Ok(Some(event)) => {
-                self.shared
-                    .capture
-                    .capturing
-                    .store(false, Ordering::Relaxed);
-                self.shared.capture.event(event);
-            }
-            Ok(None) => {}
-            Err(error) => {
-                log::error!("capture write failed: {error}");
-                self.shared
-                    .capture
-                    .capturing
-                    .store(false, Ordering::Relaxed);
-            }
-        }
+        self.shared.capture.record(bytes);
     }
     pub(crate) fn capture_wireguard(&self, bytes: &[u8], outbound: bool) {
-        if !self.shared.capture.capturing.load(Ordering::Relaxed) || bytes.len() > 65507 {
+        if !self.shared.capture.active() || bytes.len() > 65507 {
             return;
         }
         // Same diagnostic convention as v3.0.5: synthetic UDP between

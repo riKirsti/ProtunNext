@@ -18,6 +18,15 @@ tokens, selectors, keys, captures or personal device/network identifiers. Captur
 are opt-in sensitive data; keep them disabled for ordinary operation and timing.
 The host must supply an appropriate secure cache policy for credentials.
 
+Connection capture writes PCAP on a separate thread. When the queue reaches its
+limit of 64 records, capture stops accepting records and logs the reason. The
+VPN keeps forwarding. An interrupted nonseekable output may end with a partial
+record. Supply a dedicated Unix pipe or socket descriptor since its nonblocking
+flag is shared with duplicate descriptors while a write is in progress. Normal
+stop drains pending records and flushes the output. Start and stop wait up to
+one second for the writer. A regular file stuck in OS I/O may take longer to
+close in the background.
+
 ## Linux
 
 The caller creates/configures a TUN and its addresses/routes/DNS, then passes
