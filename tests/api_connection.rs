@@ -251,6 +251,170 @@ fn reference_peer(
         }
     })
 }
+
+#[cfg(target_os = "linux")]
+#[test]
+fn managed_capture_lifecycle_timing() {
+    use std::{
+        fs::File,
+        io::Write,
+        os::fd::{AsRawFd, FromRawFd, IntoRawFd},
+    };
+
+    let directory = tempfile::tempdir().unwrap();
+    for scenario in ["disabled", "healthy", "blocked-initial", "blocked-record"] {
+        let socket = UdpSocket::bind("127.0.0.1:0").unwrap();
+        socket
+            .set_read_timeout(Some(Duration::from_millis(40)))
+            .unwrap();
+        let port = socket.local_addr().unwrap().port();
+        let stop_peer = Arc::new(AtomicBool::new(false));
+        let peer = reference_peer(socket, stop_peer.clone(), true);
+        let mut read_end = None;
+        let mut inspection = None;
+        let capture = match scenario {
+            "disabled" => None,
+            "healthy" => Some(PcapFileInfo {
+                file: PcapFile::Path {
+                    path: directory
+                        .path()
+                        .join("healthy.pcap")
+                        .to_str()
+                        .unwrap()
+                        .into(),
+                    mode: FileWriteMode::Overwrite,
+                },
+                max_bytes: None,
+            }),
+            _ => {
+                let mut fds = [-1; 2];
+                // SAFETY: this array has room for both returned descriptors.
+                let result = unsafe { libc::pipe2(fds.as_mut_ptr(), libc::O_CLOEXEC) };
+                assert_eq!(result, 0);
+                // SAFETY: the successful pipe2 call returned a new owned read end.
+                read_end = Some(unsafe { File::from_raw_fd(fds[0]) });
+                // SAFETY: the successful pipe2 call returned a new owned write end.
+                let mut output = unsafe { File::from_raw_fd(fds[1]) };
+                // SAFETY: output owns this live descriptor.
+                let capacity = unsafe { libc::fcntl(output.as_raw_fd(), libc::F_GETPIPE_SZ) };
+                assert!(capacity > 24);
+                let spare = if scenario == "blocked-record" { 24 } else { 0 };
+                output
+                    .write_all(&vec![0; capacity as usize - spare])
+                    .unwrap();
+                if spare != 0 {
+                    inspection = Some(output.try_clone().unwrap());
+                }
+                Some(PcapFileInfo {
+                    file: PcapFile::Fd(output.into_raw_fd()),
+                    max_bytes: None,
+                })
+            }
+        };
+        let (states, state_rx) = mpsc::channel();
+        let (events, event_rx) = mpsc::channel();
+        let connected =
+            |state: &VpnState| matches!(state.connection_state, ConnectionState::Connected { .. });
+        let start = Instant::now();
+        let connection = Connection::unix_connect(
+            InitialConnectionConfig {
+                peers: vec![PeerInfo {
+                    peer_id: "loopback".into(),
+                    server_ip: IpAddress("127.0.0.1".parse().unwrap()),
+                    server_public_key: WgPeerPublicKey(Session::public_key([9; 32])),
+                    udp_ports: vec![port],
+                    tcp_ports: vec![],
+                    tls_ports: vec![],
+                    priority: 0,
+                    exit_label: None,
+                    server_name: None,
+                }],
+                network_available: true,
+                pcap_file: capture,
+                connection_mode: ConnectionMode::NoLocalAgent {
+                    wg_private_key: Some(WgClientPrivateKey([7; 32])),
+                },
+                sni_strategy: SniStrategy::Random,
+            },
+            None,
+            Box::new(move |state| {
+                let _ = states.send(state);
+            }),
+            Box::new(move |event| {
+                let _ = events.send(event);
+            }),
+            None,
+            Box::new(MemoryCache::default()),
+        );
+        wait_for(&state_rx, connected);
+        let startup = start.elapsed();
+        if let Some(output) = &inspection {
+            let deadline = Instant::now() + Duration::from_secs(2);
+            loop {
+                // SAFETY: this inspection descriptor stays open and does not write.
+                let flags = unsafe { libc::fcntl(output.as_raw_fd(), libc::F_GETFL) };
+                assert!(flags >= 0);
+                if flags & libc::O_NONBLOCK != 0 {
+                    break;
+                }
+                assert!(
+                    Instant::now() < deadline,
+                    "capture did not block on the pipe"
+                );
+                thread::sleep(Duration::from_millis(5));
+            }
+        }
+        drop(inspection);
+        connection.on_connectivity_change(ConnectivityEvent::Down);
+        wait_for(&state_rx, |state| {
+            matches!(&state.connection_state, ConnectionState::Connecting { wait_reasons, .. }
+                if !wait_reasons.is_empty())
+        });
+        let recovery = Instant::now();
+        connection.on_connectivity_change(ConnectivityEvent::Up);
+        wait_for(&state_rx, connected);
+        let recovery = recovery.elapsed();
+        let disconnect = Instant::now();
+        connection.disconnect_and_wait();
+        let disconnect = disconnect.elapsed();
+        wait_for(&state_rx, |state| {
+            matches!(state.connection_state, ConnectionState::Disconnected { .. })
+        });
+        if scenario == "healthy" {
+            wait_for(&event_rx, |event| {
+                matches!(
+                    event,
+                    Event::PacketCaptureStopped {
+                        reason: CaptureStopReason::Disconnected { .. }
+                    }
+                )
+            });
+            assert!(
+                std::fs::metadata(directory.path().join("healthy.pcap"))
+                    .unwrap()
+                    .len()
+                    > 24
+            );
+        }
+        drop(read_end);
+        stop_peer.store(true, Ordering::Relaxed);
+        peer.join().unwrap();
+        println!(
+            "CAPTURE_LIFECYCLE {scenario} {} {} {}",
+            startup.as_micros(),
+            recovery.as_micros(),
+            disconnect.as_micros()
+        );
+        if let Ok(budget) = std::env::var("PROTUNNEXT_CAPTURE_LIFECYCLE_BUDGET_MS") {
+            let budget = Duration::from_millis(budget.parse().unwrap());
+            assert!(
+                startup <= budget && recovery <= budget && disconnect <= budget,
+                "{scenario}: {startup:?}, {recovery:?}, {disconnect:?} exceeded {budget:?}"
+            );
+        }
+    }
+}
+
 #[test]
 fn handshake_without_decrypted_data_fails_over_to_a_working_data_path() {
     let first = UdpSocket::bind("127.0.0.1:0").unwrap();

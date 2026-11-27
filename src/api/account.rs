@@ -46,15 +46,21 @@ pub struct Service {
 }
 impl Service {
     #[cfg(test)]
-    pub(crate) fn command_probe() -> (Self, async_channel::UnboundedReceiver<Command>) {
+    pub(crate) fn command_probe() -> (
+        Self,
+        async_channel::UnboundedReceiver<Command>,
+        mpsc::SyncSender<Notice>,
+    ) {
         let (sender, receiver) = async_channel::unbounded_channel();
+        let (notices, received_notices) = mpsc::sync_channel(8);
         (
             Self {
                 sender,
-                notices: None,
+                notices: Some(received_notices),
                 join: None,
             },
             receiver,
+            notices,
         )
     }
 
