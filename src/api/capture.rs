@@ -4,11 +4,132 @@ use super::types::{CaptureStopReason, Event, FileWriteMode, PcapFile, PcapFileIn
 use crate::{Error, Result, capture::Capture};
 use std::{
     fs::File,
-    io::{Read, Seek, SeekFrom},
+    io::{self, Read, Seek, SeekFrom, Write},
+    sync::{Arc, atomic::AtomicBool},
     time::Duration,
 };
+
+pub(crate) struct CaptureInput {
+    info: PcapFileInfo,
+    #[cfg(unix)]
+    descriptor: Option<File>,
+}
+
+impl CaptureInput {
+    pub(crate) fn take(info: PcapFileInfo) -> Result<Self> {
+        #[cfg(unix)]
+        let descriptor = if let PcapFile::Fd(fd) = info.file {
+            use std::os::fd::FromRawFd;
+            // SAFETY: the caller transfers fd. Duplicate it before closing the original.
+            let copy = unsafe { libc::fcntl(fd, libc::F_DUPFD_CLOEXEC, 3) };
+            let error = (copy < 0).then(io::Error::last_os_error);
+            // SAFETY: ownership transfers on failure too.
+            unsafe { libc::close(fd) };
+            if let Some(error) = error {
+                return Err(error.into());
+            }
+            // SAFETY: successful fcntl returned a new owned descriptor.
+            Some(unsafe { File::from_raw_fd(copy) })
+        } else {
+            None
+        };
+        #[cfg(not(unix))]
+        if matches!(info.file, PcapFile::Fd(_)) {
+            return Err(Error::Unsupported("capture fd on this platform"));
+        }
+        Ok(Self {
+            info,
+            #[cfg(unix)]
+            descriptor,
+        })
+    }
+}
+
+// Only the connection-owned writer needs cancellation. Public synchronous
+// CaptureController users keep their existing descriptor behavior.
+struct Output {
+    file: File,
+    #[cfg(unix)]
+    cancel: Option<Arc<AtomicBool>>,
+}
+
+impl Output {
+    fn new(file: File, cancel: Option<Arc<AtomicBool>>) -> io::Result<Self> {
+        #[cfg(unix)]
+        {
+            let cancel = if cancel.is_some() && !file.metadata()?.is_file() {
+                cancel
+            } else {
+                None
+            };
+            Ok(Self { file, cancel })
+        }
+        #[cfg(not(unix))]
+        {
+            let _ = cancel;
+            Ok(Self { file })
+        }
+    }
+
+    #[cfg(unix)]
+    fn write_stream(file: &mut File, bytes: &[u8], cancel: &AtomicBool) -> io::Result<usize> {
+        use std::os::fd::AsRawFd;
+
+        let fd = file.as_raw_fd();
+        // SAFETY: this output owns a live file descriptor.
+        let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
+        if flags < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        let restore = flags & libc::O_NONBLOCK == 0;
+        // SAFETY: F_SETFL takes scalar descriptor status flags.
+        if restore && unsafe { libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) } < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        let result = loop {
+            if cancel.load(std::sync::atomic::Ordering::Relaxed) {
+                break Err(io::Error::new(
+                    io::ErrorKind::TimedOut,
+                    "capture write cancelled",
+                ));
+            }
+            match file.write(bytes) {
+                Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                    std::thread::sleep(Duration::from_millis(5));
+                }
+                result => break result,
+            }
+        };
+        if restore {
+            // SAFETY: the file is still live. Preserve any other status flags.
+            let current = unsafe { libc::fcntl(fd, libc::F_GETFL) };
+            if current < 0
+                // SAFETY: F_SETFL takes scalar descriptor status flags.
+                || unsafe { libc::fcntl(fd, libc::F_SETFL, current & !libc::O_NONBLOCK) } < 0
+            {
+                log::warn!("could not restore capture descriptor flags");
+            }
+        }
+        result
+    }
+}
+
+impl Write for Output {
+    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        #[cfg(unix)]
+        if let Some(cancel) = &self.cancel {
+            return Self::write_stream(&mut self.file, bytes, cancel);
+        }
+        self.file.write(bytes)
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        self.file.flush()
+    }
+}
+
 pub struct CaptureController {
-    current: Option<(PcapFileInfo, Capture<File>)>,
+    current: Option<(PcapFileInfo, Capture<Output>)>,
 }
 impl Default for CaptureController {
     fn default() -> Self {
@@ -20,6 +141,14 @@ impl CaptureController {
         Self { current: None }
     }
     pub fn start(&mut self, info: PcapFileInfo) -> Result<Vec<Event>> {
+        self.start_input(CaptureInput::take(info)?, None)
+    }
+    pub(crate) fn start_input(
+        &mut self,
+        input: CaptureInput,
+        cancel: Option<Arc<AtomicBool>>,
+    ) -> Result<Vec<Event>> {
+        let info = input.info;
         let mut events = Vec::new();
         let descriptor = matches!(info.file, PcapFile::Fd(_));
         // Open/validate the replacement first so an invalid request does not
@@ -45,38 +174,14 @@ impl CaptureController {
                 }
                 (file, *mode == FileWriteMode::Append)
             }
-            PcapFile::Fd(fd) => {
+            PcapFile::Fd(_) => {
                 #[cfg(unix)]
                 {
-                    use std::os::fd::FromRawFd;
-                    // SAFETY: duplicates the raw input fd; only the fresh fd is owned here.
-                    let copy = unsafe { libc::fcntl(*fd, libc::F_DUPFD_CLOEXEC, 3) };
-                    if copy < 0 {
-                        let error = std::io::Error::last_os_error();
-                        // SAFETY: this API transfers the original descriptor
-                        // even when adopting it fails. Preserve the first error.
-                        unsafe {
-                            libc::close(*fd);
-                        }
-                        return Err(error.into());
-                    }
-                    // SAFETY: successful fcntl returned a new owned descriptor.
-                    let file = unsafe { File::from_raw_fd(copy) };
-                    // Legacy Fd transfers ownership; close the caller-supplied fd
-                    // only after duplication succeeds. Callers relinquish it.
-                    // SAFETY: scalar descriptor, close never accesses Rust memory.
-                    unsafe {
-                        libc::close(*fd);
-                    }
-                    // An owned descriptor may be write-only or a pipe/socket.
-                    // Preserve the caller's offset and require neither reads
-                    // nor seeks, as the upstream descriptor API does.
-                    (file, false)
+                    (input.descriptor.expect("adopted capture descriptor"), false)
                 }
                 #[cfg(not(unix))]
                 {
-                    let _ = fd;
-                    return Err(Error::Unsupported("capture fd on this platform"));
+                    unreachable!("unsupported capture descriptor was rejected")
                 }
             }
         };
@@ -97,13 +202,13 @@ impl CaptureController {
                 return Err(Error::Invalid("incompatible PCAP append format"));
             }
             file.seek(SeekFrom::End(0))?;
-            Capture::resume(file, size, limit)?
+            Capture::resume(Output::new(file, cancel)?, size, limit)?
         } else {
             if !descriptor {
                 file.set_len(0)?;
                 file.seek(SeekFrom::Start(0))?;
             }
-            Capture::new(file, limit)?
+            Capture::new(Output::new(file, cancel)?, limit)?
         };
         if self.current.is_some() {
             events.push(self.stop(false)?);
@@ -144,12 +249,12 @@ impl CaptureController {
     }
 }
 
-fn finish(capture: Capture<File>) -> std::io::Result<()> {
-    let file = capture.finish()?;
+fn finish(capture: Capture<Output>) -> std::io::Result<()> {
+    let output = capture.finish()?;
     // Pipes and sockets support flushing their writer, but cannot be fsynced.
     // Preserve durable completion for regular capture files.
-    if file.metadata()?.is_file() {
-        file.sync_all()?;
+    if output.file.metadata()?.is_file() {
+        output.file.sync_all()?;
     }
     Ok(())
 }

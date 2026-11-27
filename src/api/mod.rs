@@ -11,6 +11,8 @@ pub(crate) mod account_os;
 pub mod agent_state;
 pub mod cache;
 pub mod capture;
+#[cfg(any(unix, windows))]
+pub(crate) mod capture_worker;
 #[cfg(feature = "control-plane")]
 mod fragments;
 #[cfg(feature = "control-plane")]

@@ -455,7 +455,7 @@ impl Reference {
 fn tracked_customer_reply_outside_virtual_subnet_survives_the_real_tun_pipeline() {
     use protun_next::api::{cache::MemoryCache, connection as api};
     use std::{
-        os::fd::IntoRawFd,
+        os::fd::{FromRawFd, IntoRawFd},
         sync::{
             Arc,
             atomic::{AtomicBool, Ordering},
@@ -548,6 +548,7 @@ fn tracked_customer_reply_outside_virtual_subnet_survives_the_real_tun_pipeline(
         }
     });
     let (sender, states) = mpsc::channel();
+    let (event_sender, events) = mpsc::channel();
     let connection = api::Connection::unix_connect(
         api::InitialConnectionConfig {
             peers: vec![api::PeerInfo {
@@ -572,7 +573,9 @@ fn tracked_customer_reply_outside_virtual_subnet_survives_the_real_tun_pipeline(
         Box::new(move |state| {
             let _ = sender.send(state);
         }),
-        Box::new(|_| {}),
+        Box::new(move |event| {
+            let _ = event_sender.send(event);
+        }),
         Some(Box::new(|_| true)),
         Box::new(MemoryCache::default()),
     );
@@ -590,13 +593,58 @@ fn tracked_customer_reply_outside_virtual_subnet_survives_the_real_tun_pipeline(
     }
     let app = UdpSocket::bind("192.0.2.2:1000").unwrap();
     app.set_read_timeout(Some(Duration::from_secs(3))).unwrap();
+    let mut pipe = [-1; 2];
+    assert_eq!(
+        // SAFETY: pipe points to storage for both returned descriptors.
+        unsafe { libc::pipe2(pipe.as_mut_ptr(), libc::O_CLOEXEC) },
+        0
+    );
+    // SAFETY: the read descriptor was returned by pipe2 and is owned here.
+    let input = unsafe { File::from_raw_fd(pipe[0]) };
+    // SAFETY: the write descriptor was returned by pipe2 and is owned here.
+    let output = unsafe { File::from_raw_fd(pipe[1]) };
+    // SAFETY: the descriptor is owned and F_SETPIPE_SZ takes the size by value.
+    let capacity = unsafe { libc::fcntl(output.as_raw_fd(), libc::F_SETPIPE_SZ, 4096) };
+    assert!((4096..=65536).contains(&capacity));
+    connection.start_packet_capture(api::PcapFileInfo {
+        file: api::PcapFile::Fd(output.into_raw_fd()),
+        max_bytes: None,
+    });
+    assert!(matches!(
+        events.recv_timeout(Duration::from_secs(3)).unwrap(),
+        api::Event::PacketCaptureStarted { .. },
+    ));
+
+    // The reader stays idle and the pipe cannot hold all of the captured records.
+    let payload = [0x5a; 1024];
+    let mut reply = [0; 1024];
+    for _ in 0..192 {
+        app.send_to(&payload, "192.0.2.100:9000").unwrap();
+        let (n, _) = app.recv_from(&mut reply).unwrap();
+        assert_eq!(&reply[..n], &payload);
+    }
+    let mut reader = libc::pollfd {
+        fd: input.as_raw_fd(),
+        events: 0,
+        revents: 0,
+    };
+    // SAFETY: reader is one valid pollfd for the still-owned pipe.
+    assert_eq!(unsafe { libc::poll(&mut reader, 1, 3000) }, 1);
+    assert_ne!(
+        reader.revents & libc::POLLHUP,
+        0,
+        "overflow must close the writer"
+    );
+
     app.send_to(b"tracked customer", "192.0.2.100:9000")
         .unwrap();
     let mut bytes = [0; 64];
     let (n, from) = app.recv_from(&mut bytes).unwrap();
     assert_eq!(&bytes[..n], b"tracked customer");
     assert_eq!(from, "192.0.2.100:9000".parse().unwrap());
+    let started = std::time::Instant::now();
     connection.disconnect_and_wait();
+    assert!(started.elapsed() < Duration::from_secs(2));
     stop.store(true, Ordering::Relaxed);
     peer.join().unwrap();
 }

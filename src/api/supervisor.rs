@@ -1,5 +1,5 @@
 //! Control commands execute on a supervisor thread, never in the packet loop.
-use super::{keys::Identity, types::*};
+use super::{capture_worker::CaptureState, keys::Identity, types::*};
 #[cfg(feature = "local-agent")]
 mod account;
 mod notifications;
@@ -7,7 +7,7 @@ mod peers;
 use crate::{
     Result,
     config::{PrivateKey, WireguardConfig},
-    connection::{CaptureState, Connection as Worker, State as WorkerState},
+    connection::{Connection as Worker, State as WorkerState},
     platform::{self, TunHandle},
     transport::Transport,
 };
