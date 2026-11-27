@@ -594,13 +594,14 @@ fn tracked_customer_reply_outside_virtual_subnet_survives_the_real_tun_pipeline(
     let app = UdpSocket::bind("192.0.2.2:1000").unwrap();
     app.set_read_timeout(Some(Duration::from_secs(3))).unwrap();
     let mut pipe = [-1; 2];
-    // SAFETY: pipe points to storage for both returned descriptors.
     assert_eq!(
+        // SAFETY: pipe points to storage for both returned descriptors.
         unsafe { libc::pipe2(pipe.as_mut_ptr(), libc::O_CLOEXEC) },
         0
     );
-    // SAFETY: both descriptors were returned by pipe2 and are owned here.
+    // SAFETY: the read descriptor was returned by pipe2 and is owned here.
     let input = unsafe { File::from_raw_fd(pipe[0]) };
+    // SAFETY: the write descriptor was returned by pipe2 and is owned here.
     let output = unsafe { File::from_raw_fd(pipe[1]) };
     // SAFETY: the descriptor is owned and F_SETPIPE_SZ takes the size by value.
     let capacity = unsafe { libc::fcntl(output.as_raw_fd(), libc::F_SETPIPE_SZ, 4096) };

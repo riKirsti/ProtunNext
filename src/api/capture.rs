@@ -103,8 +103,8 @@ impl Output {
         if restore {
             // SAFETY: the file is still live. Preserve any other status flags.
             let current = unsafe { libc::fcntl(fd, libc::F_GETFL) };
-            // SAFETY: F_SETFL takes scalar descriptor status flags.
             if current < 0
+                // SAFETY: F_SETFL takes scalar descriptor status flags.
                 || unsafe { libc::fcntl(fd, libc::F_SETFL, current & !libc::O_NONBLOCK) } < 0
             {
                 log::warn!("could not restore capture descriptor flags");
