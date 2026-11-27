@@ -20,16 +20,29 @@ measurement = """
         assert!(matches!(events.recv_timeout(Duration::from_secs(3)).unwrap(),
             api::Event::PacketCaptureStarted { .. }));
         const ROUNDS: usize = 4000;
+        const BATCH: usize = 8;
+        // Two inner and two encapsulated records per verified UDP echo.
+        const CAPTURE_BYTES_PER_ROUND: u64 = 2 * (16 + 28 + 1024) + 2 * (16 + 28 + 32 + 28 + 1024);
         let mut payload = [0x5a; 1024];
         let mut reply = [0; 1024];
-        let started = std::time::Instant::now();
-        for sequence in 0..ROUNDS {
-            payload[..8].copy_from_slice(&(sequence as u64).to_le_bytes());
-            app.send_to(&payload, "192.0.2.100:9000").unwrap();
-            let (n, _) = app.recv_from(&mut reply).unwrap();
-            assert_eq!(&reply[..n], &payload);
+        let mut elapsed = Duration::ZERO;
+        for first in (0..ROUNDS).step_by(BATCH) {
+            let started = std::time::Instant::now();
+            for sequence in first..first+BATCH {
+                payload[..8].copy_from_slice(&(sequence as u64).to_le_bytes());
+                app.send_to(&payload, "192.0.2.100:9000").unwrap();
+                let (n, _) = app.recv_from(&mut reply).unwrap();
+                assert_eq!(&reply[..n], &payload);
+            }
+            elapsed += started.elapsed();
+            // Keep batches below the existing fixed queue capacity.
+            let expected = 24 + (first + BATCH) as u64 * CAPTURE_BYTES_PER_ROUND;
+            let deadline = std::time::Instant::now() + Duration::from_secs(2);
+            while std::fs::metadata(&path).unwrap().len() < expected {
+                assert!(std::time::Instant::now() < deadline, "capture failed to keep up");
+                thread::sleep(Duration::from_micros(200));
+            }
         }
-        let elapsed = started.elapsed();
         connection.disconnect_and_wait();
         assert!(matches!(events.recv_timeout(Duration::from_secs(3)).unwrap(),
             api::Event::PacketCaptureStopped { reason: api::CaptureStopReason::Disconnected { .. } }));
