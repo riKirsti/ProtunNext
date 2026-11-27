@@ -416,13 +416,15 @@ fn managed_capture_lifecycle_timing() {
             recovery.as_micros(),
             disconnect.as_micros()
         );
-        if let Ok(budget) = std::env::var("PROTUNNEXT_CAPTURE_LIFECYCLE_BUDGET_MS") {
-            let budget = Duration::from_millis(budget.parse().unwrap());
-            assert!(
-                startup <= budget && recovery <= budget && disconnect <= budget,
-                "{scenario}: {startup:?}, {recovery:?}, {disconnect:?} exceeded {budget:?}"
-            );
-        }
+        let budget = Duration::from_millis(
+            std::env::var("PROTUNNEXT_CAPTURE_LIFECYCLE_BUDGET_MS")
+                .map(|value| value.parse().unwrap())
+                .unwrap_or(500),
+        );
+        assert!(
+            startup <= budget && recovery <= budget && disconnect <= budget,
+            "{scenario}: {startup:?}, {recovery:?}, {disconnect:?} exceeded {budget:?}"
+        );
     }
 }
 
