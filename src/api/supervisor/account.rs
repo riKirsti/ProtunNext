@@ -177,8 +177,10 @@ mod tests {
             Arc::new(crate::api::cache::MemoryCache::default()),
             Notifications::new(Box::new(|_| {}), Box::new(|_| {})),
         );
-        let (service, mut commands) = Service::command_probe();
+        let (service, mut commands, notices) = Service::command_probe();
         supervisor.account.service = Some(service);
+        supervisor.start_offline().unwrap();
+        let generation = supervisor.worker.as_ref().unwrap().request_stats();
 
         supervisor
             .command(SupervisorCommand::Update(ConfigUpdate::default()))
@@ -201,6 +203,21 @@ mod tests {
         assert!(
             matches!(commands.try_recv(), Ok(Command::Settings(applied, None)) if applied == settings)
         );
+        notices
+            .send(Notice::Agent(AgentEvent::ServerError(
+                proton_vpn_local_agent::managed::ServerError::SplitTcpPolicyRefused,
+            )))
+            .unwrap();
+        supervisor.poll_account().unwrap();
+        assert_eq!(
+            supervisor.worker.as_ref().unwrap().request_stats(),
+            generation + 1
+        );
+        notices
+            .send(Notice::Agent(AgentEvent::ChangePeerNeeded))
+            .unwrap();
+        supervisor.poll_account().unwrap();
+        assert!(supervisor.worker.is_none());
         supervisor
             .command(SupervisorCommand::Update(ConfigUpdate {
                 peers: Some(vec![peer()]),
