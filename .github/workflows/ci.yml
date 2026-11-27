@@ -8,9 +8,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+        runner: [ubuntu-24.04]
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 45
+    timeout-minutes: 25
     env:
       BASELINE_SHA: 1c2d24024c80b3836822e7a8d6d86a10a52a4976
       CANDIDATE_SHA: 2328144ac6a3aaf2999a102a9d941b83947eebcb
@@ -58,8 +58,8 @@ jobs:
               "architecture": platform.machine(),
               "workloads": {},
           }
-          path = root / "capture-writer-paired.json"
-          for workload in sorted(maintenance.DOWNLOAD_WORKLOADS):
+          path = root / "capture-writer-paired-retry.json"
+          for workload in ["udp/v6/https/8"]:
               report["workloads"].update(maintenance.measure_tunnels(baseline, candidate, {workload}))
               path.write_text(json.dumps(report, indent=2), encoding="utf-8")
               row = report["workloads"][workload]
@@ -74,7 +74,7 @@ jobs:
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         if: always()
         with:
-          name: capture-writer-paired-${{ matrix.runner }}
-          path: ${{ runner.temp }}/capture-writer-paired.json
+          name: capture-writer-paired-retry-${{ matrix.runner }}
+          path: ${{ runner.temp }}/capture-writer-paired-retry.json
           if-no-files-found: warn
           retention-days: 14
